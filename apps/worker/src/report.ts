@@ -62,6 +62,7 @@ export type ReportAnalysis = {
 	}>;
 	sourceDomains: Array<{
 		domain: string;
+		category: "owned" | "competitor" | "government" | "social" | "review" | "encyclopedia" | "other";
 		citationCount: number;
 		promptCount: number;
 		isOwned: boolean;
@@ -123,7 +124,27 @@ function perceptionExcerpts(captures: QueryCapture[], aliases: string[]): Report
 	return values;
 }
 
-function buildSourceDomains(captures: QueryCapture[], ownedDomain: string): ReportAnalysis["sourceDomains"] {
+function sourceCategory(
+	domain: string,
+	config: FrozenBatchConfig,
+): ReportAnalysis["sourceDomains"][number]["category"] {
+	if (domain === normalizeDomain(config.project.domain)) return "owned";
+	if (config.competitors.some((competitor) => domain === normalizeDomain(competitor.domain))) return "competitor";
+	if (domain.endsWith(".gov.cn") || domain === "gov.cn") return "government";
+	if (
+		["zhihu.com", "xiaohongshu.com", "weibo.com", "weixin.qq.com", "mp.weixin.qq.com"].some(
+			(value) => domain === value || domain.endsWith(`.${value}`),
+		)
+	)
+		return "social";
+	if (["dianping.com", "meituan.com"].some((value) => domain === value || domain.endsWith(`.${value}`)))
+		return "review";
+	if (domain.includes("baike") || domain === "wikipedia.org" || domain.endsWith(".wikipedia.org"))
+		return "encyclopedia";
+	return "other";
+}
+
+function buildSourceDomains(captures: QueryCapture[], config: FrozenBatchConfig): ReportAnalysis["sourceDomains"] {
 	const domains = new Map<
 		string,
 		{ citationCount: number; prompts: Set<string>; urls: Map<string, { title: string | null; count: number }> }
@@ -144,9 +165,10 @@ function buildSourceDomains(captures: QueryCapture[], ownedDomain: string): Repo
 	return [...domains.entries()]
 		.map(([domain, value]) => ({
 			domain,
+			category: sourceCategory(domain, config),
 			citationCount: value.citationCount,
 			promptCount: value.prompts.size,
-			isOwned: domain === normalizeDomain(ownedDomain),
+			isOwned: domain === normalizeDomain(config.project.domain),
 			urls: [...value.urls.entries()]
 				.map(([url, meta]) => ({ url, title: meta.title, count: meta.count }))
 				.sort((left, right) => right.count - left.count),
@@ -207,7 +229,7 @@ export function buildDeterministicFindings(input: {
 		findings.push({
 			category: "可见度优势",
 			title: "品牌已建立可验证的 AI 可见度",
-			detail: `在有效消费端回答中，品牌提及率为 ${percentage(metrics.overall.brandMentionRate)}，首位推荐率为 ${percentage(metrics.overall.firstRecommendationRate)}。这是本批次的真实基线，不代表长期固定排名。`,
+			detail: `在有效联网回答中，品牌提及率为 ${percentage(metrics.overall.brandMentionRate)}，首位推荐率为 ${percentage(metrics.overall.firstRecommendationRate)}。这是本批次冻结条件下的真实结果，不代表长期固定排名。`,
 			confidence: 1,
 			evidenceIds,
 			targetPromptIds: [...new Set(complete.map((capture) => capture.promptId))],
@@ -364,7 +386,10 @@ export function buildReportAnalysis(input: {
 				status: capture.status,
 				targetPosition: bestPosition([capture], input.projectId),
 				sourceCount: capture.sources.length,
-				screenshotKey: capture.evidence.screenshotObjectKey,
+				screenshotKey:
+					capture.captureMode === "consumer_surface"
+						? capture.evidence.screenshotObjectKey
+						: capture.evidence.rawResponseObjectKey,
 			})),
 		};
 	});
@@ -375,13 +400,13 @@ export function buildReportAnalysis(input: {
 	return {
 		generatedAt: new Date().toISOString(),
 		executive: {
-			headline: `${input.config.project.name} AI 可见度基线：提及率 ${percentage(input.metrics.overall.brandMentionRate)}，官网引用率 ${percentage(input.metrics.overall.citationRate)}`,
-			summary: `本批次获得 ${input.metrics.validSamples}/${input.metrics.expectedSamples} 个有效消费端回答。品牌首位推荐率 ${percentage(input.metrics.overall.firstRecommendationRate)}${averagePosition === null ? "，暂无可计算位置" : `，出现时平均位置 ${averagePosition.toFixed(1)}`}。报告同时保留平台差异、竞品位置、引用来源和失败样本。`,
+			headline: `${input.config.project.name} AI 可见度基线：提及率 ${percentage(input.metrics.overall.brandMentionRate)}，官网引用率 ${input.metrics.overall.citationRate === null ? "不可用" : percentage(input.metrics.overall.citationRate)}`,
+			summary: `本批次获得 ${input.metrics.validSamples}/${input.metrics.expectedSamples} 个有效联网 API 回答。品牌首位推荐率 ${percentage(input.metrics.overall.firstRecommendationRate)}${averagePosition === null ? "，暂无可计算位置" : `，出现时平均位置 ${averagePosition.toFixed(1)}`}。报告同时保留平台差异、竞品位置、引用来源、数据覆盖率和失败样本；API 回答不描述为消费端 App 回答。`,
 			evidenceLevel,
 			validityNote: `证据等级${evidenceLevel}：有效率 ${percentage(validRatio)}；结果是指定时间、账号、地区和问题集下的真实采样，不等于平台长期固定排名。`,
 		},
 		promptRows,
-		sourceDomains: buildSourceDomains(complete, input.config.project.domain),
+		sourceDomains: buildSourceDomains(complete, input.config),
 		perceptionExcerpts: perceptionExcerpts(complete, input.config.project.aliases),
 		topicCoverage: buildTopicCoverage(input.config, webEvidence),
 		webEvidenceSummary: {

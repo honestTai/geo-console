@@ -1,9 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { lookup } from "node:dns/promises";
-import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type Database, geoPaths, type WebsiteAuditResult } from "@geo/core";
+import type { Database, WebsiteAuditResult } from "@geo/core";
 import { load } from "cheerio";
+import { putArtifact } from "./object-store";
 
 export type CrawledPage = {
 	id: string;
@@ -558,7 +558,6 @@ export async function crawlWebsite(
 	const { root, userAgent } = await resolveCrawlAccess(requested);
 	const urls = await discoverUrls(root, Math.min(100, Math.max(1, limit)), userAgent);
 	const pages: CrawledPage[] = [];
-	await mkdir(join(geoPaths.artifacts, "websites", projectId), { recursive: true });
 	for (const url of urls) {
 		try {
 			const { body, contentType } = await fetchText(url, 15_000, userAgent);
@@ -566,7 +565,7 @@ export async function crawlWebsite(
 			const page = pageFromHtml(url, body);
 			if (!page.text) continue;
 			const artifactKey = join("websites", projectId, `${page.id}.html`);
-			await writeFile(join(geoPaths.artifacts, artifactKey), body, { flag: "wx" });
+			await putArtifact(artifactKey, body, "text/html; charset=utf-8");
 			await database.query(
 				`INSERT INTO website_snapshots
 				(id, project_id, url, domain, title, content_text, structured_data, content_hash, artifact_key, fetched_at)

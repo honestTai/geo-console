@@ -1,9 +1,9 @@
 # Server preflight
 
-- Confirm Linux host, Docker Engine/Compose availability, DNS, ports 80/443, disk capacity, time sync, and backup destination.
-- Create `secrets/postgres_password`, `secrets/deepseek_api_key`, and `secrets/admin_password` with owner-only permissions.
-- Generate the Caddy Basic Auth hash separately from the raw Worker admin password.
-- Review `docker compose config` without printing secret contents.
-- Build, start PostgreSQL, confirm health, then start Worker/Web/Caddy.
-- Confirm HTTPS, admin authentication, Worker health, migration table, persistent volumes, and backup creation.
-- Create one Collector node token, store it only on the chosen collector, then verify heartbeat and a non-sensitive session-status check.
+- Confirm Linux, Docker Engine/Compose, DNS, ports 80/443, 4 vCPU/8 GB baseline, disk, time sync and backup destination.
+- Create owner-only `secrets/postgres_password`, `secrets/master_key` and `secrets/admin_password`; keep an offline copy of the master key.
+- Check `.env` domain, admin email, capture concurrency and object-store settings without printing secrets.
+- For S3, verify private bucket access, versioning, encryption, lifecycle and recovery ownership.
+- Run `docker compose config --quiet`, build images, then start PostgreSQL, API, Capture Worker, Report Worker, Web and Caddy.
+- Verify HTTPS, app login, `/api/health`, migration table, worker logs, object write/read, one provider test and PDF generation.
+- Run the backup profile and prove the dump can be listed before declaring deployment complete.

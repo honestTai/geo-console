@@ -1,10 +1,21 @@
+export class ApiError extends Error {
+	constructor(
+		message: string,
+		readonly status: number,
+	) {
+		super(message);
+		this.name = "ApiError";
+	}
+}
+
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
 	const response = await fetch(path, {
 		...options,
+		credentials: "same-origin",
 		headers: { "content-type": "application/json", ...options.headers },
 	});
 	const body = (await response.json().catch(() => ({}))) as { error?: string };
-	if (!response.ok) throw new Error(body.error ?? `请求失败（HTTP ${response.status}）`);
+	if (!response.ok) throw new ApiError(body.error ?? `请求失败（HTTP ${response.status}）`, response.status);
 	return body as T;
 }
 

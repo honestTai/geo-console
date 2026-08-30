@@ -3,59 +3,64 @@
 ## 运行组件
 
 ```text
-React Web :3000
-    | /api
-Worker :3010 ---- PGlite（本机）/ PostgreSQL（服务器）
-    | Collector HTTPS/Loopback 协议
-Collector :3020 ---- 专用 Playwright Profile ---- DeepSeek / Kimi 消费端页面
+浏览器 -> Caddy HTTPS -> React Web
+                    -> API :3010 -> PostgreSQL
+                                  -> S3 兼容证据存储
+                    Capture Worker -> 五家联网 API
+                    Report Worker  -> Playwright PDF
 ```
 
-- `apps/web`：中文工作台，不内置业务数据。
-- `apps/worker`：客户建档、官网抓取与审计、DeepSeek 结构化分析、任务租约、周期调度、指标、网页差距、整改、归因与报告 API。
-- `apps/collector`：唯一允许接触平台 Cookie 的进程；每个平台单并发执行真实页面采集。
-- `packages/core`：Drizzle PostgreSQL Schema、同一份 SQL 迁移、PGlite/PostgreSQL 连接和租约队列。
-- `packages/evidence`：Collector 与 Worker 共用的不可变证据协议。
-- `packages/metrics`：从成功与失败样本确定性计算平台指标。
-- `packages/surface-adapters`：页面适配器接口与失败分类。
+本机使用同一业务代码，数据库切换为文件持久化 PGlite，对象存储切换为用户数据目录。`pnpm geo start` 启动 API、Capture Worker、Report Worker 和 Web。
 
-## 关键不变量
+- `apps/web`：客户建档、监测、证据、审计、诊断、整改、归因、报告和平台管理 UI。
+- `apps/worker/src/index.ts`：机构会话、角色、项目 API、周期调度和审计日志。
+- `capture-worker.ts`：按数据库租约领取 `capture` 任务，只调用冻结配置中的供应商。
+- `report-worker.ts`：领取 `report_pdf` 任务，以固定中文字体生成 PDF 后写对象存储。
+- `packages/search-providers`：五个平台的真实 API 协议与失败分类。
+- `packages/evidence`：`QueryCapture v1/v2` 不可变证据契约。
+- `packages/metrics`：品牌匹配后的确定性指标与等权平台汇总。
+- `packages/core`：PGlite/PostgreSQL 共用迁移、Schema、租约、信封加密和批次可比性。
 
-### 证据不可变
+旧 `consumer_surface` 证据仍可只读查看。新批次只创建 `llm_search_api` v2 证据；两种口径不会进入同一个冻结批次或趋势比较。每个新批次冻结端点、模型、协议、搜索策略、搜索工具和适配器版本，Capture Worker 只读取该冻结契约；缺少完整契约的历史基线不能用于新复测。
 
-`query_captures.job_id` 唯一。Collector 提交后只允许新增，不允许覆盖；截图使用排他创建。页面解析变化时基于原证据重新计算派生数据，而不是修改原始回答。
+## 核心流程
 
-### 批次可比
+1. 抓取客户 Sitemap 及最多 100 个公开同域页面，拒绝私网、Loopback 和非 HTTP(S) 地址。
+2. HRouter GPT 仅根据网页证据生成画像、竞品候选、主题、Persona 和购买问题；用户确认后项目才启用。
+3. 快审固定每平台每题 1 次。正式基线默认 3 次并分布在 0、4、24 小时窗口。
+4. 批次冻结客户、竞品、问题、平台、模型、协议、搜索策略、地区、重复次数、时间窗口和适配器版本。
+5. Capture Worker 保存回答、来源、Query Fan-out 可见性、原始响应、Request ID、Token、延迟、成本可见性、内容哈希和失败码。
+6. 指标由代码确定性计算；Pi Agent 只能用项目、指标和证据领域工具生成草稿。
+7. 人工批准诊断、整改、内容和报告叙述。系统不自动发布或修改客户网站。
+8. 已发布 URL 重新抓取验收。复测必须复制正式基线完整配置。
+9. 报告先冻结 payload 与 SHA-256，再异步生成 PDF、CSV、JSON或可撤销分享链接；定时监测批次结束后，Report Worker 自动冻结对应报告并排队生成 PDF。
 
-`experiment_batches.config` 冻结客户名称和域名、地区、语言、竞品、问题、平台、重复次数与采集版本。复测直接复制基线配置，不读取项目当前可编辑值。配置不同不得生成直接变化结论。
+## 不变量
 
-当前竞品和问题使用 `archived_at` 做范围版本化。保存新范围会创建新 ID，旧行继续服务于原批次、证据与报告；只有未归档行可进入新基线。
+### 原始证据不可变
 
-### 平台透明
+`query_captures` 及 `raw_artifact_key` 指向的对象只新增不覆盖。解析变化时重算派生数据；不修改回答、来源或失败状态。S3 桶应开启版本控制和服务端加密。
 
-DeepSeek 与 Kimi 分别计算回答覆盖率、品牌提及率、首位推荐率、官网引用率、平均位置和竞品提及率。总览只按平台等权汇总，同时显示计划、有效和失败样本数。
+### 失败不拉低品牌率
 
-### 无替代结果
+品牌提及、首位推荐和声量只在有回答的平台内计算。总览等权汇总有效平台，并同时显示有效平台数、数据覆盖率和失败率。来源不可见时引用率为 `null`，不是 0。
 
-`login_required`、`challenge_required`、`rate_limited`、`page_contract_changed`、`timeout` 和 `no_answer` 都是有效的真实结果状态。Worker 和 Collector 均不得用模型 API 或固定文本填补失败。
+### 可比性严格
 
-## 数据流程
+复测只能选择 `baseline`。项目范围或平台配置变化会建立新基线。快审、正式基线和复测永不直接比较。
 
-1. 用户创建任意行业客户，提供名称、官网、地区和语言。
-2. Worker 阻止内网 URL，抓取 Sitemap 和最多 100 个同域 HTML 页面，保存快照与哈希。
-3. DeepSeek 只能根据抓取内容生成画像、竞品候选和购买问题。
-4. 用户编辑并确认后，项目才可建立基线。
-5. Worker 冻结批次并按问题、平台和重复次数创建租约任务。
-6. Collector 新建对话、等待回答稳定、提取正文与引用、保存全页截图。
-7. Worker 按平台计算指标，并抓取客户页、竞品页和真实引用页做已确认主题覆盖对比；诊断结论必须同时引用存在的证据 ID 和问题 ID。
-8. 整改任务生成简报和初稿，用户审核发布并回填 URL；系统重新抓取验收。
-9. 复测复制基线条件，报告陈述样本变化与黑盒局限；不同配置只进入各自趋势。
-10. GA4、GSC、表单、电话或业务台账以不可重复的真实 CSV 导入，报告与 AI 指标并列展示，不自动推断因果。
+### Agent 最小权限
+
+Pi SDK 没有 Bash、任意文件、任意 SQL 或开放 HTTP 工具。网页和回答被标记为不可信内容。草稿中的证据 ID、问题 ID 和任务 ID必须属于当前项目；未知 ID 拒绝入库。
+
+### 口径透明
+
+DeepSeek、Kimi、豆包和通义是官方联网 API 结果。元宝平台固定显示“元宝搜索源 + 混元合成”。任何 API 结果都不冒充消费端 App。
 
 ## 安全边界
 
-- 本机仅绑定 `127.0.0.1`。
-- 服务器由 Caddy 提供 HTTPS 与 Basic Auth。
-- Collector 使用独立、可撤销、只保存哈希的节点令牌。
-- Cookie 和 Profile 永不上传到 Worker。
-- 官网抓取拒绝 loopback、私网、链路本地地址和非 HTTP(S) 协议。
-- API Key 本机使用 macOS Keychain，服务器使用只读 Docker Secret 或环境变量。
+- 服务器仅暴露 Caddy 80/443；API、Worker 与 PostgreSQL 留在 Compose 网络。
+- 管理员、分析师和只读角色由 HttpOnly、SameSite=Strict 会话保护。
+- 供应商 Key 使用 AES-256-GCM 信封加密；主密钥由 Docker Secret 或 KMS 挂载文件提供。
+- 分享链接仅存哈希，可设置过期并撤销。
+- 所有写 API、Agent 审批和成员变更进入审计日志。

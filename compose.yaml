@@ -1,4 +1,35 @@
 name: geo-console
+
+x-worker-environment: &worker-environment
+  NODE_ENV: production
+  DATABASE_URL: postgresql://geo@postgres:5432/geo
+  PGPASSWORD_FILE: /run/secrets/postgres_password
+  GEO_MASTER_KEY_FILE: /run/secrets/master_key
+  GEO_DATA_DIR: /data
+  GEO_OBJECT_STORE: ${GEO_OBJECT_STORE:-local}
+  GEO_S3_ENDPOINT: ${GEO_S3_ENDPOINT:-}
+  GEO_S3_REGION: ${GEO_S3_REGION:-auto}
+  GEO_S3_BUCKET: ${GEO_S3_BUCKET:-}
+  GEO_S3_ACCESS_KEY_ID: ${GEO_S3_ACCESS_KEY_ID:-}
+  GEO_S3_SECRET_ACCESS_KEY: ${GEO_S3_SECRET_ACCESS_KEY:-}
+  GEO_S3_FORCE_PATH_STYLE: ${GEO_S3_FORCE_PATH_STYLE:-false}
+
+x-worker-base: &worker-base
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    target: worker
+  environment: *worker-environment
+  secrets:
+    - postgres_password
+    - master_key
+  volumes:
+    - evidence_data:/data
+  depends_on:
+    postgres:
+      condition: service_healthy
+  restart: unless-stopped
+
 services:
   postgres:
     image: postgres:18.1-alpine
@@ -9,50 +40,55 @@ services:
     secrets:
       - postgres_password
     volumes:
-      - "postgres_data:/var/lib/postgresql/data"
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U geo -d geo"]
       interval: 10s
       timeout: 5s
       retries: 10
     restart: unless-stopped
-  worker:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-      target: worker
+
+  api:
+    <<: *worker-base
     environment:
-      DATABASE_URL: postgresql://geo@postgres:5432/geo
+      <<: *worker-environment
+      GEO_WORKER_HOST: 0.0.0.0
+      GEO_WORKER_PORT: 3010
+      GEO_ALLOWED_ORIGIN: https://${GEO_DOMAIN:?set GEO_DOMAIN}
+      GEO_ADMIN_EMAIL: ${GEO_ADMIN_EMAIL:-admin@geo.local}
       GEO_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
-      DEEPSEEK_API_KEY_FILE: /run/secrets/deepseek_api_key
-      GEO_DATA_DIR: /data
-      PGPASSWORD_FILE: /run/secrets/postgres_password
     secrets:
       - postgres_password
-      - deepseek_api_key
+      - master_key
       - admin_password
-    volumes:
-      - "evidence_data:/data"
-    depends_on:
-      postgres:
-        condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3010/api/health"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3010/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 15s
       timeout: 5s
       retries: 10
-    restart: unless-stopped
+
+  capture-worker:
+    <<: *worker-base
+    environment:
+      <<: *worker-environment
+      GEO_CAPTURE_CONCURRENCY: ${GEO_CAPTURE_CONCURRENCY:-2}
+    command: ["corepack", "pnpm", "--filter", "@geo/worker", "start:capture"]
+
+  report-worker:
+    <<: *worker-base
+    command: ["corepack", "pnpm", "--filter", "@geo/worker", "start:report"]
+
   web:
     build:
       context: .
       dockerfile: docker/Dockerfile
       target: web
     restart: unless-stopped
+
   caddy:
     image: caddy:2.10.2-alpine
     environment:
       GEO_DOMAIN: ${GEO_DOMAIN:?set GEO_DOMAIN}
-      GEO_ADMIN_HASH: ${GEO_ADMIN_HASH:?set GEO_ADMIN_HASH}
     ports:
       - "80:80"
       - "443:443"
@@ -61,15 +97,15 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      worker:
+      api:
         condition: service_healthy
       web:
         condition: service_started
     restart: unless-stopped
+
   backup:
     image: postgres:18.1-alpine
-    profiles:
-      - backup
+    profiles: ["backup"]
     environment:
       PGHOST: postgres
       PGDATABASE: geo
@@ -78,22 +114,23 @@ services:
     secrets:
       - postgres_password
     volumes:
-      - "database_backups:/backups"
-    entrypoint:
-      - /bin/sh
-      - -c
+      - database_backups:/backups
+      - evidence_data:/evidence:ro
+    entrypoint: ["/bin/sh", "-c"]
     command:
-      - "export PGPASSWORD=$$(cat /run/secrets/postgres_password); pg_dump -Fc -f /backups/geo-$$(date +%Y%m%d-%H%M%S).dump"
+      - "export PGPASSWORD=$$(cat /run/secrets/postgres_password); stamp=$$(date +%Y%m%d-%H%M%S); pg_dump -Fc -f /backups/geo-$$stamp.dump; tar -czf /backups/evidence-$$stamp.tgz -C /evidence ."
     depends_on:
       postgres:
         condition: service_healthy
+
 secrets:
   postgres_password:
     file: ./secrets/postgres_password
-  deepseek_api_key:
-    file: ./secrets/deepseek_api_key
+  master_key:
+    file: ./secrets/master_key
   admin_password:
     file: ./secrets/admin_password
+
 volumes:
   postgres_data:
   evidence_data:

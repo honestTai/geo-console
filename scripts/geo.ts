@@ -1,9 +1,8 @@
 #!/usr/bin/env node
-import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { cp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { geoPaths, migrateDatabase, openDatabase, writeSecret } from "@geo/core";
+import { ensureMasterKey, geoPaths, migrateDatabase, openDatabase } from "@geo/core";
 
 const command = process.argv[2] ?? "help";
 
@@ -11,34 +10,32 @@ async function exists(path: string): Promise<boolean> {
 	try { await stat(path); return true; } catch { return false; }
 }
 
-async function ensureCollectorConfig(): Promise<{ nodeId: string; token: string }> {
-	const configPath = join(geoPaths.root, "collector.json");
-	if (await exists(configPath)) return JSON.parse(await readFile(configPath, "utf8")) as { nodeId: string; token: string };
-	const database = await openDatabase();
-	try {
-		await migrateDatabase(database);
-		const nodeId = randomUUID();
-		const token = randomBytes(32).toString("base64url");
-		const tokenHash = createHash("sha256").update(token).digest("hex");
-		await database.query("INSERT INTO collector_nodes (id,name,token_hash,version,capabilities) VALUES ($1,'本机采集器',$2,'0.1.0',$3::jsonb)", [nodeId, tokenHash, JSON.stringify(["deepseek", "kimi"])]);
-		await writeFile(configPath, `${JSON.stringify({ nodeId, token }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-		return { nodeId, token };
-	} finally { await database.close(); }
-}
-
 async function setup(): Promise<void> {
 	for (const directory of Object.values(geoPaths)) await mkdir(directory, { recursive: true });
 	const database = await openDatabase();
 	try { await migrateDatabase(database); } finally { await database.close(); }
-	const collector = await ensureCollectorConfig();
-	const browserCheck = spawnSync("corepack", ["pnpm", "--filter", "@geo/collector", "exec", "tsx", "-e", 'import { chromium } from "playwright"; import { accessSync, existsSync } from "node:fs"; const system="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"; const configured=process.env.GEO_CHROME_PATH; const path=configured||(existsSync(chromium.executablePath())?chromium.executablePath():system); accessSync(path)'], { encoding: "utf8" });
-	const envKey = process.env.DEEPSEEK_API_KEY?.trim();
-	if (envKey && process.platform === "darwin") await writeSecret("deepseek_api_key", envKey);
+	await ensureMasterKey();
+	const pdfCheck = spawnSync(
+		"corepack",
+		[
+			"pnpm",
+			"--filter",
+			"@geo/worker",
+			"exec",
+			"tsx",
+			"-e",
+			'import { chromium } from "playwright"; import { existsSync } from "node:fs"; const configured=process.env.GEO_PLAYWRIGHT_EXECUTABLE_PATH; const macChrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"; if (![configured,chromium.executablePath(),process.platform === "darwin" ? macChrome : ""].some((path)=>path && existsSync(path))) process.exit(1)',
+		],
+		{ encoding: "utf8" },
+	);
 	console.log("GEO Console 本机目录已初始化：", geoPaths.root);
-	console.log("PGlite 数据库迁移完成；Collector 节点：", collector.nodeId);
-	console.log(envKey ? "DeepSeek API Key 已写入 macOS 钥匙串。" : "DeepSeek API Key 尚未写入，可在网页“平台设置”中保存。");
-	console.log(browserCheck.status === 0 ? "Chrome/Chromium 已就绪。" : "未找到 Chrome/Chromium；请设置 GEO_CHROME_PATH，或运行：pnpm --filter @geo/collector exec playwright install chromium");
-	console.log("浏览器首次运行时请分别打开 DeepSeek 与 Kimi 登录页并手工登录。");
+	console.log("PGlite 数据库迁移完成；本机主密钥已保存到 macOS 钥匙串。");
+	console.log(
+		pdfCheck.status === 0
+			? "Report Worker 的 Chromium 或系统 Chrome 已就绪。"
+			: "请运行：corepack pnpm --filter @geo/worker exec playwright install chromium",
+	);
+	console.log("在网页“平台设置”中配置五个平台和 HRouter 密钥后即可运行真实云端链路。");
 }
 
 async function waitForWorker(): Promise<void> {
@@ -60,7 +57,8 @@ async function start(): Promise<void> {
 	};
 	launch("@geo/worker", "start");
 	await waitForWorker();
-	launch("@geo/collector", "start");
+	launch("@geo/worker", "start:capture");
+	launch("@geo/worker", "start:report");
 	launch("@geo/web", "dev");
 	console.log("\nGEO Console: http://127.0.0.1:3000\n");
 	const stop = () => { for (const child of processes) child.kill("SIGTERM"); };
@@ -74,9 +72,7 @@ async function start(): Promise<void> {
 async function doctor(): Promise<void> {
 	console.log(`Node: ${process.version}`);
 	console.log(`数据目录: ${geoPaths.root} (${await exists(geoPaths.root) ? "存在" : "未初始化"})`);
-	console.log(`Collector 配对: ${await exists(join(geoPaths.root, "collector.json")) ? "已配置" : "未配置"}`);
 	try { const health = await fetch("http://127.0.0.1:3010/api/health"); console.log(`Worker: ${health.ok ? "正常" : `HTTP ${health.status}`}`); } catch { console.log("Worker: 未运行"); }
-	try { const status = await fetch("http://127.0.0.1:3020/status"); console.log(`Collector: ${status.ok ? "正常" : `HTTP ${status.status}`}`); } catch { console.log("Collector: 未运行"); }
 }
 
 async function backup(): Promise<void> {

@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+	bigint,
 	boolean,
 	index,
 	integer,
@@ -17,8 +18,7 @@ const createdAt = timestamp("created_at", { withTimezone: true }).notNull().defa
 const updatedAt = timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
 
 export const projectStatus = pgEnum("project_status", ["draft", "review", "active", "archived"]);
-export const platform = pgEnum("platform", ["deepseek", "kimi"]);
-export const batchKind = pgEnum("batch_kind", ["baseline", "retest"]);
+export const batchKind = pgEnum("batch_kind", ["quick_audit", "baseline", "retest"]);
 export const batchStatus = pgEnum("batch_status", ["draft", "queued", "running", "complete", "partial"]);
 export const jobStatus = pgEnum("job_status", ["pending", "leased", "complete", "failed"]);
 export const captureStatus = pgEnum("capture_status", [
@@ -29,11 +29,33 @@ export const captureStatus = pgEnum("capture_status", [
 	"rate_limited",
 	"page_contract_changed",
 	"timeout",
+	"auth_required",
+	"search_not_triggered",
+	"model_unavailable",
+	"protocol_changed",
 	"failed",
 ]);
 
+export const searchProviderIds = ["deepseek_api", "kimi_api", "doubao_api", "qwen_api", "yuanbao_hunyuan"] as const;
+export type SearchProviderId = (typeof searchProviderIds)[number];
+export type LegacyConsumerSurface = "deepseek" | "kimi";
+export type CapturePlatform = SearchProviderId | LegacyConsumerSurface;
+export type CaptureMode = "consumer_surface" | "llm_search_api";
+export type CapabilityVisibility = "available" | "partial" | "unavailable";
+
+export const organizations = pgTable("organizations", {
+	id: id("id"),
+	name: text("name").notNull(),
+	createdAt,
+	updatedAt,
+});
+
 export const projects = pgTable("projects", {
 	id: id("id"),
+	organizationId: text("organization_id")
+		.notNull()
+		.default("default")
+		.references(() => organizations.id),
 	name: text("name").notNull(),
 	websiteUrl: text("website_url").notNull(),
 	domain: text("domain").notNull(),
@@ -78,6 +100,8 @@ export const prompts = pgTable(
 			.references(() => projects.id, { onDelete: "cascade" }),
 		question: text("question").notNull(),
 		intent: text("intent").notNull(),
+		topic: text("topic"),
+		persona: text("persona"),
 		tags: jsonb("tags").$type<string[]>().notNull().default([]),
 		approved: boolean("approved").notNull().default(false),
 		position: integer("position").notNull(),
@@ -163,10 +187,30 @@ export const websiteAudits = pgTable(
 export type FrozenBatchConfig = {
 	project: { name: string; domain: string; region: string; language: string; aliases: string[] };
 	competitors: Array<{ id: string; name: string; domain: string; aliases: string[] }>;
-	prompts: Array<{ id: string; question: string; intent: string; tags: string[] }>;
-	platforms: Array<"deepseek" | "kimi">;
+	prompts: Array<{
+		id: string;
+		question: string;
+		intent: string;
+		topic?: string | null;
+		persona?: string | null;
+		tags: string[];
+	}>;
+	platforms: CapturePlatform[];
 	repeats: number;
-	collectorVersion: string;
+	collectorVersion?: string;
+	runnerVersion?: string;
+	samplingMode?: "quick" | "formal";
+	executionWindows?: string[];
+	providers?: Array<{
+		id: SearchProviderId;
+		endpoint?: string;
+		secondaryEndpoint?: string;
+		model: string;
+		protocol: string;
+		searchToolVersion: string;
+		searchStrategy: Record<string, unknown>;
+		adapterVersion?: string;
+	}>;
 };
 
 export const experimentBatches = pgTable(
@@ -204,7 +248,7 @@ export type CaptureJobPayload = {
 	batchId: string;
 	promptId: string;
 	prompt: string;
-	platform: "deepseek" | "kimi";
+	platform: CapturePlatform;
 	attempt: number;
 	region: string;
 	locale: string;
@@ -246,19 +290,32 @@ export const queryCaptures = pgTable(
 		promptId: text("prompt_id")
 			.notNull()
 			.references(() => prompts.id),
-		platform: platform("platform").notNull(),
+		platform: text("platform").$type<CapturePlatform>().notNull(),
 		attempt: integer("attempt").notNull(),
 		status: captureStatus("status").notNull(),
 		answerText: text("answer_text"),
 		brandMatches: jsonb("brand_matches").$type<unknown[]>().notNull().default([]),
 		sources: jsonb("sources").$type<unknown[]>().notNull().default([]),
 		queryFanOut: jsonb("query_fan_out").$type<string[]>().notNull().default([]),
-		pageUrl: text("page_url").notNull(),
+		pageUrl: text("page_url"),
 		screenshotKey: text("screenshot_key"),
 		traceKey: text("trace_key"),
 		contentHash: text("content_hash"),
 		adapterVersion: text("adapter_version").notNull(),
-		collectorNodeId: text("collector_node_id").notNull(),
+		collectorNodeId: text("collector_node_id"),
+		schemaVersion: text("schema_version").notNull().default("geo.query-capture.v1"),
+		captureMode: text("capture_mode").$type<CaptureMode>().notNull().default("consumer_surface"),
+		model: text("model"),
+		protocol: text("protocol"),
+		searchToolVersion: text("search_tool_version"),
+		sourceVisibility: text("source_visibility").$type<CapabilityVisibility>().notNull().default("available"),
+		fanoutVisibility: text("fanout_visibility").$type<CapabilityVisibility>().notNull().default("available"),
+		rawArtifactKey: text("raw_artifact_key"),
+		providerRequestId: text("provider_request_id"),
+		usage: jsonb("usage").$type<Record<string, number> | null>(),
+		costMicros: bigint("cost_micros", { mode: "number" }),
+		latencyMs: integer("latency_ms"),
+		executorId: text("executor_id"),
 		failureCode: text("failure_code"),
 		failureMessage: text("failure_message"),
 		capturedAt: timestamp("captured_at", { withTimezone: true }).notNull(),
@@ -330,8 +387,10 @@ export const monitoringSchedules = pgTable(
 			.references(() => projects.id, { onDelete: "cascade" }),
 		enabled: boolean("enabled").notNull().default(false),
 		frequencyDays: integer("frequency_days").notNull().default(7),
-		platforms: jsonb("platforms").$type<Array<"deepseek" | "kimi">>().notNull().default([]),
+		platforms: jsonb("platforms").$type<CapturePlatform[]>().notNull().default([]),
 		repeats: integer("repeats").notNull().default(3),
+		samplingMode: text("sampling_mode").$type<"quick" | "formal">().notNull().default("formal"),
+		executionWindows: jsonb("execution_windows").$type<string[]>().notNull().default([]),
 		nextRunAt: timestamp("next_run_at", { withTimezone: true }),
 		lastRunAt: timestamp("last_run_at", { withTimezone: true }),
 		lastBatchId: text("last_batch_id").references(() => experimentBatches.id, { onDelete: "set null" }),
@@ -391,3 +450,231 @@ export const settings = pgTable("settings", {
 	value: jsonb("value").$type<unknown>().notNull(),
 	updatedAt,
 });
+
+export type ProviderSearchStrategy = {
+	forced: boolean;
+	returnSources: boolean;
+	options?: Record<string, unknown>;
+};
+
+export const providerConfigs = pgTable(
+	"provider_configs",
+	{
+		id: id("id"),
+		organizationId: text("organization_id")
+			.notNull()
+			.default("default")
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		providerId: text("provider_id").$type<SearchProviderId>().notNull(),
+		enabled: boolean("enabled").notNull().default(false),
+		model: text("model").notNull(),
+		endpoint: text("endpoint").notNull(),
+		protocol: text("protocol").notNull(),
+		searchStrategy: jsonb("search_strategy").$type<ProviderSearchStrategy>().notNull().default({
+			forced: true,
+			returnSources: true,
+		}),
+		adapterVersion: text("adapter_version").notNull(),
+		lastTestStatus: text("last_test_status"),
+		lastTestMessage: text("last_test_message"),
+		lastTestedAt: timestamp("last_tested_at", { withTimezone: true }),
+		createdAt,
+		updatedAt,
+	},
+	(table) => [uniqueIndex("provider_configs_organization_provider_unique").on(table.organizationId, table.providerId)],
+);
+
+export const encryptedCredentials = pgTable(
+	"encrypted_credentials",
+	{
+		id: id("id"),
+		organizationId: text("organization_id")
+			.notNull()
+			.default("default")
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		credentialKey: text("credential_key").notNull(),
+		ciphertext: text("ciphertext").notNull(),
+		iv: text("iv").notNull(),
+		authTag: text("auth_tag").notNull(),
+		keyVersion: text("key_version").notNull(),
+		createdAt,
+		updatedAt,
+	},
+	(table) => [
+		uniqueIndex("encrypted_credentials_organization_key_unique").on(table.organizationId, table.credentialKey),
+	],
+);
+
+export type OrganizationRole = "admin" | "analyst" | "viewer";
+
+export const users = pgTable(
+	"users",
+	{
+		id: id("id"),
+		organizationId: text("organization_id")
+			.notNull()
+			.default("default")
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		email: text("email").notNull(),
+		displayName: text("display_name").notNull(),
+		role: text("role").$type<OrganizationRole>().notNull(),
+		passwordHash: text("password_hash").notNull(),
+		disabledAt: timestamp("disabled_at", { withTimezone: true }),
+		createdAt,
+		updatedAt,
+	},
+	(table) => [uniqueIndex("users_organization_email_unique").on(table.organizationId, table.email)],
+);
+
+export const sessions = pgTable(
+	"sessions",
+	{
+		id: id("id"),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		tokenHash: text("token_hash").notNull(),
+		expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+		revokedAt: timestamp("revoked_at", { withTimezone: true }),
+		createdAt,
+	},
+	(table) => [
+		uniqueIndex("sessions_token_unique").on(table.tokenHash),
+		index("sessions_lookup_idx").on(table.expiresAt),
+	],
+);
+
+export const auditLogs = pgTable(
+	"audit_logs",
+	{
+		id: id("id"),
+		organizationId: text("organization_id")
+			.notNull()
+			.default("default")
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		actorUserId: text("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+		action: text("action").notNull(),
+		targetType: text("target_type").notNull(),
+		targetId: text("target_id"),
+		metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+		createdAt,
+	},
+	(table) => [index("audit_logs_organization_idx").on(table.organizationId, table.createdAt)],
+);
+
+export type AgentPurpose =
+	| "customer_profile"
+	| "prompt_research"
+	| "diagnosis"
+	| "remediation"
+	| "content_brief"
+	| "report_narrative"
+	| "quality_review";
+
+export const agentRuns = pgTable(
+	"agent_runs",
+	{
+		id: id("id"),
+		organizationId: text("organization_id")
+			.notNull()
+			.default("default")
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		batchId: text("batch_id").references(() => experimentBatches.id, { onDelete: "set null" }),
+		purpose: text("purpose").$type<AgentPurpose>().notNull(),
+		status: text("status").notNull(),
+		model: text("model").notNull(),
+		promptVersion: text("prompt_version").notNull(),
+		evidenceIds: jsonb("evidence_ids").$type<string[]>().notNull().default([]),
+		toolTrace: jsonb("tool_trace").$type<unknown[]>().notNull().default([]),
+		usage: jsonb("usage").$type<Record<string, number> | null>(),
+		costMicros: bigint("cost_micros", { mode: "number" }),
+		draft: jsonb("draft").$type<Record<string, unknown> | null>(),
+		errorMessage: text("error_message"),
+		approvedBy: text("approved_by").references(() => users.id, { onDelete: "set null" }),
+		approvedAt: timestamp("approved_at", { withTimezone: true }),
+		createdAt,
+		completedAt: timestamp("completed_at", { withTimezone: true }),
+	},
+	(table) => [index("agent_runs_project_idx").on(table.projectId, table.createdAt)],
+);
+
+export type ReportType = "quick_audit" | "remediation" | "retest";
+
+export const reportSnapshots = pgTable(
+	"report_snapshots",
+	{
+		id: id("id"),
+		organizationId: text("organization_id")
+			.notNull()
+			.default("default")
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		batchId: text("batch_id").references(() => experimentBatches.id, { onDelete: "set null" }),
+		compareToBatchId: text("compare_to_batch_id").references(() => experimentBatches.id, { onDelete: "set null" }),
+		reportType: text("report_type").$type<ReportType>().notNull(),
+		schemaVersion: text("schema_version").notNull(),
+		title: text("title").notNull(),
+		payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+		payloadHash: text("payload_hash").notNull(),
+		pdfArtifactKey: text("pdf_artifact_key"),
+		createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+		createdAt,
+	},
+	(table) => [index("report_snapshots_project_idx").on(table.projectId, table.createdAt)],
+);
+
+export const reportShares = pgTable("report_shares", {
+	id: id("id"),
+	reportId: text("report_id")
+		.notNull()
+		.references(() => reportSnapshots.id, { onDelete: "cascade" }),
+	tokenHash: text("token_hash").notNull().unique(),
+	expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+	revokedAt: timestamp("revoked_at", { withTimezone: true }),
+	createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+	createdAt,
+});
+
+export const driftAlerts = pgTable(
+	"drift_alerts",
+	{
+		id: id("id"),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		batchId: text("batch_id")
+			.notNull()
+			.references(() => experimentBatches.id, { onDelete: "cascade" }),
+		providerId: text("provider_id").$type<SearchProviderId>().notNull(),
+		metric: text("metric").notNull(),
+		previousValue: real("previous_value"),
+		currentValue: real("current_value"),
+		severity: text("severity").notNull(),
+		evidenceIds: jsonb("evidence_ids").$type<string[]>().notNull().default([]),
+		acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+		createdAt,
+	},
+	(table) => [index("drift_alerts_project_idx").on(table.projectId, table.createdAt)],
+);
+
+export const projectCosts = pgTable(
+	"project_costs",
+	{
+		id: id("id"),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		batchId: text("batch_id").references(() => experimentBatches.id, { onDelete: "set null" }),
+		providerId: text("provider_id").notNull(),
+		operation: text("operation").notNull(),
+		usage: jsonb("usage").$type<Record<string, number> | null>(),
+		costMicros: bigint("cost_micros", { mode: "number" }),
+		occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [index("project_costs_project_idx").on(table.projectId, table.occurredAt)],
+);

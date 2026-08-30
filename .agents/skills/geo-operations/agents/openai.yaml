@@ -1,4 +1,4 @@
 interface:
-  display_name: "GEO 运维"
-  short_description: "检查系统健康、恢复任务队列、管理平台登录并备份真实证据"
+  display_name: "GEO 云端运维"
+  short_description: "维护云端采集与报告队列、供应商故障、备份恢复和不可变证据"
   default_prompt: "检查并维护这个 GEO Console 实例。"

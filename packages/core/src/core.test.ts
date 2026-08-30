@@ -1,8 +1,10 @@
+import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { areBatchConfigsComparable } from "./comparability";
 import { migrateDatabase, openMemoryDatabase } from "./database";
 import { claimCaptureJob, enqueueCaptureJob } from "./repository";
 import type { CaptureJobPayload, FrozenBatchConfig } from "./schema";
+import { readEncryptedCredential, writeEncryptedCredential } from "./secrets";
 
 const config: FrozenBatchConfig = {
 	project: { name: "真实客户", domain: "customer.example", region: "中国", language: "zh-CN", aliases: ["真实客户"] },
@@ -47,6 +49,27 @@ describe("PGlite 数据契约", () => {
 			expect(claimed?.payload.platform).toBe("deepseek");
 			expect(await claimCaptureJob(database, "node-2", 60)).toBeNull();
 		} finally {
+			await database.close();
+		}
+	});
+
+	it("使用机构主密钥加密供应商凭据", async () => {
+		const database = openMemoryDatabase();
+		const previous = process.env.GEO_MASTER_KEY;
+		process.env.GEO_MASTER_KEY = randomBytes(32).toString("base64");
+		try {
+			await migrateDatabase(database);
+			await writeEncryptedCredential(database, "hrouter_api_key", "真实密钥内容");
+			expect(await readEncryptedCredential(database, "hrouter_api_key")).toBe("真实密钥内容");
+			const row = (
+				await database.query<{ ciphertext: string }>(
+					"SELECT ciphertext FROM encrypted_credentials WHERE credential_key='hrouter_api_key'",
+				)
+			).rows[0];
+			expect(row.ciphertext).not.toContain("真实密钥内容");
+		} finally {
+			if (previous === undefined) delete process.env.GEO_MASTER_KEY;
+			else process.env.GEO_MASTER_KEY = previous;
 			await database.close();
 		}
 	});

@@ -3,16 +3,21 @@ packages:
   - "packages/core"
   - "packages/evidence"
   - "packages/metrics"
-  - "packages/surface-adapters"
+  - "packages/search-providers"
 
 allowBuilds:
+  "@google/genai": false
   "@prisma/client": false
   better-sqlite3: false
   esbuild: true
+  protobufjs: false
 
 blockExoticSubdeps: true
 minimumReleaseAge: 5760
 minimumReleaseAgeExclude:
+  - "@earendil-works/pi-agent-core@0.84.4"
+  - "@earendil-works/pi-ai@0.84.4"
+  - "@earendil-works/pi-telemetry@0.84.4"
   - vite
 trustPolicy: no-downgrade
 trustPolicyIgnoreAfter: 129600

@@ -13,17 +13,31 @@ export type VisibilityMetrics = {
 	answerCoverage: number;
 	brandMentionRate: number;
 	firstRecommendationRate: number;
-	sourcePresenceRate: number;
-	citationRate: number;
+	brandShareOfVoice: number;
+	repeatConsistency: number | null;
+	sourceObservedCaptures: number;
+	sourceCoverage: number;
+	sourcePresenceRate: number | null;
+	citationRate: number | null;
 	sourceToCitationRate: number | null;
 	averageMentionPosition: number | null;
 	competitorMentionRates: Record<string, number>;
 };
 
-export type OverallVisibilityMetrics = Pick<
-	VisibilityMetrics,
-	"answerCoverage" | "brandMentionRate" | "firstRecommendationRate" | "citationRate" | "averageMentionPosition"
->;
+export type OverallVisibilityMetrics = {
+	answerCoverage: number;
+	brandMentionRate: number;
+	firstRecommendationRate: number;
+	brandShareOfVoice: number;
+	repeatConsistency: number | null;
+	citationRate: number | null;
+	averageMentionPosition: number | null;
+	plannedPlatformCount: number;
+	validPlatformCount: number;
+	failedPlatformCount: number;
+	dataCoverage: number;
+	failureRate: number;
+};
 
 const ratio = (numerator: number, denominator: number): number => (denominator === 0 ? 0 : numerator / denominator);
 
@@ -40,6 +54,9 @@ export function calculateVisibilityMetrics({
 	competitorBrandIds = [],
 }: VisibilityMetricInput): VisibilityMetrics {
 	const answered = captures.filter((capture) => capture.status === "complete" && capture.answerText !== null);
+	const sourceObserved = answered.filter(
+		(capture) => capture.captureMode === "consumer_surface" || capture.sourceVisibility !== "unavailable",
+	);
 	const normalizedDomains = new Set(targetDomains.map(normalizeDomain));
 	const hasTargetBrand = (capture: QueryCapture) =>
 		capture.brandMatches.some((match) => match.brandId === targetBrandId);
@@ -52,11 +69,32 @@ export function calculateVisibilityMetrics({
 	const firstRecommended = answered.filter((capture) =>
 		capture.brandMatches.some((match) => match.brandId === targetBrandId && match.position === 1),
 	);
-	const inSources = answered.filter(hasTargetSource);
-	const cited = answered.filter(hasTargetCitation);
+	const inSources = sourceObserved.filter(hasTargetSource);
+	const cited = sourceObserved.filter(hasTargetCitation);
 	const mentionPositions = mentioned.flatMap((capture) =>
 		capture.brandMatches.filter((match) => match.brandId === targetBrandId).map((match) => match.position),
 	);
+	const targetMentions = answered.reduce(
+		(count, capture) => count + capture.brandMatches.filter((match) => match.brandId === targetBrandId).length,
+		0,
+	);
+	const monitoredBrandIds = new Set([targetBrandId, ...competitorBrandIds]);
+	const monitoredMentions = answered.reduce(
+		(count, capture) => count + capture.brandMatches.filter((match) => monitoredBrandIds.has(match.brandId)).length,
+		0,
+	);
+	const promptOutcomes = new Map<string, QueryCapture[]>();
+	for (const capture of answered) {
+		const group = promptOutcomes.get(capture.promptId) ?? [];
+		group.push(capture);
+		promptOutcomes.set(capture.promptId, group);
+	}
+	const repeatScores = [...promptOutcomes.values()]
+		.filter((group) => group.length > 1)
+		.map((group) => {
+			const mentions = group.filter(hasTargetBrand).length;
+			return Math.max(mentions, group.length - mentions) / group.length;
+		});
 
 	return {
 		totalCaptures: captures.length,
@@ -64,8 +102,13 @@ export function calculateVisibilityMetrics({
 		answerCoverage: ratio(answered.length, captures.length),
 		brandMentionRate: ratio(mentioned.length, answered.length),
 		firstRecommendationRate: ratio(firstRecommended.length, answered.length),
-		sourcePresenceRate: ratio(inSources.length, answered.length),
-		citationRate: ratio(cited.length, answered.length),
+		brandShareOfVoice: ratio(targetMentions, monitoredMentions),
+		repeatConsistency:
+			repeatScores.length === 0 ? null : repeatScores.reduce((sum, score) => sum + score, 0) / repeatScores.length,
+		sourceObservedCaptures: sourceObserved.length,
+		sourceCoverage: ratio(sourceObserved.length, answered.length),
+		sourcePresenceRate: sourceObserved.length === 0 ? null : ratio(inSources.length, sourceObserved.length),
+		citationRate: sourceObserved.length === 0 ? null : ratio(cited.length, sourceObserved.length),
 		sourceToCitationRate: inSources.length === 0 ? null : ratio(cited.length, inSources.length),
 		averageMentionPosition:
 			mentionPositions.length === 0
@@ -84,26 +127,25 @@ export function calculateVisibilityMetrics({
 }
 
 export function calculateEqualWeightedOverall(platforms: VisibilityMetrics[]): OverallVisibilityMetrics {
-	const keys: Array<keyof OverallVisibilityMetrics> = [
-		"answerCoverage",
-		"brandMentionRate",
-		"firstRecommendationRate",
-		"citationRate",
-		"averageMentionPosition",
-	];
-	return Object.fromEntries(
-		keys.map((key) => {
-			const values = platforms
-				.map((metrics) => metrics[key])
-				.filter((value): value is number => typeof value === "number");
-			return [
-				key,
-				values.length
-					? values.reduce((sum, value) => sum + value, 0) / values.length
-					: key === "averageMentionPosition"
-						? null
-						: 0,
-			];
-		}),
-	) as OverallVisibilityMetrics;
+	const validPlatforms = platforms.filter((metrics) => metrics.answeredCaptures > 0);
+	const average = (key: keyof VisibilityMetrics, source = validPlatforms): number | null => {
+		const values = source.map((metrics) => metrics[key]).filter((value): value is number => typeof value === "number");
+		return values.length === 0 ? null : values.reduce((sum, value) => sum + value, 0) / values.length;
+	};
+	const plannedPlatformCount = platforms.length;
+	const validPlatformCount = validPlatforms.length;
+	return {
+		answerCoverage: average("answerCoverage", platforms) ?? 0,
+		brandMentionRate: average("brandMentionRate") ?? 0,
+		firstRecommendationRate: average("firstRecommendationRate") ?? 0,
+		brandShareOfVoice: average("brandShareOfVoice") ?? 0,
+		repeatConsistency: average("repeatConsistency"),
+		citationRate: average("citationRate"),
+		averageMentionPosition: average("averageMentionPosition"),
+		plannedPlatformCount,
+		validPlatformCount,
+		failedPlatformCount: plannedPlatformCount - validPlatformCount,
+		dataCoverage: ratio(validPlatformCount, plannedPlatformCount),
+		failureRate: ratio(plannedPlatformCount - validPlatformCount, plannedPlatformCount),
+	};
 }

@@ -1,0 +1,2 @@
+ALTER TABLE prompts ADD COLUMN IF NOT EXISTS topic text;
+ALTER TABLE prompts ADD COLUMN IF NOT EXISTS persona text;

@@ -1,43 +1,37 @@
 # GEO Console
 
-面向任意行业客户的真实 GEO 工作台。系统从客户官网建立画像，通过本机浏览器采集 DeepSeek 与 Kimi 消费端真实回答，保存原始证据，再完成诊断、整改和同条件复测。
+面向 GEO 机构的多客户云端工作台。它用真实官网证据建立客户范围，通过五家供应商的联网 API 采样回答，再完成证据化诊断、人工审批整改、同条件复测、不可变报告和业务归因。
 
 ```text
-客户建档 -> 官网抓取与审计 -> 人工确认 -> 真实页面采集 -> 证据诊断 -> 整改发布 -> 同条件复测 -> 中文报告 -> 业务归因
+客户建档 -> 官网与竞品研究 -> 人工确认问题
+-> 五平台分时采样 -> 指标、信源与稳定性分析
+-> Pi Agent 草稿 -> 人工审批 -> 发布 URL 验收
+-> 严格复测 -> 在线报告/PDF -> 业务归因
 ```
 
-运行时代码不包含示例公司、Mock 回答或演示指标。没有真实客户、API Key 和平台登录时，界面保持空状态。
+监测平台包括 DeepSeek、Kimi、豆包火山方舟、通义千问 DashScope，以及“元宝搜索源 + 混元合成”。所有页面和报告都会说明 API 口径，不把 API 回答描述成对应 App 页面回答。运行时代码没有示例公司、Mock 回答、Seed 指标或行业硬编码。
 
-## 本机运行
+## 本机启动
 
-要求 Node.js 24、Corepack 和 pnpm 11。
+要求 Node.js 24、Corepack、pnpm 11。PGlite 只用于本机开发和测试。
 
 ```bash
-corepack pnpm install
+corepack pnpm install --frozen-lockfile
 corepack pnpm geo setup
 corepack pnpm geo start
 ```
 
-打开 <http://127.0.0.1:3000>。DeepSeek API Key 用于自动建档和可选诊断增强；没有 Key 时可手工确认真实竞品和问题。真实采集仍需在“平台设置”分别登录所选的 DeepSeek、Kimi 页面。
-Collector 会优先复用系统 Chrome；没有 Chrome 时运行 `corepack pnpm --filter @geo/collector exec playwright install chromium`，也可用 `GEO_CHROME_PATH` 指定可执行文件。
-
-本机数据保存在 `~/Library/Application Support/GEO Console/`：
-
-- `database/`：PGlite 文件数据库
-- `artifacts/`：网页快照与采集截图
-- `browser-profiles/`：平台 Cookie 和持久浏览器 Profile
-- `collector.json`：本机 Collector 节点令牌，权限为当前用户可读
-- `backups/`：本机离线备份
-
-这些文件不写入 Git。DeepSeek Key 在 macOS 上保存到系统钥匙串。
-
-## 常用命令
+打开 <http://127.0.0.1:3000>。本机无用户时使用仅限开发环境的管理员旁路；所有供应商与 HRouter Key 都在“平台设置”中配置，并由 macOS 钥匙串中的主密钥信封加密。生成 PDF 需要 Chromium：
 
 ```bash
-corepack pnpm geo setup
-corepack pnpm geo start
-corepack pnpm geo doctor
-corepack pnpm geo backup
+corepack pnpm --filter @geo/worker exec playwright install chromium
+```
+
+本机数据位于 `~/Library/Application Support/GEO Console/`，不会写入 Git。`database/` 是 PGlite，`artifacts/` 保存不可变证据，`backups/` 保存离线备份。
+
+## 验证命令
+
+```bash
 corepack pnpm check-types
 corepack pnpm test
 corepack pnpm build
@@ -45,14 +39,6 @@ corepack pnpm lint
 corepack pnpm license-check
 ```
 
-## 文档
+服务器 Docker、S3 兼容存储、HTTPS、备份与回滚见 [部署文档](docs/deployment.md)。系统边界见 [架构文档](docs/architecture.md)，五平台契约见 [适配器文档](docs/search-provider-adapters.md)，故障处理见 [运维文档](docs/operations.md)。
 
-- [架构与数据边界](docs/architecture.md)
-- [统一产品能力矩阵](docs/capability-matrix.md)
-- [真实页面适配器契约](docs/collector-adapters.md)
-- [运行与故障处理](docs/operations.md)
-- [本机和服务器部署](docs/deployment.md)
-
-## 许可
-
-本项目按 [MIT License](LICENSE.md) 发布。保留的第三方来源与许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+本项目使用 [MIT License](LICENSE.md)；第三方许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

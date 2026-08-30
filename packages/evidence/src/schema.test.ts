@@ -58,4 +58,54 @@ describe("queryCaptureSchema", () => {
 			}).success,
 		).toBe(false);
 	});
+
+	it("接受带原始响应索引的云端联网采集", () => {
+		expect(
+			queryCaptureSchema.safeParse({
+				...completeCapture,
+				schemaVersion: "geo.query-capture.v2",
+				engine: "kimi_api",
+				captureMode: "llm_search_api",
+				sourceVisibility: "available",
+				fanoutVisibility: "unavailable",
+				evidence: {
+					endpoint: "https://api.moonshot.cn/v1/chat/completions",
+					rawResponseObjectKey: "raw/capture-1.json",
+					requestId: "req-1",
+				},
+				model: "kimi-k2.5",
+				protocol: "moonshot-chat-tools",
+				searchToolVersion: "moonshot/web-search:latest",
+				executorId: "cloud-worker:test",
+				usage: { totalTokens: 128 },
+				costMicros: 10,
+				latencyMs: 1200,
+			}).success,
+		).toBe(true);
+	});
+
+	it("拒绝把元宝组合口径伪装成 App 回答", () => {
+		expect(
+			queryCaptureSchema.safeParse({
+				...completeCapture,
+				schemaVersion: "geo.query-capture.v2",
+				engine: "yuanbao_hunyuan",
+				captureMode: "llm_search_api",
+				sourceVisibility: "available",
+				fanoutVisibility: "unavailable",
+				evidence: {
+					endpoint: "https://api.wsa.cloud.tencent.com/SearchPro",
+					rawResponseObjectKey: "raw/capture-1.json",
+					requestId: "req-1",
+				},
+				model: "hunyuan-turbos-latest",
+				protocol: "yuanbao-app",
+				searchToolVersion: "SearchPro",
+				executorId: "cloud-worker:test",
+				usage: null,
+				costMicros: null,
+				latencyMs: 1200,
+			}).success,
+		).toBe(false);
+	});
 });

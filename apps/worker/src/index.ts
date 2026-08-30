@@ -1,42 +1,57 @@
-import { createReadStream } from "node:fs";
-import { mkdir, stat } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { extname, join, normalize, sep } from "node:path";
-import {
-	claimCaptureJob,
-	failJob,
-	geoPaths,
-	migrateDatabase,
-	openDatabase,
-	readSecret,
-	renewJobLease,
-	writeSecret,
-} from "@geo/core";
+import { geoPaths, migrateDatabase, openDatabase, searchProviderIds } from "@geo/core";
 import { z } from "zod";
+import { approveAgentRun, listAgentRuns, rejectAgentRun, runAgentDraft, runTaskContentAgent } from "./agent";
 import { getAttribution, importAttributionCsv } from "./attribution";
-import { deepSeekStructured, getDeepSeekModel } from "./deepseek";
 import {
+	AuthenticationError,
+	auditRequest,
+	authenticateRequest,
+	createUser,
+	disableUser,
+	ensureBootstrapAdmin,
+	hasRole,
+	listAuditLogs,
+	listUsers,
+	login,
+	logout,
+} from "./auth";
+import { getHRouterConfig, listHRouterModels, saveHRouterConfig } from "./hrouter";
+import { checkObjectStore, readArtifact } from "./object-store";
+import { ensureProviderConfigs, getProviderSettings, saveProviderConfig, testProviderConfig } from "./providers";
+import {
+	createReportShare,
+	createReportSnapshot,
+	getReportPdfStatus,
+	getReportSnapshot,
+	getSharedReport,
+	listReportShares,
+	listReportSnapshots,
+	renderReportHtml,
+	reportCsv,
+	requestReportPdf,
+	revokeReportShare,
+} from "./report-snapshots";
+import {
+	acknowledgeDriftAlert,
 	analyzeProject,
 	auditProject,
-	authenticateCollector,
 	confirmProject,
 	createBatch,
-	createCollectorNode,
 	createProject,
 	createTasksFromFindings,
 	deleteTask,
 	diagnoseBatch,
-	generateTaskContent,
 	getBatch,
 	getBatchReport,
 	getProject,
+	getProjectCostSummary,
 	getProjectTrends,
-	listCollectorNodes,
+	listDriftAlerts,
 	listProjects,
 	processDueSchedules,
-	revokeCollectorNode,
 	saveMonitoringSchedule,
-	storeCapture,
 	updateTask,
 	verifyTask,
 } from "./service";
@@ -46,89 +61,28 @@ const host = process.env.GEO_WORKER_HOST?.trim() || "127.0.0.1";
 const port = Number(process.env.GEO_WORKER_PORT || 3010);
 const database = await openDatabase();
 await migrateDatabase(database);
+await ensureProviderConfigs(database);
+await ensureBootstrapAdmin(database);
 await Promise.all(Object.values(geoPaths).map((directory) => mkdir(directory, { recursive: true })));
+const objectStore = await checkObjectStore();
 
 function routeMatch(pathname: string, expression: RegExp): string[] | null {
 	const match = pathname.match(expression);
 	return match ? match.slice(1).map(decodeURIComponent) : null;
 }
 
-async function requireAdmin(request: IncomingMessage, response: ServerResponse): Promise<boolean> {
-	const password = await readSecret("admin_password");
-	if (!password) return true;
-	const encoded = request.headers.authorization?.match(/^Basic (.+)$/)?.[1];
-	const supplied = encoded ? Buffer.from(encoded, "base64").toString("utf8").split(":").slice(1).join(":") : "";
-	if (supplied === password) return true;
-	response.writeHead(401, { "www-authenticate": 'Basic realm="GEO Console"' });
-	response.end("需要管理员认证");
-	return false;
-}
-
-async function collectorIdentity(request: IncomingMessage): Promise<{ id: string } | null> {
-	const token = request.headers.authorization?.match(/^Bearer (.+)$/)?.[1];
-	return token ? authenticateCollector(database, token) : null;
-}
-
 async function serveArtifact(response: ServerResponse, artifactPath: string): Promise<void> {
-	const relative = normalize(artifactPath).replace(/^([/\\])+/, "");
-	const absolute = join(geoPaths.artifacts, relative);
-	if (!absolute.startsWith(`${geoPaths.artifacts}${sep}`)) return json(response, 400, { error: "非法文件路径" });
 	try {
-		await stat(absolute);
-		const contentType =
-			extname(absolute) === ".png"
-				? "image/png"
-				: extname(absolute) === ".html"
-					? "text/html; charset=utf-8"
-					: "application/octet-stream";
-		response.writeHead(200, { "content-type": contentType, "cache-control": "private, no-store" });
-		createReadStream(absolute).pipe(response);
+		const artifact = await readArtifact(artifactPath);
+		response.writeHead(200, {
+			"content-type": artifact.contentType,
+			"content-length": artifact.contentLength,
+			"cache-control": "private, no-store",
+		});
+		response.end(artifact.body);
 	} catch {
 		json(response, 404, { error: "证据文件不存在" });
 	}
-}
-
-async function handleCollector(request: IncomingMessage, response: ServerResponse, path: string): Promise<void> {
-	const node = await collectorIdentity(request);
-	if (!node) return json(response, 401, { error: "Collector 节点令牌无效或已撤销" });
-	if (path === "/api/collector/heartbeat" && request.method === "POST") {
-		const body = z
-			.object({ version: z.string().trim().min(1).optional(), capabilities: z.array(z.string()).optional() })
-			.parse(await readJson(request));
-		await database.query(
-			`UPDATE collector_nodes SET last_seen_at=now(),version=COALESCE($2,version),
-			 capabilities=CASE WHEN $3::boolean THEN $4::jsonb ELSE capabilities END WHERE id=$1`,
-			[node.id, body.version ?? null, Boolean(body.capabilities), JSON.stringify(body.capabilities ?? [])],
-		);
-		return json(response, 200, { nodeId: node.id });
-	}
-	if (path === "/api/collector/jobs/next" && request.method === "POST") {
-		await database.query("UPDATE collector_nodes SET last_seen_at=now() WHERE id=$1", [node.id]);
-		return json(response, 200, { nodeId: node.id, job: await claimCaptureJob(database, node.id) });
-	}
-	const renew = routeMatch(path, /^\/api\/collector\/jobs\/([^/]+)\/renew$/);
-	if (renew && request.method === "POST")
-		return json(response, 200, { renewed: await renewJobLease(database, renew[0], node.id) });
-	const result = routeMatch(path, /^\/api\/collector\/jobs\/([^/]+)\/result$/);
-	if (result && request.method === "POST") {
-		const body = z
-			.object({ capture: z.unknown(), screenshotBase64: z.string().optional() })
-			.parse(await readJson(request));
-		const capture = {
-			...(body.capture as Record<string, unknown>),
-			jobId: result[0],
-			evidence: { ...((body.capture as Record<string, unknown>).evidence as object), captureNodeId: node.id },
-		};
-		await storeCapture(database, capture, body.screenshotBase64);
-		return json(response, 201, { stored: true });
-	}
-	const failure = routeMatch(path, /^\/api\/collector\/jobs\/([^/]+)\/failure$/);
-	if (failure && request.method === "POST") {
-		const body = z.object({ message: z.string().min(1) }).parse(await readJson(request));
-		await failJob(database, failure[0], node.id, body.message);
-		return json(response, 200, { accepted: true });
-	}
-	return json(response, 404, { error: "Collector 接口不存在" });
 }
 
 async function handleProjectRoutes(request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
@@ -203,13 +157,35 @@ async function handleProjectDataRoutes(
 		json(response, 201, await importAttributionCsv(database, attributionImport[0], await readJson(request)));
 		return true;
 	}
+	const agentRuns = routeMatch(path, /^\/api\/projects\/([^/]+)\/agent-runs$/);
+	if (agentRuns && request.method === "GET") {
+		json(response, 200, { runs: await listAgentRuns(database, agentRuns[0]) });
+		return true;
+	}
+	const reports = routeMatch(path, /^\/api\/projects\/([^/]+)\/reports$/);
+	if (reports && request.method === "GET") {
+		json(response, 200, { reports: await listReportSnapshots(database, reports[0]) });
+		return true;
+	}
+	const alerts = routeMatch(path, /^\/api\/projects\/([^/]+)\/drift-alerts$/);
+	if (alerts && request.method === "GET") {
+		json(response, 200, { alerts: await listDriftAlerts(database, alerts[0]) });
+		return true;
+	}
+	const costs = routeMatch(path, /^\/api\/projects\/([^/]+)\/costs$/);
+	if (costs && request.method === "GET") {
+		json(response, 200, await getProjectCostSummary(database, costs[0]));
+		return true;
+	}
 	return false;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This is a flat, auditable HTTP route dispatcher; domain behavior remains in services.
 async function handleBatchTaskRoutes(
 	request: IncomingMessage,
 	response: ServerResponse,
 	path: string,
+	actorUserId: string | null,
 ): Promise<boolean> {
 	const batch = routeMatch(path, /^\/api\/batches\/([^/]+)$/);
 	if (batch && request.method === "GET") {
@@ -224,13 +200,121 @@ async function handleBatchTaskRoutes(
 	}
 	const modelDiagnosis = routeMatch(path, /^\/api\/batches\/([^/]+)\/diagnose\/model$/);
 	if (modelDiagnosis && request.method === "POST") {
-		json(response, 201, await diagnoseBatch(database, modelDiagnosis[0], { enhanceWithModel: true }));
+		const batchValue = await getBatch(database, modelDiagnosis[0]);
+		if (!batchValue) throw new Error("采集批次不存在");
+		json(
+			response,
+			201,
+			await runAgentDraft(database, {
+				projectId: String(batchValue.project_id),
+				batchId: modelDiagnosis[0],
+				purpose: "diagnosis",
+			}),
+		);
+		return true;
+	}
+	const batchAgent = routeMatch(path, /^\/api\/batches\/([^/]+)\/agent$/);
+	if (batchAgent && request.method === "POST") {
+		const body = z
+			.object({ purpose: z.enum(["diagnosis", "remediation", "content_brief", "report_narrative", "quality_review"]) })
+			.parse(await readJson(request));
+		const batchValue = await getBatch(database, batchAgent[0]);
+		if (!batchValue) throw new Error("采集批次不存在");
+		json(
+			response,
+			201,
+			await runAgentDraft(database, {
+				projectId: String(batchValue.project_id),
+				batchId: batchAgent[0],
+				purpose: body.purpose,
+			}),
+		);
+		return true;
+	}
+	const approveAgent = routeMatch(path, /^\/api\/agent-runs\/([^/]+)\/approve$/);
+	if (approveAgent && request.method === "POST") {
+		await approveAgentRun(database, approveAgent[0], actorUserId);
+		json(response, 200, { approved: true });
+		return true;
+	}
+	const acknowledgeAlert = routeMatch(path, /^\/api\/drift-alerts\/([^/]+)\/acknowledge$/);
+	if (acknowledgeAlert && request.method === "POST") {
+		await acknowledgeDriftAlert(database, acknowledgeAlert[0]);
+		json(response, 200, { acknowledged: true });
+		return true;
+	}
+	const rejectAgent = routeMatch(path, /^\/api\/agent-runs\/([^/]+)\/reject$/);
+	if (rejectAgent && request.method === "POST") {
+		await rejectAgentRun(database, rejectAgent[0]);
+		json(response, 200, { rejected: true });
 		return true;
 	}
 	const report = routeMatch(path, /^\/api\/batches\/([^/]+)\/report$/);
 	if (report && request.method === "GET") {
 		const value = await getBatchReport(database, report[0]);
 		value ? json(response, 200, value) : json(response, 404, { error: "批次不存在" });
+		return true;
+	}
+	const reportSnapshots = routeMatch(path, /^\/api\/batches\/([^/]+)\/reports$/);
+	if (reportSnapshots && request.method === "POST") {
+		const body = z
+			.object({
+				reportType: z.enum(["quick_audit", "remediation", "retest"]),
+				compareToBatchId: z.string().optional().nullable(),
+			})
+			.parse(await readJson(request));
+		json(
+			response,
+			201,
+			await createReportSnapshot(database, { batchId: reportSnapshots[0], ...body, createdBy: actorUserId }),
+		);
+		return true;
+	}
+	const snapshot = routeMatch(path, /^\/api\/reports\/([^/]+)$/);
+	if (snapshot && request.method === "GET") {
+		const value = await getReportSnapshot(database, snapshot[0]);
+		value ? json(response, 200, value) : json(response, 404, { error: "报告快照不存在" });
+		return true;
+	}
+	const snapshotPdf = routeMatch(path, /^\/api\/reports\/([^/]+)\/pdf$/);
+	if (snapshotPdf && request.method === "POST") {
+		json(response, 202, await requestReportPdf(database, snapshotPdf[0]));
+		return true;
+	}
+	if (snapshotPdf && request.method === "GET") {
+		json(response, 200, await getReportPdfStatus(database, snapshotPdf[0]));
+		return true;
+	}
+	const snapshotShare = routeMatch(path, /^\/api\/reports\/([^/]+)\/shares$/);
+	if (snapshotShare && request.method === "GET") {
+		json(response, 200, { shares: await listReportShares(database, snapshotShare[0]) });
+		return true;
+	}
+	if (snapshotShare && request.method === "POST") {
+		const body = z
+			.object({ expiresInDays: z.number().int().min(1).max(365).default(30) })
+			.parse(await readJson(request));
+		json(response, 201, await createReportShare(database, snapshotShare[0], body.expiresInDays, actorUserId));
+		return true;
+	}
+	const snapshotCsv = routeMatch(path, /^\/api\/reports\/([^/]+)\/export\.csv$/);
+	if (snapshotCsv && request.method === "GET") {
+		const value = await getReportSnapshot(database, snapshotCsv[0]);
+		if (!value) {
+			json(response, 404, { error: "报告快照不存在" });
+			return true;
+		}
+		response.writeHead(200, {
+			"content-type": "text/csv; charset=utf-8",
+			"content-disposition": `attachment; filename="geo-report-${snapshotCsv[0]}.csv"`,
+		});
+		response.end(`\uFEFF${reportCsv(value)}`);
+		return true;
+	}
+	const share = routeMatch(path, /^\/api\/report-shares\/([^/]+)$/);
+	if (share && request.method === "DELETE") {
+		await revokeReportShare(database, share[0]);
+		json(response, 200, { revoked: true });
 		return true;
 	}
 	const task = routeMatch(path, /^\/api\/tasks\/([^/]+)$/);
@@ -251,8 +335,7 @@ async function handleBatchTaskRoutes(
 	}
 	const content = routeMatch(path, /^\/api\/tasks\/([^/]+)\/content$/);
 	if (content && request.method === "POST") {
-		await generateTaskContent(database, content[0]);
-		json(response, 200, { generated: true });
+		json(response, 201, await runTaskContentAgent(database, content[0]));
 		return true;
 	}
 	return false;
@@ -263,55 +346,51 @@ async function handleSettingsRoutes(
 	response: ServerResponse,
 	path: string,
 ): Promise<boolean> {
-	if (path === "/api/collector-nodes" && request.method === "POST") {
-		const body = z.object({ name: z.string().trim().min(1) }).parse(await readJson(request));
-		json(response, 201, await createCollectorNode(database, body.name));
-		return true;
-	}
-	if (path === "/api/collector-nodes" && request.method === "GET") {
-		json(response, 200, { nodes: await listCollectorNodes(database) });
-		return true;
-	}
-	const collectorNode = routeMatch(path, /^\/api\/collector-nodes\/([^/]+)$/);
-	if (collectorNode && request.method === "DELETE") {
-		await revokeCollectorNode(database, collectorNode[0]);
-		json(response, 200, { revoked: true });
-		return true;
-	}
 	if (path === "/api/settings" && request.method === "GET") {
 		json(response, 200, {
-			deepseek: { configured: Boolean(await readSecret("deepseek_api_key")), model: getDeepSeekModel() },
+			providers: await getProviderSettings(database),
+			analysis: await getHRouterConfig(database),
 		});
 		return true;
 	}
-	if (path === "/api/settings/deepseek" && request.method === "PUT") {
-		const body = z.object({ apiKey: z.string().trim().min(10) }).parse(await readJson(request));
-		await writeSecret("deepseek_api_key", body.apiKey);
+	if (path === "/api/settings/hrouter" && request.method === "PUT") {
+		await saveHRouterConfig(database, await readJson(request));
 		json(response, 200, { saved: true });
 		return true;
 	}
-	if (path === "/api/settings/deepseek/test" && request.method === "POST") {
-		const validate = z.object({ ok: z.literal(true) });
-		await deepSeekStructured({
-			name: "connection_test",
-			schema: {
-				type: "object",
-				additionalProperties: false,
-				required: ["ok"],
-				properties: { ok: { type: "boolean", const: true } },
-			},
-			instructions: "仅按指定JSON返回连接测试结果。",
-			input: "返回 ok=true",
-			validate,
-		});
-		json(response, 200, { connected: true, model: getDeepSeekModel() });
+	if (path === "/api/settings/hrouter/models" && request.method === "GET") {
+		json(response, 200, { models: await listHRouterModels(database) });
+		return true;
+	}
+	if (path === "/api/settings/hrouter/test" && request.method === "POST") {
+		const config = await getHRouterConfig(database);
+		const models = await listHRouterModels(database);
+		json(response, 200, { connected: true, selectedModelAvailable: models.some((model) => model.id === config.model) });
+		return true;
+	}
+	const provider = routeMatch(path, /^\/api\/settings\/providers\/([^/]+)$/);
+	if (provider && request.method === "PUT") {
+		const providerId = z.enum(searchProviderIds).parse(provider[0]);
+		await saveProviderConfig(database, providerId, await readJson(request));
+		json(response, 200, { saved: true });
+		return true;
+	}
+	const providerTest = routeMatch(path, /^\/api\/settings\/providers\/([^/]+)\/test$/);
+	if (providerTest && request.method === "POST") {
+		const providerId = z.enum(searchProviderIds).parse(providerTest[0]);
+		json(response, 200, await testProviderConfig(database, providerId));
 		return true;
 	}
 	return false;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Authentication and public-route ordering are intentionally centralized in one request boundary.
 async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
-	response.setHeader("access-control-allow-origin", "http://127.0.0.1:3000");
+	const allowedOrigin = process.env.GEO_ALLOWED_ORIGIN?.trim() || "http://127.0.0.1:3000";
+	if (request.headers.origin === allowedOrigin) {
+		response.setHeader("access-control-allow-origin", allowedOrigin);
+		response.setHeader("access-control-allow-credentials", "true");
+	}
 	response.setHeader("access-control-allow-headers", "authorization,content-type");
 	response.setHeader("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
 	if (request.method === "OPTIONS") {
@@ -320,22 +399,67 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 		return;
 	}
 	const path = new URL(request.url ?? "/", `http://${request.headers.host ?? "127.0.0.1"}`).pathname;
+	const shared = routeMatch(path, /^\/share\/([^/]+)$/);
+	if (shared && request.method === "GET") {
+		const snapshot = await getSharedReport(database, shared[0]);
+		if (!snapshot) return json(response, 404, { error: "分享链接不存在、已过期或已撤销" });
+		response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "private, no-store" });
+		response.end(renderReportHtml(snapshot));
+		return;
+	}
+	if (path === "/api/auth/login" && request.method === "POST") {
+		json(response, 200, { user: await login(database, response, await readJson(request)) });
+		return;
+	}
 	if (path === "/api/health")
 		return json(response, 200, {
 			status: "ok",
 			database: process.env.DATABASE_URL ? "postgresql" : "pglite",
-			model: getDeepSeekModel(),
+			analysisConfigured: (await getHRouterConfig(database)).configured,
+			captureRunner: "cloud",
+			objectStore,
 		});
 	if (path.startsWith("/artifacts/")) {
-		if (await requireAdmin(request, response)) await serveArtifact(response, path.slice("/artifacts/".length));
+		const identity = await authenticateRequest(database, request);
+		if (!identity) return json(response, 401, { error: "请先登录" });
+		await serveArtifact(response, path.slice("/artifacts/".length));
 		return;
 	}
-	if (path.startsWith("/api/collector/")) return handleCollector(request, response, path);
-	if (!(await requireAdmin(request, response))) return;
-	if (await handleProjectRoutes(request, response, path)) return;
-	if (await handleProjectDataRoutes(request, response, path)) return;
-	if (await handleBatchTaskRoutes(request, response, path)) return;
-	if (await handleSettingsRoutes(request, response, path)) return;
+	const identity = await authenticateRequest(database, request);
+	if (!identity) return json(response, 401, { error: "请先登录" });
+	if (path === "/api/auth/me" && request.method === "GET") return json(response, 200, { user: identity });
+	if (path === "/api/auth/logout" && request.method === "POST") {
+		await logout(database, request, response);
+		return json(response, 200, { loggedOut: true });
+	}
+	const adminOnly =
+		path.startsWith("/api/settings") || path.startsWith("/api/users") || path.startsWith("/api/audit-logs");
+	const requiredRole = adminOnly ? "admin" : request.method === "GET" ? "viewer" : "analyst";
+	if (!hasRole(identity, requiredRole)) return json(response, 403, { error: "当前角色无权执行此操作" });
+	if (path === "/api/users" && request.method === "GET")
+		return json(response, 200, { users: await listUsers(database) });
+	if (path === "/api/audit-logs" && request.method === "GET")
+		return json(response, 200, { logs: await listAuditLogs(database) });
+	if (path === "/api/users" && request.method === "POST") {
+		const value = await createUser(database, await readJson(request));
+		await auditRequest(database, identity, request.method, path);
+		return json(response, 201, value);
+	}
+	const user = routeMatch(path, /^\/api\/users\/([^/]+)$/);
+	if (user && request.method === "DELETE") {
+		await disableUser(database, user[0], identity.id);
+		await auditRequest(database, identity, request.method, path);
+		return json(response, 200, { disabled: true });
+	}
+	const handled =
+		(await handleProjectRoutes(request, response, path)) ||
+		(await handleProjectDataRoutes(request, response, path)) ||
+		(await handleBatchTaskRoutes(request, response, path, identity.id)) ||
+		(await handleSettingsRoutes(request, response, path));
+	if (handled) {
+		await auditRequest(database, identity, request.method ?? "GET", path);
+		return;
+	}
 	json(response, 404, { error: "接口不存在" });
 }
 
@@ -343,7 +467,7 @@ const server = createServer((request, response) => {
 	handle(request, response).catch((error) => {
 		console.error(error);
 		if (!response.headersSent)
-			json(response, error instanceof z.ZodError ? 400 : 500, {
+			json(response, error instanceof z.ZodError ? 400 : error instanceof AuthenticationError ? 401 : 500, {
 				error: error instanceof Error ? error.message : "未知错误",
 			});
 		else response.end();
@@ -351,7 +475,6 @@ const server = createServer((request, response) => {
 });
 
 server.listen(port, host, () => console.log(`GEO Worker: http://${host}:${port}`));
-
 const scheduleTimer = setInterval(() => {
 	processDueSchedules(database).catch((error) => console.error("自动监测调度失败", error));
 }, 60_000);

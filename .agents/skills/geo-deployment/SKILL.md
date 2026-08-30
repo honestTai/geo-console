@@ -1,25 +1,27 @@
 ---
 name: geo-deployment
-description: Install, deploy, upgrade, and roll back GEO Console on a local Mac or a Docker server with PostgreSQL, Caddy HTTPS, secrets, persistent evidence, and remote Collector pairing. Use for environment setup, not application feature work.
+description: Install, deploy, upgrade, and roll back GEO Console locally or with Docker, PostgreSQL, Caddy HTTPS, S3-compatible evidence storage, secrets, and separate Capture/Report Workers. Use for environment setup, not feature development.
 ---
 
 # GEO Deployment
 
-Determine whether the target is local or server, then read the corresponding section of [../../../docs/deployment.md](../../../docs/deployment.md).
+Determine whether the target is the local development instance or a named server. Read [../../../docs/deployment.md](../../../docs/deployment.md) and, for servers, [references/preflight.md](references/preflight.md).
 
 ## Local
 
-- Reuse Node.js 24 and Corepack when available. Install project dependencies with the lockfile and Playwright Chromium to the user's cache; do not use sudo or a global package install.
-- Run `pnpm geo setup` only against the project's new PGlite directory. Confirm its resolved path before any restore.
-- Bind local services to `127.0.0.1`. Keep database, artifacts, profiles, token, and keys outside the repository.
+- Reuse Node.js 24 and Corepack. Use the lockfile; avoid sudo and global installs.
+- Resolve `GEO_DATA_DIR` before setup or restore. Run migrations only against the new project PGlite directory.
+- Bind Web/API to `127.0.0.1`. Install Playwright Chromium only for the Report Worker.
+- Keep database, evidence and the macOS-keychain master key outside Git.
 
 ## Server
 
-- Require a concrete domain, server target, administrator credential plan, and backup location before mutating the server.
-- Expose only Caddy ports 80/443. Keep PostgreSQL and Worker internal.
-- Use Docker Secrets or environment variables for keys. Never bake secrets into images, Compose YAML, logs, or Git.
-- Pair each remote Collector from the platform settings with a distinct one-time revocable token. Verify that heartbeat reports the expected adapter version and capabilities; cookies remain on the Collector machine.
-- Back up PostgreSQL and the evidence volume before upgrades. Validate new health checks and a Collector round trip before declaring success.
-- Roll back using recorded images. If migrations are incompatible, restore a backup into a new empty database and validate before switching traffic.
+- Require the exact host, domain, administrator email, secret plan, object-store mode and backup destination before mutation.
+- Expose only Caddy 80/443. Keep API, Capture Worker, Report Worker and PostgreSQL internal.
+- Store PostgreSQL password, 32-byte Base64 master key and bootstrap password in Docker Secrets. A KMS agent may mount the master key file.
+- Use a private versioned and encrypted S3-compatible bucket, or a persistent local evidence volume. All three backend services need identical object-store configuration.
+- Never put provider/HRouter keys in images or Compose. Configure them through the authenticated UI so they are envelope encrypted.
+- Back up PostgreSQL and local evidence together before upgrade. S3 mode additionally verifies object versions and retention.
+- Roll back images only when migrations are compatible. Otherwise restore into a new empty PostgreSQL and validate before switching.
 
-Read [references/preflight.md](references/preflight.md) before a server deployment or upgrade.
+Do not deploy browser login profiles, Collector nodes or page adapters; they are not part of the cloud architecture.

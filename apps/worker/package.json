@@ -7,17 +7,23 @@
 	"scripts": {
 		"dev": "tsx watch src/index.ts",
 		"start": "tsx src/index.ts",
+		"start:capture": "tsx src/capture-worker.ts",
+		"start:report": "tsx src/report-worker.ts",
 		"build": "tsc --noEmit",
 		"check-types": "tsc --noEmit",
 		"test": "vitest run"
 	},
 	"dependencies": {
+		"@aws-sdk/client-s3": "3.1118.0",
+		"@earendil-works/pi-agent-core": "0.84.4",
+		"@earendil-works/pi-ai": "0.84.4",
 		"@geo/core": "workspace:*",
 		"@geo/evidence": "workspace:*",
 		"@geo/metrics": "workspace:*",
-		"@geo/surface-adapters": "workspace:*",
+		"@geo/search-providers": "workspace:*",
 		"cheerio": "^1.2.0",
 		"csv-parse": "6.1.0",
+		"playwright": "^1.62.1",
 		"zod": "^4.4.3"
 	},
 	"devDependencies": {

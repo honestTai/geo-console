@@ -1,8 +1,8 @@
-import type { QueryCapture } from "@geo/evidence";
+import type { QueryCapture, QueryCaptureV1, QueryCaptureV2 } from "@geo/evidence";
 import { describe, expect, it } from "vitest";
 import { calculateEqualWeightedOverall, calculateVisibilityMetrics } from "./visibility";
 
-const capture = (overrides: Partial<QueryCapture>): QueryCapture => ({
+const capture = (overrides: Partial<QueryCaptureV1>): QueryCaptureV1 => ({
 	schemaVersion: "geo.query-capture.v1",
 	captureId: "capture-1",
 	jobId: "job-1",
@@ -58,6 +58,33 @@ describe("calculateEqualWeightedOverall", () => {
 		});
 		expect(calculateEqualWeightedOverall([full, empty]).brandMentionRate).toBe(0.5);
 	});
+
+	it("失败平台不以零分拉低品牌指标，并单独展示覆盖率", () => {
+		const valid = calculateVisibilityMetrics({
+			captures: [capture({})],
+			targetBrandId: "target",
+			targetDomains: ["example.com"],
+		});
+		const failed = calculateVisibilityMetrics({
+			captures: [
+				capture({
+					status: "timeout",
+					answerText: null,
+					brandMatches: [],
+					sources: [],
+					contentHash: null,
+					failureCode: "answer_timeout",
+				}),
+			],
+			targetBrandId: "target",
+			targetDomains: ["example.com"],
+		});
+		const overall = calculateEqualWeightedOverall([valid, failed]);
+		expect(overall.brandMentionRate).toBe(1);
+		expect(overall.validPlatformCount).toBe(1);
+		expect(overall.dataCoverage).toBe(0.5);
+		expect(overall.failureRate).toBe(0.5);
+	});
 });
 
 describe("calculateVisibilityMetrics", () => {
@@ -96,5 +123,35 @@ describe("calculateVisibilityMetrics", () => {
 
 		expect(metrics.sourcePresenceRate).toBe(0);
 		expect(metrics.sourceToCitationRate).toBeNull();
+	});
+
+	it("平台未开放来源时不把引用率记为零", () => {
+		const apiCapture: QueryCaptureV2 = {
+			...capture({}),
+			schemaVersion: "geo.query-capture.v2",
+			engine: "deepseek_api",
+			captureMode: "llm_search_api",
+			sourceVisibility: "unavailable",
+			fanoutVisibility: "unavailable",
+			evidence: {
+				endpoint: "https://api.deepseek.com/v1/responses",
+				rawResponseObjectKey: "raw/capture-1.json",
+				requestId: "req-1",
+			},
+			model: "deepseek-model",
+			protocol: "deepseek-responses",
+			searchToolVersion: "web_search",
+			executorId: "cloud-worker:test",
+			usage: null,
+			costMicros: null,
+			latencyMs: 100,
+		};
+		const metrics = calculateVisibilityMetrics({
+			captures: [apiCapture],
+			targetBrandId: "target",
+			targetDomains: ["example.com"],
+		});
+		expect(metrics.sourceCoverage).toBe(0);
+		expect(metrics.citationRate).toBeNull();
 	});
 });

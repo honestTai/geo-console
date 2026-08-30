@@ -8,7 +8,6 @@ export const geoPaths = {
 	root: appDataRoot,
 	database: join(appDataRoot, "database"),
 	artifacts: join(appDataRoot, "artifacts"),
-	browserProfiles: join(appDataRoot, "browser-profiles"),
 	logs: join(appDataRoot, "logs"),
 	backups: join(appDataRoot, "backups"),
 };

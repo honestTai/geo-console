@@ -7,10 +7,7 @@ export default defineConfig({
 		proxy: {
 			"/api": "http://127.0.0.1:3010",
 			"/artifacts": "http://127.0.0.1:3010",
-			"/collector": {
-				target: "http://127.0.0.1:3020",
-				rewrite: (path) => path.replace(/^\/collector/, ""),
-			},
+			"/share": "http://127.0.0.1:3010",
 		},
 	},
 });

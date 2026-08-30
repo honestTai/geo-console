@@ -1,5 +1,5 @@
 {
-	"name": "@geo/surface-adapters",
+	"name": "@geo/search-providers",
 	"version": "0.1.0",
 	"private": true,
 	"license": "MIT",
@@ -8,15 +8,10 @@
 		"check-types": "tsc --noEmit",
 		"test": "vitest run"
 	},
-	"exports": {
-		".": "./src/index.ts"
-	},
-	"dependencies": {
-		"@geo/evidence": "workspace:*",
-		"zod": "^4.4.3"
-	},
+	"exports": { ".": "./src/index.ts" },
+	"dependencies": { "@geo/evidence": "workspace:*" },
 	"devDependencies": {
-		"playwright": "^1.62.1",
+		"@types/node": "^26.2.0",
 		"typescript": "^7.0.2",
 		"vitest": "^4.1.10"
 	}

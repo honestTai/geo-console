@@ -1,4 +1,4 @@
 interface:
-  display_name: "GEO 部署"
-  short_description: "执行本机安装和服务器 Docker 部署、升级、备份与回滚"
-  default_prompt: "部署或升级这个 GEO Console 实例。"
+  display_name: "GEO 云端部署"
+  short_description: "部署本机与 Docker、S3 对象存储和 Caddy HTTPS 环境"
+  default_prompt: "部署、升级或回滚这个 GEO Console 实例。"

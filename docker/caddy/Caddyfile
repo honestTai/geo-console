@@ -1,17 +1,19 @@
 {$GEO_DOMAIN} {
 	encode zstd gzip
-	@admin not path /api/collector/*
-	basic_auth @admin {
-		admin {$GEO_ADMIN_HASH}
-	}
-	handle /api/collector/* {
-		reverse_proxy worker:3010
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		-Server
 	}
 	handle /api/* {
-		reverse_proxy worker:3010
+		reverse_proxy api:3010
 	}
 	handle /artifacts/* {
-		reverse_proxy worker:3010
+		reverse_proxy api:3010
+	}
+	handle /share/* {
+		reverse_proxy api:3010
 	}
 	handle {
 		reverse_proxy web:80

@@ -1,8 +1,10 @@
-# Failed or partial batch
+# Incident checklist
 
-1. Record batch ID, frozen config hash, expected samples, valid samples, and failed samples.
-2. Check `pnpm geo doctor`, Worker health, Collector status, free disk, and recent process output.
-3. Group capture failures by platform and code. `login_required`, challenge, rate limit, page contract, timeout, and process/network failure require different actions.
-4. Relogin only the affected platform. Page-contract failures require an adapter change and test before a new batch.
-5. Do not rerun individual business failures under the same batch. Fix the condition and create a new comparable retest so the historical failure rate stays auditable.
-6. When process failures leave leased jobs, stop duplicate collectors and allow lease expiry. Inspect a database write only after this recovery path fails.
+1. Record project, batch/report ID, config or payload hash, planned/effective samples, provider and first failure time.
+2. Check API, Capture Worker, Report Worker, PostgreSQL and object-store health plus recent logs.
+3. Inspect lease owner, expiry, attempts and `last_error`; stop duplicate processes and allow lease expiry before any write.
+4. For captures, classify auth, rate limit, timeout, model unavailable, protocol change, missing source or no answer.
+5. Fix credentials/quota/network or ship a tested adapter version. Preserve the failed batch and create a new valid baseline/retest.
+6. For PDF, reuse the immutable report snapshot and retry only the report job after Chromium/font/storage recovery.
+7. Confirm drift alert evidence IDs and data coverage before escalation; acknowledgement never deletes the alert.
+8. Exceptional database writes require an exact target, current backup, explicit authorization and an audit note.

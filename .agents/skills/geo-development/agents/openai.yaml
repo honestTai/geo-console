@@ -1,4 +1,4 @@
 interface:
-  display_name: "GEO 开发"
-  short_description: "定位系统架构、修改数据契约并开发真实页面采集适配器"
-  default_prompt: "按照项目契约开发或修复 GEO Console。"
+  display_name: "GEO 云端开发"
+  short_description: "开发五平台联网采集、证据指标、Pi Agent 与云端报告"
+  default_prompt: "按照云端数据契约开发或审查 GEO Console。"

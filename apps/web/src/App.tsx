@@ -3,7 +3,6 @@ import {
 	IconAlertTriangle,
 	IconArrowLeft,
 	IconBolt,
-	IconBrandChrome,
 	IconBuilding,
 	IconChartLine,
 	IconCheck,
@@ -17,19 +16,40 @@ import {
 	IconKey,
 	IconLoader2,
 	IconPlus,
-	IconPrinter,
 	IconRefresh,
 	IconReportAnalytics,
 	IconRoute,
 	IconSearch,
-	IconServer,
 	IconSettings,
 	IconShieldCheck,
 	IconTrash,
 	IconWorldSearch,
 } from "@tabler/icons-react";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { api, patch, post, put } from "./api";
+import { ApiError, api, patch, post, put } from "./api";
+
+type ProviderId = "deepseek_api" | "kimi_api" | "doubao_api" | "qwen_api" | "yuanbao_hunyuan";
+const providerIds: ProviderId[] = ["deepseek_api", "kimi_api", "doubao_api", "qwen_api", "yuanbao_hunyuan"];
+const providerLabels: Record<string, string> = {
+	deepseek_api: "DeepSeek 联网 API",
+	kimi_api: "Kimi 联网 API",
+	doubao_api: "豆包・火山方舟联网 API",
+	qwen_api: "通义千问・DashScope 联网 API",
+	yuanbao_hunyuan: "元宝搜索源 + 混元合成",
+	deepseek: "DeepSeek 历史消费端",
+	kimi: "Kimi 历史消费端",
+};
+const providerLabel = (id: string): string => providerLabels[id] ?? id;
+const batchKindLabel = (kind: BatchSummary["kind"]): string =>
+	kind === "quick_audit" ? "售前快审" : kind === "baseline" ? "正式基线" : "同条件复测";
+
+type UserIdentity = {
+	id: string | null;
+	email: string;
+	displayName: string;
+	role: "admin" | "analyst" | "viewer";
+	localBypass: boolean;
+};
 
 type ProjectSummary = {
 	id: string;
@@ -43,7 +63,14 @@ type ProjectSummary = {
 	last_batch_at: string | null;
 };
 type Competitor = { id?: string; name: string; domain: string; aliases: string[] };
-type Prompt = { id?: string; question: string; intent: string; tags: string[] };
+type Prompt = {
+	id?: string;
+	question: string;
+	intent: string;
+	topic?: string | null;
+	persona?: string | null;
+	tags: string[];
+};
 type Finding = {
 	id: string;
 	batch_id: string;
@@ -73,7 +100,7 @@ type Task = {
 };
 type BatchSummary = {
 	id: string;
-	kind: "baseline" | "retest";
+	kind: "quick_audit" | "baseline" | "retest";
 	status: string;
 	created_at: string;
 	completed_at: string | null;
@@ -94,7 +121,7 @@ type MonitoringSchedule = {
 	id: string;
 	enabled: boolean;
 	frequency_days: number;
-	platforms: Array<"deepseek" | "kimi">;
+	platforms: ProviderId[];
 	repeats: number;
 	next_run_at: string | null;
 	last_run_at: string | null;
@@ -142,14 +169,23 @@ type Source = { url: string; domain: string; title: string | null; position: num
 type Capture = {
 	captureId: string;
 	prompt: string;
-	engine: "deepseek" | "kimi";
+	engine: ProviderId | "deepseek" | "kimi";
+	captureMode: "consumer_surface" | "llm_search_api";
 	attempt: number;
 	status: string;
 	answerText: string | null;
 	sources: Source[];
 	queryFanOut: string[];
 	brandMatches: Array<{ brandId: string; matchedAlias: string; position: number }>;
-	evidence: { screenshotObjectKey: string | null };
+	sourceVisibility?: "available" | "partial" | "unavailable";
+	fanoutVisibility?: "available" | "partial" | "unavailable";
+	model?: string;
+	protocol?: string;
+	searchToolVersion?: string;
+	usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } | null;
+	costMicros?: number | null;
+	latencyMs?: number | null;
+	evidence: { screenshotObjectKey?: string | null; rawResponseObjectKey?: string | null; requestId?: string | null };
 	failureMessage: string | null;
 	capturedAt: string;
 };
@@ -159,8 +195,11 @@ type PlatformMetrics = {
 	answerCoverage: number;
 	brandMentionRate: number;
 	firstRecommendationRate: number;
-	citationRate: number;
+	citationRate: number | null;
 	averageMentionPosition: number | null;
+	brandShareOfVoice?: number;
+	repeatConsistency?: number | null;
+	sourceCoverage?: number | null;
 	competitorMentionRates: Record<string, number>;
 };
 type Batch = BatchSummary & {
@@ -208,6 +247,7 @@ type ReportAnalysis = {
 	}>;
 	sourceDomains: Array<{
 		domain: string;
+		category: "owned" | "competitor" | "government" | "social" | "review" | "encyclopedia" | "other";
 		citationCount: number;
 		promptCount: number;
 		isOwned: boolean;
@@ -265,14 +305,69 @@ type AttributionPayload = {
 		imported_at: string;
 	}>;
 };
-type CollectorNode = {
+type AgentRun = {
 	id: string;
-	name: string;
-	version: string;
-	capabilities: string[];
-	last_seen_at: string | null;
+	batch_id: string | null;
+	purpose: string;
+	status: string;
+	model: string;
+	draft: Record<string, unknown> | null;
+	error_message: string | null;
+	created_at: string;
+};
+type ReportSnapshot = {
+	id: string;
+	batch_id: string;
+	report_type: "quick_audit" | "remediation" | "retest";
+	title: string;
+	payload_hash: string;
+	pdf_artifact_key: string | null;
+	created_at: string;
+};
+type ReportShare = {
+	id: string;
+	report_id: string;
+	expires_at: string;
 	revoked_at: string | null;
 	created_at: string;
+	created_by_email: string | null;
+};
+type DriftAlert = {
+	id: string;
+	provider_id: string;
+	metric: string;
+	previous_value: number | null;
+	current_value: number | null;
+	severity: string;
+	evidence_ids: string[];
+	acknowledged_at: string | null;
+	created_at: string;
+};
+type CostGroup = {
+	providerId: string;
+	operation: string;
+	requests: number;
+	inputTokens: number;
+	outputTokens: number;
+	totalTokens: number;
+	knownCostMicros: number;
+	costKnownRequests: number;
+};
+type ProviderSetting = {
+	providerId: ProviderId;
+	label: string;
+	disclosure: string;
+	enabled: boolean;
+	configured: boolean;
+	secondaryConfigured: boolean | null;
+	model: string;
+	endpoint: string;
+	secondaryEndpoint: string | null;
+	protocol: string;
+	searchToolVersion: string;
+	lastTestStatus: string | null;
+	lastTestMessage: string | null;
+	lastTestedAt: string | null;
 };
 type View =
 	| "overview"
@@ -361,7 +456,10 @@ function Notice({ message, type = "info" }: { message: string; type?: "info" | "
 	);
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Top-level application state keeps authentication and project navigation transitions atomic.
 export function App() {
+	const [user, setUser] = useState<UserIdentity | null>(null);
+	const [authReady, setAuthReady] = useState(false);
 	const [projects, setProjects] = useState<ProjectSummary[]>([]);
 	const [projectId, setProjectId] = useState<string | null>(null);
 	const [project, setProject] = useState<Project | null>(null);
@@ -371,6 +469,7 @@ export function App() {
 	const [error, setError] = useState<string | null>(null);
 
 	const loadProjects = useCallback(async () => {
+		if (!user) return;
 		try {
 			const result = await api<{ projects: ProjectSummary[] }>("/api/projects");
 			setProjects(result.projects);
@@ -379,7 +478,7 @@ export function App() {
 		} finally {
 			setLoading(false);
 		}
-	}, []);
+	}, [user]);
 	const loadProject = useCallback(async () => {
 		if (!projectId) return;
 		try {
@@ -389,22 +488,51 @@ export function App() {
 		}
 	}, [projectId]);
 	useEffect(() => {
+		api<{ user: UserIdentity }>("/api/auth/me")
+			.then((result) => setUser(result.user))
+			.catch((reason) => {
+				if (!(reason instanceof ApiError) || reason.status !== 401)
+					setError(reason instanceof Error ? reason.message : "身份检查失败");
+			})
+			.finally(() => setAuthReady(true));
+	}, []);
+	useEffect(() => {
 		void loadProjects();
 	}, [loadProjects]);
 	useEffect(() => {
 		void loadProject();
 	}, [loadProject]);
 
-	if (loading)
+	if (!authReady || (user && loading))
 		return (
 			<main className="center">
 				<IconLoader2 className="spin" />
 				<span>正在打开 GEO Console</span>
 			</main>
 		);
+	if (!user)
+		return (
+			<Login
+				error={error}
+				onLogin={(identity) => {
+					setError(null);
+					setLoading(true);
+					setUser(identity);
+				}}
+			/>
+		);
+	async function logoutUser() {
+		await post("/api/auth/logout");
+		setUser(null);
+		setProjects([]);
+		setProjectId(null);
+		setProject(null);
+		setLoading(false);
+	}
 	if (!projectId)
 		return (
 			<ProjectHome
+				account={<AccountControl user={user} onLogout={logoutUser} />}
 				projects={projects}
 				onOpen={setProjectId}
 				onCreate={() => setCreating(true)}
@@ -441,19 +569,21 @@ export function App() {
 					<span>{project?.name ?? "客户项目"}</span>
 				</button>
 				<nav>
-					{views.map((item) => (
-						<button
-							type="button"
-							key={item.id}
-							className={view === item.id ? "active" : ""}
-							aria-label={item.label}
-							title={item.label}
-							onClick={() => setView(item.id)}
-						>
-							<item.icon size={18} />
-							<span>{item.label}</span>
-						</button>
-					))}
+					{views
+						.filter((item) => item.id !== "settings" || user.role === "admin")
+						.map((item) => (
+							<button
+								type="button"
+								key={item.id}
+								className={view === item.id ? "active" : ""}
+								aria-label={item.label}
+								title={item.label}
+								onClick={() => setView(item.id)}
+							>
+								<item.icon size={18} />
+								<span>{item.label}</span>
+							</button>
+						))}
 				</nav>
 				<div className="sidebar-foot">
 					<span className="live-dot" />
@@ -466,9 +596,12 @@ export function App() {
 						<span className="eyebrow">{views.find((item) => item.id === view)?.label}</span>
 						<h1>{project?.name ?? "加载项目"}</h1>
 					</div>
-					<div className="domain">
-						<IconGlobe size={16} />
-						{project?.domain ?? ""}
+					<div className="topbar-actions">
+						<div className="domain">
+							<IconGlobe size={16} />
+							{project?.domain ?? ""}
+						</div>
+						<AccountControl user={user} onLogout={logoutUser} />
 					</div>
 				</header>
 				{error && <Notice type="error" message={error} />}
@@ -494,7 +627,7 @@ export function App() {
 						{view === "remediation" && <Remediation project={project} refresh={loadProject} />}
 						{view === "attribution" && <Attribution project={project} />}
 						{view === "report" && <Report project={project} />}
-						{view === "settings" && <Settings />}
+						{view === "settings" && user.role === "admin" && <Settings localBypass={user.localBypass} />}
 					</>
 				)}
 			</main>
@@ -502,7 +635,85 @@ export function App() {
 	);
 }
 
+function Login({ error, onLogin }: { error: string | null; onLogin(user: UserIdentity): void }) {
+	const [email, setEmail] = useState("");
+	const [password, setPassword] = useState("");
+	const [busy, setBusy] = useState(false);
+	const [message, setMessage] = useState<string | null>(error);
+	async function submit(event: FormEvent) {
+		event.preventDefault();
+		setBusy(true);
+		setMessage(null);
+		try {
+			const result = await post<{ user: UserIdentity }>("/api/auth/login", { email, password });
+			onLogin(result.user);
+		} catch (reason) {
+			setMessage(reason instanceof Error ? reason.message : "登录失败");
+		} finally {
+			setBusy(false);
+		}
+	}
+	return (
+		<main className="login-page">
+			<form className="login-panel" onSubmit={submit}>
+				<div className="brand">
+					<span className="brand-mark">G</span>
+					<div>
+						<strong>GEO Console</strong>
+						<small>机构云端工作台</small>
+					</div>
+				</div>
+				<div>
+					<h1>登录机构控制台</h1>
+					<p>监测密钥、客户证据和报告仅对机构成员开放。</p>
+				</div>
+				<label>
+					邮箱
+					<input
+						type="email"
+						autoComplete="username"
+						value={email}
+						onChange={(event) => setEmail(event.target.value)}
+						required
+					/>
+				</label>
+				<label>
+					密码
+					<input
+						type="password"
+						autoComplete="current-password"
+						value={password}
+						onChange={(event) => setPassword(event.target.value)}
+						required
+					/>
+				</label>
+				{message && <Notice type="error" message={message} />}
+				<Button type="submit" busy={busy}>
+					登录
+				</Button>
+			</form>
+		</main>
+	);
+}
+
+function AccountControl({ user, onLogout }: { user: UserIdentity; onLogout(): Promise<void> }) {
+	return (
+		<div className="account-control">
+			<div>
+				<b>{user.displayName}</b>
+				<small>
+					{user.role} · {user.email}
+				</small>
+			</div>
+			<Button variant="secondary" onClick={() => void onLogout()}>
+				退出
+			</Button>
+		</div>
+	);
+}
+
 function ProjectHome({
+	account,
 	projects,
 	onOpen,
 	onCreate,
@@ -511,6 +722,7 @@ function ProjectHome({
 	onCreated,
 	error,
 }: {
+	account: ReactNode;
 	projects: ProjectSummary[];
 	onOpen(id: string): void;
 	onCreate(): void;
@@ -529,9 +741,12 @@ function ProjectHome({
 						<small>真实 AI 可见度工作台</small>
 					</div>
 				</div>
-				<Button icon={<IconPlus size={17} />} onClick={onCreate}>
-					新建客户
-				</Button>
+				<div className="home-actions">
+					<Button icon={<IconPlus size={17} />} onClick={onCreate}>
+						新建客户
+					</Button>
+					{account}
+				</div>
 			</header>
 			<section className="home-title">
 				<span className="eyebrow">客户项目</span>
@@ -828,7 +1043,9 @@ function Onboarding({ project, refresh }: { project: Project; refresh(): Promise
 					<Button
 						variant="secondary"
 						icon={<IconPlus size={16} />}
-						onClick={() => setPrompts([...prompts, { question: "", intent: "购买决策", tags: [] }])}
+						onClick={() =>
+							setPrompts([...prompts, { question: "", intent: "购买决策", topic: "", persona: "", tags: [] }])
+						}
 					>
 						添加
 					</Button>
@@ -852,6 +1069,24 @@ function Onboarding({ project, refresh }: { project: Project; refresh(): Promise
 								onChange={(event) =>
 									setPrompts(
 										prompts.map((value, i) => (i === index ? { ...value, intent: event.target.value } : value)),
+									)
+								}
+							/>
+							<input
+								aria-label="主题"
+								placeholder="主题"
+								value={item.topic ?? ""}
+								onChange={(event) =>
+									setPrompts(prompts.map((value, i) => (i === index ? { ...value, topic: event.target.value } : value)))
+								}
+							/>
+							<input
+								aria-label="Persona"
+								placeholder="购买者角色"
+								value={item.persona ?? ""}
+								onChange={(event) =>
+									setPrompts(
+										prompts.map((value, i) => (i === index ? { ...value, persona: event.target.value } : value)),
 									)
 								}
 							/>
@@ -884,14 +1119,14 @@ function Overview({
 					<span>01</span>
 					<IconActivity />
 					<strong>建立基线</strong>
-					<small>DeepSeek / Kimi</small>
+					<small>五平台联网 API</small>
 				</button>
 				<i />
 				<button type="button" onClick={() => onNavigate("evidence")}>
 					<span>02</span>
 					<IconDatabase />
 					<strong>检查证据</strong>
-					<small>回答、来源、截图</small>
+					<small>回答、来源、原始响应</small>
 				</button>
 				<i />
 				<button type="button" onClick={() => onNavigate("diagnosis")}>
@@ -956,7 +1191,7 @@ function Overview({
 					<p>
 						{latest
 							? `创建于 ${date(latest.created_at)}。进入 AI 监测查看有效样本和失败样本。`
-							: "建档已经确认。下一步创建基线，Collector 才会向真实页面逐题提问。"}
+							: "建档已经确认。下一步先运行售前快审，或建立分时采样的正式基线。"}
 					</p>
 					<Button onClick={() => onNavigate("monitor")} icon={<IconChevronRight size={17} />}>
 						{latest ? "查看监测" : "建立基线"}
@@ -1084,7 +1319,9 @@ function ScopeEditor({ project, onClose, refresh }: { project: Project; onClose(
 						<Button
 							variant="secondary"
 							icon={<IconPlus size={16} />}
-							onClick={() => setPrompts([...prompts, { question: "", intent: "购买决策", tags: [] }])}
+							onClick={() =>
+								setPrompts([...prompts, { question: "", intent: "购买决策", topic: "", persona: "", tags: [] }])
+							}
 						>
 							添加问题
 						</Button>
@@ -1132,6 +1369,32 @@ function ScopeEditor({ project, onClose, refresh }: { project: Project; onClose(
 										}
 									/>
 								</label>
+								<label>
+									主题
+									<input
+										value={item.topic ?? ""}
+										onChange={(event) =>
+											setPrompts(
+												prompts.map((value, itemIndex) =>
+													itemIndex === index ? { ...value, topic: event.target.value } : value,
+												),
+											)
+										}
+									/>
+								</label>
+								<label>
+									购买者角色
+									<input
+										value={item.persona ?? ""}
+										onChange={(event) =>
+											setPrompts(
+												prompts.map((value, itemIndex) =>
+													itemIndex === index ? { ...value, persona: event.target.value } : value,
+												),
+											)
+										}
+									/>
+								</label>
 								<Button variant="ghost" onClick={() => setPrompts(prompts.filter((_, i) => i !== index))}>
 									删除
 								</Button>
@@ -1159,19 +1422,28 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 	const [trends, setTrends] = useState<TrendResponse | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [runPlatforms, setRunPlatforms] = useState<Array<"deepseek" | "kimi">>(["deepseek", "kimi"]);
+	const [alerts, setAlerts] = useState<DriftAlert[]>([]);
+	const [costs, setCosts] = useState<CostGroup[]>([]);
+	const [runPlatforms, setRunPlatforms] = useState<ProviderId[]>(providerIds);
 	const [runRepeats, setRunRepeats] = useState(3);
 	const [scheduleEnabled, setScheduleEnabled] = useState(project.monitoringSchedule?.enabled ?? false);
 	const [frequencyDays, setFrequencyDays] = useState(project.monitoringSchedule?.frequency_days ?? 7);
-	const [schedulePlatforms, setSchedulePlatforms] = useState<Array<"deepseek" | "kimi">>(
-		project.monitoringSchedule?.platforms?.length ? project.monitoringSchedule.platforms : ["deepseek", "kimi"],
+	const [schedulePlatforms, setSchedulePlatforms] = useState<ProviderId[]>(
+		project.monitoringSchedule?.platforms?.length ? project.monitoringSchedule.platforms : providerIds,
 	);
 	const [scheduleRepeats, setScheduleRepeats] = useState(project.monitoringSchedule?.repeats ?? 3);
+	const selectedBatch = project.batches.find((item) => item.id === selected);
 	const load = useCallback(async () => {
 		if (selected) setBatch(await api<Batch>(`/api/batches/${selected}`));
 	}, [selected]);
 	useEffect(() => {
 		void load();
+		api<{ alerts: DriftAlert[] }>(`/api/projects/${project.id}/drift-alerts`)
+			.then((result) => setAlerts(result.alerts))
+			.catch(() => setAlerts([]));
+		api<{ groups: CostGroup[] }>(`/api/projects/${project.id}/costs`)
+			.then((result) => setCosts(result.groups))
+			.catch(() => setCosts([]));
 		if (selected)
 			api<TrendResponse>(`/api/projects/${project.id}/trends/${selected}`)
 				.then(setTrends)
@@ -1196,14 +1468,14 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 			setBusy(false);
 		}
 	}
-	async function create(kind: "baseline" | "retest") {
+	async function create(kind: "quick_audit" | "baseline" | "retest") {
 		setBusy(true);
 		setError(null);
 		try {
 			const result = await post<{ id: string }>(
 				`/api/projects/${project.id}/batches`,
-				kind === "baseline"
-					? { kind, platforms: runPlatforms, repeats: runRepeats }
+				kind !== "retest"
+					? { kind, platforms: runPlatforms, repeats: kind === "quick_audit" ? 1 : runRepeats }
 					: { kind, compareToBatchId: selected },
 			);
 			setSelected(result.id);
@@ -1218,12 +1490,12 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 		<section>
 			<div className="section-head">
 				<div>
-					<h2>真实 AI 监测</h2>
-					<p>默认每题每平台重复 3 次。失败样本保留并计入失败率。</p>
+					<h2>五平台联网监测</h2>
+					<p>快审每题 1 次；正式基线默认分三个时间窗口采样。失败平台不进入品牌率分母。</p>
 				</div>
 				<div className="actions">
 					<div className="run-config">
-						{(["deepseek", "kimi"] as const).map((platform) => (
+						{providerIds.map((platform) => (
 							<label key={platform}>
 								<input
 									type="checkbox"
@@ -1236,7 +1508,7 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 										)
 									}
 								/>
-								{platform === "deepseek" ? "DeepSeek" : "Kimi"}
+								{providerLabel(platform)}
 							</label>
 						))}
 						<select
@@ -1251,8 +1523,17 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 							))}
 						</select>
 					</div>
-					<Button variant="secondary" busy={busy} onClick={() => create("retest")} disabled={!selected}>
+					<Button
+						variant="secondary"
+						busy={busy}
+						onClick={() => create("retest")}
+						disabled={selectedBatch?.kind !== "baseline"}
+						title={selectedBatch?.kind !== "baseline" ? "只能选择正式基线作为复测锚点" : undefined}
+					>
 						按此条件复测
+					</Button>
+					<Button variant="secondary" busy={busy} disabled={!runPlatforms.length} onClick={() => create("quick_audit")}>
+						运行售前快审
 					</Button>
 					<Button
 						busy={busy}
@@ -1260,17 +1541,62 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 						icon={<IconPlus size={17} />}
 						onClick={() => create("baseline")}
 					>
-						新建基线
+						新建正式基线
 					</Button>
 				</div>
 			</div>
 			{error && <Notice type="error" message={error} />}
+			{alerts
+				.filter((alert) => !alert.acknowledged_at)
+				.map((alert) => (
+					<div className="drift-alert" key={alert.id}>
+						<IconAlertTriangle size={18} />
+						<div>
+							<b>{providerLabel(alert.provider_id)} 指标漂移</b>
+							<span>
+								{alert.metric} 从 {percentage(alert.previous_value)} 降至 {percentage(alert.current_value)}，关联{" "}
+								{alert.evidence_ids.length} 条证据。
+							</span>
+						</div>
+						<Button
+							variant="ghost"
+							onClick={() =>
+								post(`/api/drift-alerts/${alert.id}/acknowledge`).then(() =>
+									setAlerts((current) =>
+										current.map((item) =>
+											item.id === alert.id ? { ...item, acknowledged_at: new Date().toISOString() } : item,
+										),
+									),
+								)
+							}
+						>
+							确认
+						</Button>
+					</div>
+				))}
+			{costs.length > 0 && (
+				<div className="cost-strip">
+					{costs.map((group) => (
+						<div key={`${group.providerId}-${group.operation}`}>
+							<span>{providerLabel(group.providerId)}</span>
+							<b>
+								{group.requests} 次请求 · {group.totalTokens.toLocaleString("zh-CN")} Token
+							</b>
+							<small>
+								{group.costKnownRequests === group.requests
+									? `已知费用 $${(group.knownCostMicros / 1_000_000).toFixed(4)}`
+									: "供应商未返回完整费用"}
+							</small>
+						</div>
+					))}
+				</div>
+			)}
 			<div className="schedule-band">
 				<div>
 					<IconChartLine size={24} />
 					<h3>周期监测</h3>
 					<p>
-						Worker 到期后自动冻结问题并创建真实采集批次；Collector 和登录会话必须在线。下一次运行：
+						云端 Worker 到期后冻结范围和平台配置，按时间窗口调用已启用 API。下一次运行：
 						{date(project.monitoringSchedule?.next_run_at)}
 					</p>
 				</div>
@@ -1303,7 +1629,7 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 						</select>
 					</label>
 					<div className="schedule-platforms">
-						{(["deepseek", "kimi"] as const).map((platform) => (
+						{providerIds.map((platform) => (
 							<label key={platform}>
 								<input
 									type="checkbox"
@@ -1316,7 +1642,7 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 										)
 									}
 								/>
-								{platform === "deepseek" ? "DeepSeek" : "Kimi"}
+								{providerLabel(platform)}
 							</label>
 						))}
 					</div>
@@ -1326,10 +1652,7 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 				</div>
 			</div>
 			{project.batches.length === 0 ? (
-				<Empty
-					title="还没有采集批次"
-					detail="先确认 DeepSeek 和 Kimi 已登录，再创建基线。Collector 会按冻结问题集开始真实采集。"
-				/>
+				<Empty title="还没有采集批次" detail="先在平台设置中配置并启用至少一个联网 API，再运行售前快审或正式基线。" />
 			) : (
 				<>
 					<div className="batch-strip">
@@ -1340,7 +1663,7 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 								key={item.id}
 								onClick={() => setSelected(item.id)}
 							>
-								<span>{item.kind === "baseline" ? "基线" : "复测"}</span>
+								<span>{batchKindLabel(item.kind)}</span>
 								<strong>{date(item.created_at)}</strong>
 								<small className={`status ${item.status}`}>{item.status}</small>
 							</button>
@@ -1421,7 +1744,7 @@ function BatchMetrics({ batch }: { batch: Batch }) {
 				{Object.entries(batch.metrics.perPlatform).map(([platform, metrics]) => (
 					<article className="metric-card" key={platform}>
 						<header>
-							<strong>{platform === "deepseek" ? "DeepSeek" : "Kimi"}</strong>
+							<strong>{providerLabel(platform)}</strong>
 							<span>
 								{metrics.answeredCaptures}/{metrics.totalCaptures} 有回答
 							</span>
@@ -1442,6 +1765,14 @@ function BatchMetrics({ batch }: { batch: Batch }) {
 							<div>
 								<dt>官网引用率</dt>
 								<dd>{percentage(metrics.citationRate)}</dd>
+							</div>
+							<div>
+								<dt>品牌声量份额</dt>
+								<dd>{percentage(metrics.brandShareOfVoice)}</dd>
+							</div>
+							<div>
+								<dt>重复一致性</dt>
+								<dd>{percentage(metrics.repeatConsistency)}</dd>
 							</div>
 							<div>
 								<dt>平均提及位置</dt>
@@ -1469,7 +1800,7 @@ function BatchPicker({
 		<select value={selected ?? ""} onChange={(event) => setSelected(event.target.value)}>
 			{project.batches.map((batch) => (
 				<option value={batch.id} key={batch.id}>
-					{batch.kind === "baseline" ? "基线" : "复测"} · {date(batch.created_at)} · {batch.status}
+					{batchKindLabel(batch.kind)} · {date(batch.created_at)} · {batch.status}
 				</option>
 			))}
 		</select>
@@ -1505,7 +1836,11 @@ function Evidence({ project }: { project: Project }) {
 			"回答",
 			"引用URL",
 			"平台检索拆解",
-			"截图",
+			"原始响应",
+			"模型",
+			"协议",
+			"请求ID",
+			"成本(微美元)",
 			"采集时间",
 			"失败原因",
 		];
@@ -1518,7 +1853,15 @@ function Evidence({ project }: { project: Project }) {
 			capture.answerText,
 			capture.sources.map((source) => source.url).join("\n"),
 			capture.queryFanOut.join("\n"),
-			capture.evidence.screenshotObjectKey ? `/artifacts/${capture.evidence.screenshotObjectKey}` : "",
+			capture.evidence.rawResponseObjectKey
+				? `/artifacts/${capture.evidence.rawResponseObjectKey}`
+				: capture.evidence.screenshotObjectKey
+					? `/artifacts/${capture.evidence.screenshotObjectKey}`
+					: "",
+			capture.model,
+			capture.protocol,
+			capture.evidence.requestId,
+			capture.costMicros,
 			capture.capturedAt,
 			capture.failureMessage,
 		]);
@@ -1529,20 +1872,23 @@ function Evidence({ project }: { project: Project }) {
 		);
 	}
 	if (!project.batches.length)
-		return <Empty title="还没有证据" detail="完成至少一个真实采集批次后，回答、来源和截图会出现在这里。" />;
+		return <Empty title="还没有证据" detail="完成至少一个真实采集批次后，回答、来源和原始 API 响应会出现在这里。" />;
 	return (
 		<section>
 			<div className="section-head">
 				<div>
 					<h2>原始证据索引</h2>
-					<p>原始回答与截图写入后不可修改；解析规则可版本化重算。</p>
+					<p>原始回答与 API 响应写入后不可修改；派生指标可以按新规则重算。</p>
 				</div>
 				<div className="filters">
 					<BatchPicker project={project} selected={selected} setSelected={setSelected} />
 					<select value={platform} onChange={(event) => setPlatform(event.target.value)}>
 						<option value="all">全部平台</option>
-						<option value="deepseek">DeepSeek</option>
-						<option value="kimi">Kimi</option>
+						{[...new Set(batch?.config.platforms ?? providerIds)].map((id) => (
+							<option value={id} key={id}>
+								{providerLabel(id)}
+							</option>
+						))}
 					</select>
 					<Button variant="secondary" icon={<IconDownload size={16} />} disabled={!captures.length} onClick={exportCsv}>
 						导出证据 CSV
@@ -1550,22 +1896,21 @@ function Evidence({ project }: { project: Project }) {
 				</div>
 			</div>
 			{captures.length === 0 ? (
-				<Empty title="批次尚无采集结果" detail="Collector 可能仍在运行，或平台登录状态需要处理。" />
+				<Empty title="批次尚无采集结果" detail="云端 Worker 可能仍在等待分时窗口，或平台配置需要处理。" />
 			) : (
 				<div className="evidence-list">
 					{captures.map((capture) => (
 						<article className="evidence-item" key={capture.captureId}>
 							<header>
 								<div>
-									<span className={`platform ${capture.engine}`}>
-										{capture.engine === "deepseek" ? "DeepSeek" : "Kimi"}
-									</span>
+									<span className={`platform ${capture.engine}`}>{providerLabel(capture.engine)}</span>
 									<strong>{capture.prompt}</strong>
 								</div>
 								<span className={`status ${capture.status}`}>{capture.status}</span>
 							</header>
 							<div className="evidence-meta">
-								第 {capture.attempt} 次采样 · {date(capture.capturedAt)} · 证据ID {capture.captureId}
+								第 {capture.attempt} 次采样 · {capture.model ?? "历史页面"} · {capture.protocol ?? capture.captureMode}{" "}
+								· {date(capture.capturedAt)} · 证据ID {capture.captureId}
 							</div>
 							{capture.answerText ? (
 								<p className="answer">{capture.answerText}</p>
@@ -1582,6 +1927,9 @@ function Evidence({ project }: { project: Project }) {
 									))}
 								</div>
 							)}
+							{capture.sourceVisibility === "unavailable" && (
+								<p className="muted">该平台本次未开放来源数据，引用率记为不可用，不按 0 计算。</p>
+							)}
 							{capture.queryFanOut.length > 0 && (
 								<div className="query-fanout">
 									<b>平台检索拆解</b>
@@ -1592,15 +1940,15 @@ function Evidence({ project }: { project: Project }) {
 									</div>
 								</div>
 							)}
-							{capture.evidence.screenshotObjectKey && (
+							{(capture.evidence.rawResponseObjectKey || capture.evidence.screenshotObjectKey) && (
 								<a
 									className="screenshot-link"
-									href={`/artifacts/${capture.evidence.screenshotObjectKey}`}
+									href={`/artifacts/${capture.evidence.rawResponseObjectKey ?? capture.evidence.screenshotObjectKey}`}
 									target="_blank"
 									rel="noreferrer"
 								>
-									<IconBrandChrome size={16} />
-									查看全页截图
+									<IconFileText size={16} />
+									{capture.captureMode === "llm_search_api" ? "查看原始 API 响应" : "查看历史页面截图"}
 								</a>
 							)}
 						</article>
@@ -1727,13 +2075,22 @@ function Diagnosis({ project, refresh }: { project: Project; refresh(): Promise<
 	const [selected, setSelected] = useState(project.batches[0]?.id ?? null);
 	const [busy, setBusy] = useState<"rules" | "model" | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
 	const findings = project.findings.filter((item) => item.batch_id === selected);
+	const loadAgentRuns = useCallback(async () => {
+		const result = await api<{ runs: AgentRun[] }>(`/api/projects/${project.id}/agent-runs`);
+		setAgentRuns(result.runs.filter((run) => run.batch_id === selected && run.purpose === "diagnosis"));
+	}, [project.id, selected]);
+	useEffect(() => {
+		void loadAgentRuns().catch(() => setAgentRuns([]));
+	}, [loadAgentRuns]);
 	async function run(enhanceWithModel = false) {
 		if (!selected) return;
 		setBusy(enhanceWithModel ? "model" : "rules");
 		setError(null);
 		try {
 			await post(`/api/batches/${selected}/diagnose${enhanceWithModel ? "/model" : ""}`);
+			if (enhanceWithModel) await loadAgentRuns();
 			await refresh();
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : "诊断失败");
@@ -1748,12 +2105,12 @@ function Diagnosis({ project, refresh }: { project: Project; refresh(): Promise<
 			<div className="section-head">
 				<div>
 					<h2>证据约束诊断</h2>
-					<p>确定性规则先输出可复核差距；模型增强只能使用已存在的证据 ID，且不是完成诊断的前置条件。</p>
+					<p>确定性规则输出可复核指标；Pi Agent 只能读取项目证据，并通过 HRouter GPT 生成待人工审批草稿。</p>
 				</div>
 				<div className="actions">
 					<BatchPicker project={project} selected={selected} setSelected={setSelected} />
 					<Button variant="secondary" busy={busy === "model"} onClick={() => run(true)}>
-						DeepSeek 证据增强
+						Pi Agent 诊断草稿
 					</Button>
 					<Button busy={busy === "rules"} icon={<IconSearch size={17} />} onClick={() => run()}>
 						生成证据诊断
@@ -1761,6 +2118,33 @@ function Diagnosis({ project, refresh }: { project: Project; refresh(): Promise<
 				</div>
 			</div>
 			{error && <Notice type="error" message={error} />}
+			{agentRuns.map((run) => (
+				<article className="agent-draft" key={run.id}>
+					<div>
+						<span className="eyebrow">Pi Agent · {run.model}</span>
+						<h3>{run.status === "awaiting_approval" ? "诊断草稿待审批" : `Agent 运行：${run.status}`}</h3>
+						<p>{run.error_message ?? "草稿中的每个结论已通过证据 ID 白名单校验；批准前不会写入正式诊断。"}</p>
+						{run.draft && <pre>{JSON.stringify(run.draft, null, 2)}</pre>}
+					</div>
+					{run.status === "awaiting_approval" && (
+						<div className="actions">
+							<Button variant="secondary" onClick={() => post(`/api/agent-runs/${run.id}/reject`).then(loadAgentRuns)}>
+								拒绝
+							</Button>
+							<Button
+								onClick={() =>
+									post(`/api/agent-runs/${run.id}/approve`).then(async () => {
+										await loadAgentRuns();
+										await refresh();
+									})
+								}
+							>
+								批准并入库
+							</Button>
+						</div>
+					)}
+				</article>
+			))}
 			{findings.length === 0 ? (
 				<Empty
 					title="这个批次还没有诊断"
@@ -1795,12 +2179,21 @@ function Diagnosis({ project, refresh }: { project: Project; refresh(): Promise<
 function Remediation({ project, refresh }: { project: Project; refresh(): Promise<void> }) {
 	const [busy, setBusy] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
 	const latestBatch = project.batches[0]?.id;
+	const loadAgentRuns = useCallback(async () => {
+		const result = await api<{ runs: AgentRun[] }>(`/api/projects/${project.id}/agent-runs`);
+		setAgentRuns(result.runs.filter((run) => ["remediation", "content_brief"].includes(run.purpose)));
+	}, [project.id]);
+	useEffect(() => {
+		void loadAgentRuns().catch(() => setAgentRuns([]));
+	}, [loadAgentRuns]);
 	async function call(id: string, action: () => Promise<unknown>) {
 		setBusy(id);
 		setError(null);
 		try {
 			await action();
+			await loadAgentRuns();
 			await refresh();
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : "操作失败");
@@ -1815,19 +2208,58 @@ function Remediation({ project, refresh }: { project: Project; refresh(): Promis
 					<h2>整改任务</h2>
 					<p>初稿需要人工审核；发布后填写真实 URL，系统重新抓取页面完成验收。</p>
 				</div>
-				<Button
-					disabled={!latestBatch}
-					busy={busy === "create"}
-					icon={<IconPlus size={17} />}
-					onClick={() =>
-						latestBatch &&
-						call("create", () => post(`/api/projects/${project.id}/tasks/from-findings`, { batchId: latestBatch }))
-					}
-				>
-					从最新诊断建任务
-				</Button>
+				<div className="actions">
+					<Button
+						variant="secondary"
+						disabled={!latestBatch}
+						busy={busy === "agent-plan"}
+						onClick={() =>
+							latestBatch &&
+							call("agent-plan", () => post(`/api/batches/${latestBatch}/agent`, { purpose: "remediation" }))
+						}
+					>
+						Pi Agent 规划草稿
+					</Button>
+					<Button
+						disabled={!latestBatch}
+						busy={busy === "create"}
+						icon={<IconPlus size={17} />}
+						onClick={() =>
+							latestBatch &&
+							call("create", () => post(`/api/projects/${project.id}/tasks/from-findings`, { batchId: latestBatch }))
+						}
+					>
+						从已批准诊断建任务
+					</Button>
+				</div>
 			</div>
 			{error && <Notice type="error" message={error} />}
+			{agentRuns
+				.filter((run) => run.status === "awaiting_approval")
+				.map((run) => (
+					<article className="agent-draft" key={run.id}>
+						<div>
+							<span className="eyebrow">Pi Agent · {run.purpose === "content_brief" ? "内容简报" : "整改规划"}</span>
+							<h3>草稿待人工审批</h3>
+							{run.draft && <pre>{JSON.stringify(run.draft, null, 2)}</pre>}
+						</div>
+						<div className="actions">
+							<Button variant="secondary" onClick={() => post(`/api/agent-runs/${run.id}/reject`).then(loadAgentRuns)}>
+								拒绝
+							</Button>
+							<Button
+								onClick={() =>
+									post(`/api/agent-runs/${run.id}/approve`).then(async () => {
+										await loadAgentRuns();
+										await refresh();
+									})
+								}
+							>
+								批准并入库
+							</Button>
+						</div>
+					</article>
+				))}
 			{project.tasks.length === 0 ? (
 				<Empty title="还没有整改任务" detail="先完成诊断，再把有证据的结论转换为可跟踪任务。" />
 			) : (
@@ -1913,7 +2345,7 @@ function TaskItem({ task, busy, act }: { task: Task; busy: boolean; act(action: 
 			<div className="task-actions">
 				<Button variant="secondary" busy={busy} onClick={() => act(() => post(`/api/tasks/${task.id}/content`))}>
 					<IconFileText size={16} />
-					生成简报和初稿
+					Pi Agent 生成待审批内容
 				</Button>
 				<div className="url-entry">
 					<input
@@ -2113,6 +2545,40 @@ function Report({ project }: { project: Project }) {
 	const [baselineBatch, setBaselineBatch] = useState<Batch | null>(null);
 	const [report, setReport] = useState<ReportPayload | null>(null);
 	const [reportError, setReportError] = useState<string | null>(null);
+	const [snapshots, setSnapshots] = useState<ReportSnapshot[]>([]);
+	const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
+	const [reportBusy, setReportBusy] = useState<string | null>(null);
+	const [shareUrl, setShareUrl] = useState<string | null>(null);
+	const [shares, setShares] = useState<ReportShare[]>([]);
+	const latestSnapshotId = snapshots.find((item) => item.batch_id === selected)?.id ?? null;
+	const loadSnapshots = useCallback(async () => {
+		const result = await api<{ reports: ReportSnapshot[] }>(`/api/projects/${project.id}/reports`);
+		setSnapshots(result.reports);
+	}, [project.id]);
+	const loadAgentRuns = useCallback(async () => {
+		const result = await api<{ runs: AgentRun[] }>(`/api/projects/${project.id}/agent-runs`);
+		setAgentRuns(
+			result.runs.filter(
+				(run) => run.batch_id === selected && ["report_narrative", "quality_review"].includes(run.purpose),
+			),
+		);
+	}, [project.id, selected]);
+	const loadShares = useCallback(async (reportId: string) => {
+		const result = await api<{ shares: ReportShare[] }>(`/api/reports/${reportId}/shares`);
+		setShares(result.shares);
+	}, []);
+	useEffect(() => {
+		void loadSnapshots().catch(() => setSnapshots([]));
+		void loadAgentRuns().catch(() => setAgentRuns([]));
+	}, [loadSnapshots, loadAgentRuns]);
+	useEffect(() => {
+		setShareUrl(null);
+		if (!latestSnapshotId) {
+			setShares([]);
+			return;
+		}
+		void loadShares(latestSnapshotId).catch(() => setShares([]));
+	}, [latestSnapshotId, loadShares]);
 	useEffect(() => {
 		if (!selected) return;
 		setReport(null);
@@ -2134,43 +2600,229 @@ function Report({ project }: { project: Project }) {
 		return <Empty title="还没有报告数据" detail="完成基线后可打印单批次报告；完成同条件复测后可展示前后变化。" />;
 	const analysis = report?.analysis;
 	const overall = batch?.metrics.overall;
+	const selectedSnapshots = snapshots.filter((item) => item.batch_id === selected);
+	const latestSnapshot = selectedSnapshots[0];
+	async function createSnapshot() {
+		if (!batch) return;
+		setReportBusy("snapshot");
+		setReportError(null);
+		try {
+			await post(`/api/batches/${batch.id}/reports`, {
+				reportType: batch.kind === "quick_audit" ? "quick_audit" : batch.kind === "retest" ? "retest" : "remediation",
+				compareToBatchId: batch.compare_to_batch_id,
+			});
+			await loadSnapshots();
+		} catch (reason) {
+			setReportError(reason instanceof Error ? reason.message : "报告快照生成失败");
+		} finally {
+			setReportBusy(null);
+		}
+	}
+	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Polling preserves each explicit server-side PDF terminal state for the user.
+	async function createPdf() {
+		if (!latestSnapshot) return;
+		setReportBusy("pdf");
+		try {
+			let result = await post<{ status: "ready" | "queued"; artifactKey: string | null }>(
+				`/api/reports/${latestSnapshot.id}/pdf`,
+			);
+			for (let attempt = 0; result.status !== "ready" && attempt < 120; attempt += 1) {
+				await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+				const status = await api<{
+					status: "ready" | "queued" | "failed" | "missing";
+					artifactKey: string | null;
+					error: string | null;
+				}>(`/api/reports/${latestSnapshot.id}/pdf`);
+				if (status.status === "failed" || status.status === "missing") throw new Error(status.error ?? "PDF 生成失败");
+				result = { status: status.status === "ready" ? "ready" : "queued", artifactKey: status.artifactKey };
+			}
+			if (!result.artifactKey) throw new Error("Report Worker 尚未在 2 分钟内完成 PDF");
+			await loadSnapshots();
+			window.open(`/artifacts/${result.artifactKey}`, "_blank", "noopener,noreferrer");
+		} catch (reason) {
+			setReportError(reason instanceof Error ? reason.message : "PDF 生成失败");
+		} finally {
+			setReportBusy(null);
+		}
+	}
+	async function createShare() {
+		if (!latestSnapshot) return;
+		setReportBusy("share");
+		try {
+			const result = await post<{ id: string; token: string }>(`/api/reports/${latestSnapshot.id}/shares`, {
+				expiresInDays: 30,
+			});
+			const url = `${window.location.origin}/share/${result.token}`;
+			setShareUrl(url);
+			await navigator.clipboard?.writeText(url);
+			await loadShares(latestSnapshot.id);
+		} catch (reason) {
+			setReportError(reason instanceof Error ? reason.message : "分享链接创建失败");
+		} finally {
+			setReportBusy(null);
+		}
+	}
+	async function runReportAgent(purpose: "report_narrative" | "quality_review") {
+		if (!batch) return;
+		setReportBusy(purpose);
+		try {
+			await post(`/api/batches/${batch.id}/agent`, { purpose });
+			await loadAgentRuns();
+		} catch (reason) {
+			setReportError(reason instanceof Error ? reason.message : "Agent 运行失败");
+		} finally {
+			setReportBusy(null);
+		}
+	}
 	return (
 		<section className="report">
 			<div className="section-head no-print">
 				<div>
 					<h2>中文效果报告</h2>
-					<p>可使用浏览器打印为 PDF。报告保留样本数、失败率和黑盒局限。</p>
+					<p>先冻结不可变报告快照，再由云端 Report Worker 生成中文 PDF、分享页和数据导出。</p>
 				</div>
 				<div className="actions">
 					<BatchPicker project={project} selected={selected} setSelected={setSelected} />
 					<Button
 						variant="secondary"
-						icon={<IconDownload size={17} />}
-						disabled={!report}
-						onClick={() =>
-							report &&
-							downloadText(
-								`${project.name}-${selected ?? "报告"}.json`,
-								JSON.stringify({ ...report, batch }, null, 2),
-								"application/json;charset=utf-8",
-							)
-						}
+						busy={reportBusy === "report_narrative"}
+						disabled={!batch}
+						onClick={() => runReportAgent("report_narrative")}
 					>
-						导出 JSON
+						Agent 报告叙述
 					</Button>
-					<Button icon={<IconPrinter size={17} />} onClick={() => window.print()}>
-						打印 / 导出PDF
+					<Button
+						variant="secondary"
+						busy={reportBusy === "quality_review"}
+						disabled={!batch}
+						onClick={() => runReportAgent("quality_review")}
+					>
+						Agent 质量检查
+					</Button>
+					<Button
+						variant="secondary"
+						busy={reportBusy === "snapshot"}
+						disabled={!batch || ["queued", "running"].includes(batch.status)}
+						onClick={createSnapshot}
+					>
+						冻结新报告快照
+					</Button>
+					<Button variant="secondary" busy={reportBusy === "share"} disabled={!latestSnapshot} onClick={createShare}>
+						创建30天分享链接
+					</Button>
+					<Button
+						icon={<IconDownload size={17} />}
+						busy={reportBusy === "pdf"}
+						disabled={!latestSnapshot}
+						onClick={createPdf}
+					>
+						云端生成 PDF
 					</Button>
 				</div>
 			</div>
 			{reportError && <Notice type="error" message={reportError} />}
+			{shareUrl && (
+				<div className="share-result">
+					<Notice type="success" message={`分享链接已复制：${shareUrl}`} />
+				</div>
+			)}
+			{shares.length > 0 && latestSnapshot && (
+				<div className="share-list no-print">
+					{shares.map((share) => {
+						const expired = new Date(share.expires_at).getTime() <= Date.now();
+						const active = !share.revoked_at && !expired;
+						return (
+							<article key={share.id}>
+								<div>
+									<b>{active ? "分享中" : share.revoked_at ? "已撤销" : "已过期"}</b>
+									<small>
+										{share.created_by_email ?? "系统"} · 创建 {date(share.created_at)} · 到期 {date(share.expires_at)}
+									</small>
+								</div>
+								{active && (
+									<Button
+										variant="ghost"
+										onClick={() =>
+											api(`/api/report-shares/${share.id}`, { method: "DELETE" }).then(() =>
+												loadShares(latestSnapshot.id),
+											)
+										}
+									>
+										撤销
+									</Button>
+								)}
+							</article>
+						);
+					})}
+				</div>
+			)}
+			{agentRuns
+				.filter((run) => run.status === "awaiting_approval")
+				.map((run) => (
+					<article className="agent-draft no-print" key={run.id}>
+						<div>
+							<span className="eyebrow">Pi Agent · {run.purpose === "report_narrative" ? "报告叙述" : "质量检查"}</span>
+							<h3>报告草稿待审批</h3>
+							{run.draft && <pre>{JSON.stringify(run.draft, null, 2)}</pre>}
+						</div>
+						<div className="actions">
+							<Button variant="secondary" onClick={() => post(`/api/agent-runs/${run.id}/reject`).then(loadAgentRuns)}>
+								拒绝
+							</Button>
+							<Button onClick={() => post(`/api/agent-runs/${run.id}/approve`).then(loadAgentRuns)}>批准</Button>
+						</div>
+					</article>
+				))}
+			{selectedSnapshots.length > 0 && (
+				<div className="snapshot-strip no-print">
+					{selectedSnapshots.map((snapshot) => (
+						<article key={snapshot.id}>
+							<div>
+								<b>{snapshot.title}</b>
+								<small>
+									{date(snapshot.created_at)} · 哈希 {snapshot.payload_hash.slice(0, 12)}
+								</small>
+							</div>
+							<div className="actions">
+								<a className="button secondary" href={`/api/reports/${snapshot.id}/export.csv`}>
+									CSV
+								</a>
+								<Button
+									variant="ghost"
+									onClick={() =>
+										api(`/api/reports/${snapshot.id}`).then((value) =>
+											downloadText(
+												`${snapshot.title}.json`,
+												JSON.stringify(value, null, 2),
+												"application/json;charset=utf-8",
+											),
+										)
+									}
+								>
+									JSON
+								</Button>
+								{snapshot.pdf_artifact_key && (
+									<a
+										className="button secondary"
+										href={`/artifacts/${snapshot.pdf_artifact_key}`}
+										target="_blank"
+										rel="noreferrer"
+									>
+										查看 PDF
+									</a>
+								)}
+							</div>
+						</article>
+					))}
+				</div>
+			)}
 			{batch && analysis ? (
 				<>
 					<header className="report-cover">
-						<span>真实消费端 GEO 可见度报告</span>
+						<span>联网 AI GEO 可见度报告</span>
 						<h1>{project.name}</h1>
 						<p>
-							{batch.kind === "retest" ? "同条件复测" : "基线监测"} · {date(batch.created_at)}
+							{batchKindLabel(batch.kind)} · {date(batch.created_at)}
 						</p>
 					</header>
 					<div className="executive-summary">
@@ -2305,7 +2957,7 @@ function Report({ project }: { project: Project }) {
 										<div key={source.domain}>
 											<span>{index + 1}</span>
 											<b>{source.domain}</b>
-											<small>{source.isOwned ? "客户官网" : `${source.promptCount} 个问题`}</small>
+											<small>{source.isOwned ? "客户官网" : `${source.category} · ${source.promptCount} 个问题`}</small>
 											<strong>{source.citationCount}</strong>
 										</div>
 									))}
@@ -2451,12 +3103,14 @@ function Report({ project }: { project: Project }) {
 											] as const
 										).map(([label, key]) => (
 											<tr key={`${platform}-${key}`}>
-												<td>{platform === "deepseek" ? "DeepSeek" : "Kimi"}</td>
+												<td>{providerLabel(platform)}</td>
 												<td>{label}</td>
 												<td>{percentage(before?.[key])}</td>
 												<td>{percentage(after?.[key])}</td>
 												<td className={(after?.[key] ?? 0) - (before?.[key] ?? 0) >= 0 ? "positive" : "negative"}>
-													{before && after ? `${((after[key] - before[key]) * 100).toFixed(1)} 个百分点` : "-"}
+													{before?.[key] != null && after?.[key] != null
+														? `${(((after[key] ?? 0) - (before[key] ?? 0)) * 100).toFixed(1)} 个百分点`
+														: "-"}
 												</td>
 											</tr>
 										));
@@ -2560,7 +3214,7 @@ function Report({ project }: { project: Project }) {
 										<td>
 											<code>{capture.captureId}</code>
 										</td>
-										<td>{capture.engine === "deepseek" ? "DeepSeek" : "Kimi"}</td>
+										<td>{providerLabel(capture.engine)}</td>
 										<td>{capture.prompt}</td>
 										<td>{capture.attempt}</td>
 										<td>{capture.status}</td>
@@ -2572,7 +3226,9 @@ function Report({ project }: { project: Project }) {
 					<div className="report-section limitation">
 						<h2>方法与局限</h2>
 						<p>
-							AI消费端答案和联网搜索属于平台黑盒，并具有随机性。报告仅描述本批次真实样本中的品牌提及、引用和位置变化，不证明单一整改与排名变化之间的因果关系，也不承诺固定推荐位置。
+							联网 API
+							的模型、索引与搜索策略属于平台黑盒，并具有随机性。报告仅描述冻结模型、问题集、地区和采样窗口下的真实结果；API
+							回答不等同于对应 App 页面回答，也不证明单一整改与排名变化之间的因果关系。
 						</p>
 					</div>
 				</>
@@ -2586,33 +3242,27 @@ function Report({ project }: { project: Project }) {
 	);
 }
 
-function Settings() {
-	const [configured, setConfigured] = useState(false);
-	const [model, setModel] = useState("");
-	const [key, setKey] = useState("");
-	const [statuses, setStatuses] = useState<Record<string, string>>({});
+function Settings({ localBypass }: { localBypass: boolean }) {
+	const [providers, setProviders] = useState<ProviderSetting[]>([]);
+	const [drafts, setDrafts] = useState<
+		Record<string, Partial<ProviderSetting> & { apiKey?: string; secondaryApiKey?: string }>
+	>({});
+	const [analysis, setAnalysis] = useState({ baseUrl: "https://hrouter.net/v1", model: "", configured: false });
+	const [analysisKey, setAnalysisKey] = useState("");
+	const [models, setModels] = useState<Array<{ id: string }>>([]);
 	const [busy, setBusy] = useState<string | null>(null);
 	const [message, setMessage] = useState<string | null>(null);
-	const [nodes, setNodes] = useState<CollectorNode[]>([]);
-	const [nodeName, setNodeName] = useState("");
-	const [newNodeToken, setNewNodeToken] = useState<string | null>(null);
 	const load = useCallback(async () => {
-		const [value, nodeResult] = await Promise.all([
-			api<{ deepseek: { configured: boolean; model: string } }>("/api/settings"),
-			api<{ nodes: CollectorNode[] }>("/api/collector-nodes"),
-		]);
-		setConfigured(value.deepseek.configured);
-		setModel(value.deepseek.model);
-		setNodes(nodeResult.nodes);
-		try {
-			const collector = await api<{ platforms: Record<string, string> }>("/collector/status");
-			setStatuses(collector.platforms);
-		} catch {
-			setStatuses({ deepseek: "collector_offline", kimi: "collector_offline" });
-		}
+		const value = await api<{
+			providers: ProviderSetting[];
+			analysis: { baseUrl: string; model: string | null; configured: boolean };
+		}>("/api/settings");
+		setProviders(value.providers);
+		setDrafts(Object.fromEntries(value.providers.map((provider) => [provider.providerId, { ...provider }])));
+		setAnalysis({ ...value.analysis, model: value.analysis.model ?? "" });
 	}, []);
 	useEffect(() => {
-		void load();
+		void load().catch((reason) => setMessage(reason instanceof Error ? reason.message : "设置加载失败"));
 	}, [load]);
 	async function action(name: string, run: () => Promise<unknown>) {
 		setBusy(name);
@@ -2627,133 +3277,364 @@ function Settings() {
 			setBusy(null);
 		}
 	}
+	function updateProvider(
+		id: ProviderId,
+		values: Partial<ProviderSetting> & { apiKey?: string; secondaryApiKey?: string },
+	) {
+		setDrafts((current) => ({ ...current, [id]: { ...current[id], ...values } }));
+	}
 	return (
 		<section>
 			<div className="section-head">
 				<div>
-					<h2>平台与模型设置</h2>
-					<p>API Key 只用于分析和内容生成；真实回答由本机浏览器页面采集。</p>
+					<h2>平台、GPT 与机构设置</h2>
+					<p>五个平台使用云端联网 API；HRouter GPT 与 Pi Agent 只生成待审批草稿。密钥以主密钥信封加密保存。</p>
 				</div>
-				<Button variant="secondary" icon={<IconRefresh size={17} />} onClick={() => load()}>
+				<Button variant="secondary" icon={<IconRefresh size={17} />} onClick={() => void load()}>
 					刷新状态
 				</Button>
 			</div>
 			{message && <Notice type={message === "操作成功" ? "success" : "error"} message={message} />}
-			<div className="settings-band">
+			<div className="settings-band hrouter-settings">
 				<div>
 					<IconKey size={24} />
-					<h3>DeepSeek 分析模型</h3>
-					<p>
-						当前模型：<code>{model || "读取中"}</code>
-						<br />
-						密钥状态：{configured ? "已配置" : "未配置"}
-					</p>
+					<h3>HRouter GPT 分析模型</h3>
+					<p>Pi SDK 通过受限领域工具调用管理员选定的 GPT。密钥：{analysis.configured ? "已配置" : "未配置"}</p>
 				</div>
-				<div className="key-form">
-					<input
-						type="password"
-						value={key}
-						onChange={(event) => setKey(event.target.value)}
-						placeholder="输入新的 DeepSeek API Key"
-					/>
-					<Button
-						busy={busy === "save"}
-						onClick={() => action("save", () => put("/api/settings/deepseek", { apiKey: key }))}
-					>
-						保存到系统密钥库
-					</Button>
-					<Button
-						variant="secondary"
-						busy={busy === "test"}
-						onClick={() => action("test", () => post("/api/settings/deepseek/test"))}
-					>
-						测试连接
-					</Button>
-				</div>
-			</div>
-			<div className="platform-settings">
-				{(["deepseek", "kimi"] as const).map((platform) => (
-					<article key={platform}>
-						<div className={`platform-logo ${platform}`}>{platform === "deepseek" ? "D" : "K"}</div>
-						<div>
-							<h3>{platform === "deepseek" ? "DeepSeek 真实页面" : "Kimi 真实页面"}</h3>
-							<p>
-								浏览器状态：<b>{statuses[platform] ?? "检查中"}</b>。Cookie 仅保存在本机专用 Profile。
-							</p>
-						</div>
+				<div className="key-form settings-form">
+					<label>
+						API 地址
+						<input
+							value={analysis.baseUrl}
+							onChange={(event) => setAnalysis({ ...analysis, baseUrl: event.target.value })}
+						/>
+					</label>
+					<label htmlFor="hrouter-model">
+						GPT 模型
+						{models.length ? (
+							<select
+								id="hrouter-model"
+								value={analysis.model}
+								onChange={(event) => setAnalysis({ ...analysis, model: event.target.value })}
+							>
+								<option value="">请选择</option>
+								{models.map((item) => (
+									<option value={item.id} key={item.id}>
+										{item.id}
+									</option>
+								))}
+							</select>
+						) : (
+							<input
+								id="hrouter-model"
+								value={analysis.model}
+								onChange={(event) => setAnalysis({ ...analysis, model: event.target.value })}
+								placeholder="gpt-*"
+							/>
+						)}
+					</label>
+					<label>
+						API Key
+						<input
+							type="password"
+							value={analysisKey}
+							onChange={(event) => setAnalysisKey(event.target.value)}
+							placeholder={analysis.configured ? "留空保持现有密钥" : "输入 HRouter API Key"}
+						/>
+					</label>
+					<div className="actions">
+						<Button
+							busy={busy === "hrouter-save"}
+							disabled={!analysis.model}
+							onClick={() =>
+								action("hrouter-save", () =>
+									put("/api/settings/hrouter", {
+										baseUrl: analysis.baseUrl,
+										model: analysis.model,
+										...(analysisKey ? { apiKey: analysisKey } : {}),
+									}),
+								)
+							}
+						>
+							保存 GPT 配置
+						</Button>
 						<Button
 							variant="secondary"
-							icon={<IconBrandChrome size={17} />}
-							busy={busy === platform}
-							onClick={() => action(platform, () => post(`/collector/login/${platform}`))}
+							busy={busy === "hrouter-models"}
+							onClick={() =>
+								action("hrouter-models", async () => {
+									const result = await api<{ models: Array<{ id: string }> }>("/api/settings/hrouter/models");
+									setModels(result.models);
+								})
+							}
 						>
-							打开登录页
+							读取可用 GPT
+						</Button>
+						<Button
+							variant="secondary"
+							busy={busy === "hrouter-test"}
+							onClick={() => action("hrouter-test", () => post("/api/settings/hrouter/test"))}
+						>
+							测试连接
+						</Button>
+					</div>
+				</div>
+			</div>
+			<div className="provider-settings">
+				{providers.map((provider) => {
+					const draft = drafts[provider.providerId] ?? provider;
+					return (
+						<article key={provider.providerId}>
+							<header>
+								<div>
+									<span className="platform-logo">{provider.label.slice(0, 1)}</span>
+									<div>
+										<h3>{provider.label}</h3>
+										<p>{provider.disclosure}</p>
+									</div>
+								</div>
+								<label className="toggle-label">
+									<input
+										type="checkbox"
+										checked={Boolean(draft.enabled)}
+										onChange={(event) => updateProvider(provider.providerId, { enabled: event.target.checked })}
+									/>
+									启用
+								</label>
+							</header>
+							<div className="provider-contract">
+								<code>{provider.protocol}</code>
+								<span>搜索工具 {provider.searchToolVersion}</span>
+								<span>密钥 {provider.configured ? "已配置" : "未配置"}</span>
+								{provider.secondaryConfigured !== null && (
+									<span>混元密钥 {provider.secondaryConfigured ? "已配置" : "未配置"}</span>
+								)}
+							</div>
+							<div className="provider-form">
+								<label>
+									模型
+									<input
+										value={String(draft.model ?? "")}
+										onChange={(event) => updateProvider(provider.providerId, { model: event.target.value })}
+									/>
+								</label>
+								<label>
+									API 地址
+									<input
+										value={String(draft.endpoint ?? "")}
+										onChange={(event) => updateProvider(provider.providerId, { endpoint: event.target.value })}
+									/>
+								</label>
+								{provider.secondaryEndpoint !== null && (
+									<label>
+										混元合成地址
+										<input
+											value={String(draft.secondaryEndpoint ?? "")}
+											onChange={(event) =>
+												updateProvider(provider.providerId, { secondaryEndpoint: event.target.value })
+											}
+										/>
+									</label>
+								)}
+								<label>
+									API Key
+									<input
+										type="password"
+										value={draft.apiKey ?? ""}
+										onChange={(event) => updateProvider(provider.providerId, { apiKey: event.target.value })}
+										placeholder={provider.configured ? "留空保持现有密钥" : "必填"}
+									/>
+								</label>
+								{provider.secondaryConfigured !== null && (
+									<label>
+										混元 API Key
+										<input
+											type="password"
+											value={draft.secondaryApiKey ?? ""}
+											onChange={(event) => updateProvider(provider.providerId, { secondaryApiKey: event.target.value })}
+											placeholder={provider.secondaryConfigured ? "留空保持现有密钥" : "必填"}
+										/>
+									</label>
+								)}
+							</div>
+							<footer>
+								<span className={`status ${provider.lastTestStatus ?? "idle"}`}>
+									{provider.lastTestStatus ?? "未测试"} {provider.lastTestMessage ?? ""}
+								</span>
+								<div className="actions">
+									<Button
+										variant="secondary"
+										busy={busy === `${provider.providerId}-test`}
+										onClick={() =>
+											action(`${provider.providerId}-test`, () =>
+												post(`/api/settings/providers/${provider.providerId}/test`),
+											)
+										}
+									>
+										测试连接
+									</Button>
+									<Button
+										busy={busy === `${provider.providerId}-save`}
+										onClick={() =>
+											action(`${provider.providerId}-save`, () =>
+												put(`/api/settings/providers/${provider.providerId}`, {
+													enabled: Boolean(draft.enabled),
+													model: draft.model,
+													endpoint: draft.endpoint,
+													secondaryEndpoint: draft.secondaryEndpoint,
+													...(draft.apiKey ? { apiKey: draft.apiKey } : {}),
+													...(draft.secondaryApiKey ? { secondaryApiKey: draft.secondaryApiKey } : {}),
+													options: {},
+												}),
+											)
+										}
+									>
+										保存平台
+									</Button>
+								</div>
+							</footer>
+						</article>
+					);
+				})}
+			</div>
+			{localBypass ? (
+				<div className="settings-band">
+					<div>
+						<IconKey size={24} />
+						<h3>机构成员</h3>
+						<p>
+							当前是本机免登录开发模式。配置 GEO_ADMIN_EMAIL 和 GEO_ADMIN_PASSWORD
+							后重启，即可启用管理员、分析师和只读成员管理。
+						</p>
+					</div>
+				</div>
+			) : (
+				<UserManagement />
+			)}
+			<AuditLogPanel />
+		</section>
+	);
+}
+
+type AuditLogRow = {
+	id: string;
+	action: string;
+	target_type: string;
+	target_id: string | null;
+	metadata: Record<string, unknown>;
+	actor_email: string | null;
+	created_at: string;
+};
+function AuditLogPanel() {
+	const [logs, setLogs] = useState<AuditLogRow[]>([]);
+	useEffect(() => {
+		void api<{ logs: AuditLogRow[] }>("/api/audit-logs")
+			.then((result) => setLogs(result.logs))
+			.catch(() => setLogs([]));
+	}, []);
+	return (
+		<div className="audit-log-panel">
+			<h3>审计日志</h3>
+			<p>保留最近 200 条成员写操作、审批和设置变更。</p>
+			<div className="audit-log-list">
+				{logs.slice(0, 50).map((log) => (
+					<article key={log.id}>
+						<time>{date(log.created_at)}</time>
+						<b>{log.action}</b>
+						<span>
+							{log.actor_email ?? "系统"} · {log.target_type}
+							{log.target_id ? ` · ${log.target_id}` : ""}
+						</span>
+						<code>{JSON.stringify(log.metadata)}</code>
+					</article>
+				))}
+			</div>
+		</div>
+	);
+}
+
+type ManagedUser = {
+	id: string;
+	email: string;
+	display_name: string;
+	role: string;
+	disabled_at: string | null;
+	created_at: string;
+};
+function UserManagement() {
+	const [users, setUsers] = useState<ManagedUser[]>([]);
+	const [form, setForm] = useState({ email: "", displayName: "", role: "analyst", password: "" });
+	const [error, setError] = useState<string | null>(null);
+	const load = useCallback(
+		() => api<{ users: ManagedUser[] }>("/api/users").then((result) => setUsers(result.users)),
+		[],
+	);
+	useEffect(() => {
+		void load().catch(() => setUsers([]));
+	}, [load]);
+	async function create() {
+		setError(null);
+		try {
+			await post("/api/users", form);
+			setForm({ email: "", displayName: "", role: "analyst", password: "" });
+			await load();
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : "成员创建失败");
+		}
+	}
+	return (
+		<div className="user-management">
+			<div>
+				<h3>机构成员</h3>
+				<p>管理员管理配置；分析师执行项目；只读成员查看证据和报告。</p>
+			</div>
+			{error && <Notice type="error" message={error} />}
+			<div className="user-create">
+				<input
+					type="email"
+					placeholder="邮箱"
+					value={form.email}
+					onChange={(event) => setForm({ ...form, email: event.target.value })}
+				/>
+				<input
+					placeholder="姓名"
+					value={form.displayName}
+					onChange={(event) => setForm({ ...form, displayName: event.target.value })}
+				/>
+				<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}>
+					<option value="admin">管理员</option>
+					<option value="analyst">分析师</option>
+					<option value="viewer">只读</option>
+				</select>
+				<input
+					type="password"
+					placeholder="至少12位初始密码"
+					value={form.password}
+					onChange={(event) => setForm({ ...form, password: event.target.value })}
+				/>
+				<Button disabled={!form.email || !form.displayName || form.password.length < 12} onClick={create}>
+					添加成员
+				</Button>
+			</div>
+			<div className="user-list">
+				{users.map((user) => (
+					<article key={user.id}>
+						<div>
+							<b>{user.display_name}</b>
+							<small>
+								{user.email} · {user.role} · {user.disabled_at ? "已停用" : "有效"}
+							</small>
+						</div>
+						<Button
+							variant="ghost"
+							disabled={Boolean(user.disabled_at)}
+							onClick={() => api(`/api/users/${user.id}`, { method: "DELETE" }).then(load)}
+						>
+							停用
 						</Button>
 					</article>
 				))}
 			</div>
-			<div className="collector-settings">
-				<div>
-					<IconServer size={24} />
-					<h3>Collector 节点</h3>
-					<p>服务器可配对独立采集机。节点令牌只显示一次；平台 Cookie 仍只保存在采集机。</p>
-				</div>
-				<div>
-					<div className="node-create">
-						<input value={nodeName} onChange={(event) => setNodeName(event.target.value)} placeholder="采集机名称" />
-						<Button
-							variant="secondary"
-							busy={busy === "node-create"}
-							disabled={!nodeName.trim()}
-							onClick={() =>
-								action("node-create", async () => {
-									const created = await post<{ id: string; token: string }>("/api/collector-nodes", {
-										name: nodeName,
-									});
-									setNewNodeToken(created.token);
-									setNodeName("");
-								})
-							}
-						>
-							创建配对令牌
-						</Button>
-					</div>
-					{newNodeToken && (
-						<div className="pairing-token">
-							<b>只显示一次，请配置为采集机的 GEO_COLLECTOR_TOKEN</b>
-							<code>{newNodeToken}</code>
-						</div>
-					)}
-					<div className="collector-node-list">
-						{nodes.map((node) => {
-							const live =
-								!node.revoked_at &&
-								Boolean(node.last_seen_at && Date.now() - new Date(node.last_seen_at).getTime() < 90_000);
-							return (
-								<article key={node.id}>
-									<span className={node.revoked_at ? "node-state revoked" : live ? "node-state live" : "node-state"}>
-										{node.revoked_at ? "已撤销" : live ? "在线" : "离线"}
-									</span>
-									<div>
-										<b>{node.name}</b>
-										<small>
-											{node.capabilities.join(" / ")} · v{node.version} · 最近心跳 {date(node.last_seen_at)}
-										</small>
-									</div>
-									<Button
-										variant="ghost"
-										disabled={Boolean(node.revoked_at)}
-										busy={busy === node.id}
-										onClick={() => action(node.id, () => api(`/api/collector-nodes/${node.id}`, { method: "DELETE" }))}
-									>
-										撤销
-									</Button>
-								</article>
-							);
-						})}
-					</div>
-				</div>
-			</div>
-		</section>
+		</div>
 	);
 }

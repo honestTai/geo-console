@@ -1,39 +1,38 @@
 # 运行与故障处理
 
-## 日常检查
+## 健康检查
 
 ```bash
 corepack pnpm geo doctor
 curl -fsS http://127.0.0.1:3010/api/health
-curl -fsS http://127.0.0.1:3020/status
+docker compose ps
+docker compose logs --tail=200 api capture-worker report-worker
 ```
 
-Web、Worker 和 Collector 必须同时运行。Worker 正常但平台为 `login_required` 时，从“平台设置”打开登录页并手工登录。`challenge_required` 需要人工完成平台验证；不要自动绕过。
+健康响应会标识数据库类型、对象存储模式、HRouter 配置状态和云端采集模式，不暴露 Key 或完整模型配置。
 
-服务器远程 Collector 可在“平台设置”查看最近心跳和版本。撤销会立即使该令牌无法领取或提交任务；撤销前先确认没有正在采集的租约，并准备新的配对令牌。
+## 采集队列
 
-## 队列
+Capture 任务状态为 `pending -> leased -> complete`。进程退出后租约过期即可被其他 Worker 领取。供应商的鉴权、限流、超时、模型下线和协议变化会写入不可变 `QueryCapture`；不得补数或改写为成功。
 
-任务状态为 `pending -> leased -> complete`。Collector 异常退出后，租约到期会被其他节点重新领取。业务失败通过 `QueryCapture.status` 入库并结束任务；网络或进程错误才进入重试。超过最大重试次数的任务为 `failed`，对应批次最终为 `partial`。
+排查部分批次时记录批次 ID、配置哈希、计划/有效/失败样本和按平台失败码。先修复 Key、配额、网络或适配器，再创建新基线或严格复测。不要手工把未完成租约改成 `complete`。
 
-不要直接把 `leased` 改为 `complete`。恢复时先确认 Collector 已停止，再让租约自然到期；只有经过备份和明确授权才执行数据库修复。
+## Report Worker
 
-## 备份
+PDF 请求创建 `report_pdf` 数据库任务。页面显示排队超过两分钟时检查 Report Worker、Chromium、中文字体、对象存储写权限和任务 `last_error`。报告 payload 已冻结，不需要重建快照；修复环境后让任务按租约重试。
 
-本机备份前停止 `pnpm geo start`：
+Report Worker 每 15 秒检查一次定时监测最近完成的批次。该批次尚无快照时会自动冻结售前、整改或周期复测报告，并创建 PDF 任务；已存在快照时只补齐缺失的 PDF 任务。Agent 报告叙述仍需人工批准，不会被自动写入正式快照。
 
-```bash
-corepack pnpm geo backup
-```
+## 漂移与费用
 
-服务器数据库备份：
+复测相对正式基线下降至少 10 个百分点时生成漂移告警，20 个百分点为高等级。确认告警不会删除证据。费用只有供应商明确返回时才汇总金额；否则展示请求和 Token，并标注费用未知。
 
-```bash
-docker compose --profile backup run --rm backup
-```
+## 备份恢复
 
-证据卷和数据库必须成对备份。恢复 PostgreSQL 前先启动新的空实例验证 dump；不要覆盖唯一生产副本。浏览器 Profile 包含登录态，不进入服务器备份或证据导出。
+本机备份前停止 `pnpm geo start`，再运行 `corepack pnpm geo backup`。服务器使用 `docker compose --profile backup run --rm backup`。数据库与本地证据卷必须同一时间点恢复；S3 模式应先验证对象版本仍存在。
 
-## 证据清理
+恢复必须进入新建空 PGlite/PostgreSQL，运行健康与证据抽查后再切换。不要直接覆盖唯一实例。
 
-默认保留所有原始采集。需要满足客户删除要求时，先导出报告和证据索引、停止对应批次，再删除整个客户项目及其专属 artifact 目录。不要只删除截图而留下指向失效对象的数据库记录。删除属于破坏性操作，必须在执行前确认项目 ID、目录和备份状态。
+## 证据保留
+
+默认永久保留 `query_captures`、网页快照、原始响应和报告快照。客户删除请求属于破坏性操作：先解析准确项目 ID、报告关联、对象前缀、审计要求和备份状态，再获得明确确认。禁止只删对象而保留悬空数据库引用。

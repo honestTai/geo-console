@@ -1,27 +1,24 @@
-import { randomBytes, randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import {
+	areBatchConfigsComparable,
 	type CaptureJobPayload,
 	type Database,
 	enqueueCaptureJob,
 	type FrozenBatchConfig,
-	geoPaths,
+	type SearchProviderId,
+	searchProviderIds,
 	type WebsiteAuditResult,
 } from "@geo/core";
-import { type QueryCapture, queryCaptureSchema } from "@geo/evidence";
+import { type QueryCapture, type QueryCaptureV2, queryCaptureSchema, queryCaptureV2Schema } from "@geo/evidence";
 import { calculateEqualWeightedOverall, calculateVisibilityMetrics } from "@geo/metrics";
-import { currentCollectorVersion } from "@geo/surface-adapters";
 import { z } from "zod";
 import { auditWebsite, crawlPublishedUrl, crawlWebsite } from "./crawler";
-import { analyzeCustomer, deepSeekStructured } from "./deepseek";
-import {
-	buildDeterministicFindings,
-	buildReportAnalysis,
-	type DiagnosisWebEvidence,
-	type ReportFinding,
-} from "./report";
+import { analyzeCustomer } from "./hrouter";
+import { providerDefinitions } from "./providers";
+import { buildDeterministicFindings, buildReportAnalysis, type DiagnosisWebEvidence } from "./report";
 import { normalizeDomain, parseJsonColumn, sha256, stableJson } from "./utils";
+
+export const currentRunnerVersion = "cloud-runner.v1";
 
 const projectInputSchema = z.object({
 	name: z.string().trim().min(1),
@@ -120,7 +117,7 @@ export async function analyzeProject(database: Database, id: string): Promise<Re
 		])
 	).rows[0];
 	const pages = await crawlWebsite(database, id, String(project.website_url), 100);
-	const analysis = await analyzeCustomer({
+	const analysis = await analyzeCustomer(database, {
 		name: String(project.name),
 		websiteUrl: String(project.website_url),
 		region: String(project.region),
@@ -140,8 +137,17 @@ export async function analyzeProject(database: Database, id: string): Promise<Re
 		}
 		for (const [position, prompt] of analysis.prompts.entries()) {
 			await transaction.query(
-				"INSERT INTO prompts (id,project_id,question,intent,tags,approved,position) VALUES ($1,$2,$3,$4,$5::jsonb,false,$6)",
-				[randomUUID(), id, prompt.question, prompt.intent, JSON.stringify(prompt.tags), position],
+				"INSERT INTO prompts (id,project_id,question,intent,topic,persona,tags,approved,position) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,false,$8)",
+				[
+					randomUUID(),
+					id,
+					prompt.question,
+					prompt.intent,
+					prompt.topic,
+					prompt.persona,
+					JSON.stringify(prompt.tags),
+					position,
+				],
 			);
 		}
 		await transaction.query(
@@ -170,6 +176,8 @@ const reviewSchema = z.object({
 				id: z.string().optional(),
 				question: z.string().trim().min(4),
 				intent: z.string().trim().min(1),
+				topic: z.preprocess((value) => (value === "" ? null : value), z.string().trim().min(1).optional().nullable()),
+				persona: z.preprocess((value) => (value === "" ? null : value), z.string().trim().min(1).optional().nullable()),
 				tags: z.array(z.string().trim().min(1)).default([]),
 			}),
 		)
@@ -197,8 +205,17 @@ export async function confirmProject(database: Database, id: string, input: unkn
 		}
 		for (const [position, prompt] of data.prompts.entries()) {
 			await transaction.query(
-				"INSERT INTO prompts (id,project_id,question,intent,tags,approved,position) VALUES ($1,$2,$3,$4,$5::jsonb,true,$6)",
-				[randomUUID(), id, prompt.question, prompt.intent, JSON.stringify(prompt.tags), position],
+				"INSERT INTO prompts (id,project_id,question,intent,topic,persona,tags,approved,position) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,true,$8)",
+				[
+					randomUUID(),
+					id,
+					prompt.question,
+					prompt.intent,
+					prompt.topic ?? null,
+					prompt.persona ?? null,
+					JSON.stringify(prompt.tags),
+					position,
+				],
 			);
 		}
 		await transaction.query(
@@ -209,21 +226,25 @@ export async function confirmProject(database: Database, id: string, input: unkn
 }
 
 const batchInputSchema = z.object({
-	kind: z.enum(["baseline", "retest"]),
+	kind: z.enum(["quick_audit", "baseline", "retest"]),
 	compareToBatchId: z.string().optional().nullable(),
 	platforms: z
-		.array(z.enum(["deepseek", "kimi"]))
+		.array(z.enum(searchProviderIds))
 		.min(1)
-		.default(["deepseek", "kimi"]),
-	repeats: z.number().int().min(1).max(10).default(3),
+		.default([...searchProviderIds]),
+	repeats: z.number().int().min(1).max(10).optional(),
+	executionWindowMinutes: z.array(z.number().int().min(0).max(43_200)).max(10).optional(),
 });
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Baseline and retest invariants must be evaluated together before any jobs are created.
 export async function createBatch(
 	database: Database,
 	projectId: string,
 	input: unknown,
 ): Promise<{ id: string; jobCount: number }> {
 	const data = batchInputSchema.parse(input);
+	const repeats = data.repeats ?? (data.kind === "quick_audit" ? 1 : 3);
+	if (data.kind === "quick_audit" && repeats !== 1) throw new Error("售前快审固定每平台每题采样 1 次");
 	const project = (await database.query<Record<string, unknown>>("SELECT * FROM projects WHERE id = $1", [projectId]))
 		.rows[0];
 	if (project?.status !== "active") throw new Error("客户配置尚未人工确认，不能开始采集");
@@ -232,12 +253,17 @@ export async function createBatch(
 		if (!data.compareToBatchId) throw new Error("复测必须选择一个基线批次");
 		const baseline = (
 			await database.query<{ config: FrozenBatchConfig | string }>(
-				"SELECT config FROM experiment_batches WHERE id = $1 AND project_id = $2",
+				"SELECT config FROM experiment_batches WHERE id = $1 AND project_id = $2 AND kind='baseline'",
 				[data.compareToBatchId, projectId],
 			)
 		).rows[0];
-		if (!baseline) throw new Error("对比批次不存在");
+		if (!baseline) throw new Error("复测只能选择正式基线批次");
 		config = parseJsonColumn(baseline.config);
+		if (
+			!config.providers?.length ||
+			config.providers.some((provider) => !provider.endpoint || !provider.adapterVersion)
+		)
+			throw new Error("所选基线缺少完整的云端 Provider 冻结契约，请先创建新的正式基线");
 	} else {
 		const competitors = await database.query<Record<string, unknown>>(
 			"SELECT * FROM competitors WHERE project_id = $1 AND approved = true AND archived_at IS NULL ORDER BY created_at",
@@ -248,6 +274,20 @@ export async function createBatch(
 			[projectId],
 		);
 		if (prompts.rows.length === 0) throw new Error("至少确认一个监测问题");
+		const enabledProviders = await database.query<Record<string, unknown>>(
+			"SELECT * FROM provider_configs WHERE organization_id='default' AND enabled=true AND provider_id=ANY($1::text[])",
+			[data.platforms],
+		);
+		const enabledIds = new Set(enabledProviders.rows.map((row) => String(row.provider_id)));
+		const missing = data.platforms.filter((providerId) => !enabledIds.has(providerId));
+		if (missing.length)
+			throw new Error(`以下监测平台尚未启用：${missing.map((id) => providerDefinitions[id].label).join("、")}`);
+		const windowMinutes =
+			data.kind === "quick_audit"
+				? [0]
+				: data.executionWindowMinutes?.length === repeats
+					? data.executionWindowMinutes
+					: Array.from({ length: repeats }, (_, index) => [0, 240, 1440][index] ?? index * 1440);
 		config = {
 			project: {
 				name: String(project.name),
@@ -262,15 +302,38 @@ export async function createBatch(
 				domain: String(row.domain),
 				aliases: parseJsonColumn<string[]>(row.aliases as string | string[]),
 			})),
-			prompts: prompts.rows.map((row) => ({
+			prompts: prompts.rows.slice(0, 20).map((row) => ({
 				id: String(row.id),
 				question: String(row.question),
 				intent: String(row.intent),
+				topic: row.topic ? String(row.topic) : null,
+				persona: row.persona ? String(row.persona) : null,
 				tags: parseJsonColumn<string[]>(row.tags as string | string[]),
 			})),
 			platforms: [...new Set(data.platforms)],
-			repeats: data.repeats,
-			collectorVersion: currentCollectorVersion,
+			repeats,
+			runnerVersion: currentRunnerVersion,
+			samplingMode: data.kind === "quick_audit" ? "quick" : "formal",
+			executionWindows: windowMinutes.map((minutes) => `PT${minutes}M`),
+			providers: enabledProviders.rows.map((row) => {
+				const searchStrategy = parseJsonColumn<Record<string, unknown>>(
+					row.search_strategy as string | Record<string, unknown>,
+				);
+				const options =
+					searchStrategy.options && typeof searchStrategy.options === "object"
+						? (searchStrategy.options as Record<string, unknown>)
+						: {};
+				return {
+					id: String(row.provider_id) as SearchProviderId,
+					endpoint: String(row.endpoint),
+					secondaryEndpoint: typeof options.secondaryEndpoint === "string" ? options.secondaryEndpoint : undefined,
+					model: String(row.model),
+					protocol: String(row.protocol),
+					searchToolVersion: providerDefinitions[String(row.provider_id) as SearchProviderId].searchToolVersion,
+					searchStrategy,
+					adapterVersion: String(row.adapter_version),
+				};
+			}),
 		};
 	}
 	const id = randomUUID();
@@ -298,7 +361,8 @@ export async function createBatch(
 					locale: config.project.language,
 					brands,
 				};
-				await enqueueCaptureJob(database, payload);
+				const offset = Number(config.executionWindows?.[attempt - 1]?.match(/^PT(\d+)M$/)?.[1] ?? 0);
+				await enqueueCaptureJob(database, payload, new Date(Date.now() + offset * 60_000));
 				jobCount += 1;
 			}
 	return { id, jobCount };
@@ -307,8 +371,9 @@ export async function createBatch(
 const scheduleSchema = z.object({
 	enabled: z.boolean(),
 	frequencyDays: z.number().int().min(1).max(90),
-	platforms: z.array(z.enum(["deepseek", "kimi"])).min(1),
+	platforms: z.array(z.enum(searchProviderIds)).min(1),
 	repeats: z.number().int().min(1).max(10),
+	executionWindowMinutes: z.array(z.number().int().min(0).max(43_200)).max(10).optional(),
 });
 
 export async function saveMonitoringSchedule(database: Database, projectId: string, input: unknown): Promise<void> {
@@ -318,10 +383,10 @@ export async function saveMonitoringSchedule(database: Database, projectId: stri
 	if (project?.status !== "active") throw new Error("客户项目未启用，不能设置自动监测");
 	const nextRunAt = data.enabled ? new Date(Date.now() + data.frequencyDays * 86_400_000).toISOString() : null;
 	await database.query(
-		`INSERT INTO monitoring_schedules (id,project_id,enabled,frequency_days,platforms,repeats,next_run_at)
-		 VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7)
+		`INSERT INTO monitoring_schedules (id,project_id,enabled,frequency_days,platforms,repeats,sampling_mode,execution_windows,next_run_at)
+		 VALUES ($1,$2,$3,$4,$5::jsonb,$6,'formal',$7::jsonb,$8)
 		 ON CONFLICT (project_id) DO UPDATE SET enabled=excluded.enabled,frequency_days=excluded.frequency_days,
-		 platforms=excluded.platforms,repeats=excluded.repeats,next_run_at=CASE
+		 platforms=excluded.platforms,repeats=excluded.repeats,sampling_mode='formal',execution_windows=excluded.execution_windows,next_run_at=CASE
 		 WHEN monitoring_schedules.enabled=false AND excluded.enabled=true THEN excluded.next_run_at
 		 WHEN excluded.enabled=false THEN NULL ELSE monitoring_schedules.next_run_at END,updated_at=now()`,
 		[
@@ -331,6 +396,12 @@ export async function saveMonitoringSchedule(database: Database, projectId: stri
 			data.frequencyDays,
 			JSON.stringify(data.platforms),
 			data.repeats,
+			JSON.stringify(
+				(
+					data.executionWindowMinutes ??
+					Array.from({ length: data.repeats }, (_, index) => [0, 240, 1440][index] ?? index * 1440)
+				).map((minutes) => `PT${minutes}M`),
+			),
 			nextRunAt,
 		],
 	);
@@ -358,11 +429,33 @@ export async function processDueSchedules(database: Database): Promise<number> {
 			continue;
 		}
 		try {
-			const batch = await createBatch(database, projectId, {
-				kind: "baseline",
-				platforms: parseJsonColumn<Array<"deepseek" | "kimi">>(schedule.platforms as string),
-				repeats: Number(schedule.repeats),
-			});
+			const scheduledPlatforms = parseJsonColumn<SearchProviderId[]>(schedule.platforms as string);
+			const repeats = Number(schedule.repeats);
+			const latestBaseline = (
+				await database.query<{ id: string; config: FrozenBatchConfig | string }>(
+					`SELECT id,config FROM experiment_batches
+					 WHERE project_id=$1 AND kind='baseline' AND status='complete' ORDER BY completed_at DESC LIMIT 1`,
+					[projectId],
+				)
+			).rows[0];
+			const baselineConfig = latestBaseline ? parseJsonColumn<FrozenBatchConfig>(latestBaseline.config) : null;
+			const matchesSchedule =
+				baselineConfig?.repeats === repeats &&
+				JSON.stringify([...baselineConfig.platforms].sort()) === JSON.stringify([...scheduledPlatforms].sort());
+			const batch = await createBatch(
+				database,
+				projectId,
+				matchesSchedule && latestBaseline
+					? { kind: "retest", compareToBatchId: latestBaseline.id }
+					: {
+							kind: "baseline",
+							platforms: scheduledPlatforms,
+							repeats,
+							executionWindowMinutes: parseJsonColumn<string[]>(schedule.execution_windows as string).map((value) =>
+								Number(value.match(/^PT(\d+)M$/)?.[1] ?? 0),
+							),
+						},
+			);
 			await database.query(
 				`UPDATE monitoring_schedules SET last_run_at=now(),last_batch_id=$2,
 				 next_run_at=now()+($3::text||' days')::interval,updated_at=now() WHERE id=$1`,
@@ -380,15 +473,15 @@ export async function processDueSchedules(database: Database): Promise<number> {
 }
 
 function captureFromRow(row: Record<string, unknown>): QueryCapture {
-	return queryCaptureSchema.parse({
-		schemaVersion: "geo.query-capture.v1",
+	const common = {
+		schemaVersion: row.schema_version ?? "geo.query-capture.v1",
 		captureId: row.id,
 		jobId: row.job_id,
 		projectId: row.project_id,
 		promptId: row.prompt_id,
 		prompt: row.question,
 		engine: row.platform,
-		captureMode: "consumer_surface",
+		captureMode: row.capture_mode ?? "consumer_surface",
 		attempt: row.attempt,
 		capturedAt: new Date(String(row.captured_at)).toISOString(),
 		locale: row.language,
@@ -398,16 +491,38 @@ function captureFromRow(row: Record<string, unknown>): QueryCapture {
 		brandMatches: parseJsonColumn(row.brand_matches),
 		sources: parseJsonColumn(row.sources),
 		queryFanOut: parseJsonColumn(row.query_fan_out),
+		adapterVersion: row.adapter_version,
+		contentHash: row.content_hash,
+		failureCode: row.failure_code,
+		failureMessage: row.failure_message,
+	};
+	if (row.capture_mode === "llm_search_api") {
+		return queryCaptureSchema.parse({
+			...common,
+			sourceVisibility: row.source_visibility,
+			fanoutVisibility: row.fanout_visibility,
+			evidence: {
+				endpoint: row.page_url,
+				rawResponseObjectKey: row.raw_artifact_key,
+				requestId: row.provider_request_id,
+			},
+			model: row.model,
+			protocol: row.protocol,
+			searchToolVersion: row.search_tool_version,
+			executorId: row.executor_id,
+			usage: row.usage ? parseJsonColumn(row.usage) : null,
+			costMicros: row.cost_micros === null || row.cost_micros === undefined ? null : Number(row.cost_micros),
+			latencyMs: row.latency_ms,
+		});
+	}
+	return queryCaptureSchema.parse({
+		...common,
 		evidence: {
 			captureNodeId: row.collector_node_id,
 			screenshotObjectKey: row.screenshot_key,
 			traceObjectKey: row.trace_key,
 			pageUrl: row.page_url,
 		},
-		adapterVersion: row.adapter_version,
-		contentHash: row.content_hash,
-		failureCode: row.failure_code,
-		failureMessage: row.failure_message,
 	});
 }
 
@@ -540,32 +655,27 @@ export async function getProjectTrends(
 	};
 }
 
-export async function storeCapture(
-	database: Database,
-	captureInput: unknown,
-	screenshotBase64?: string,
-): Promise<void> {
-	const capture = queryCaptureSchema.parse(captureInput);
-	const job = (await database.query<Record<string, unknown>>("SELECT * FROM jobs WHERE id = $1", [capture.jobId]))
+export async function storeCloudCapture(database: Database, captureInput: unknown): Promise<void> {
+	const capture: QueryCaptureV2 = queryCaptureV2Schema.parse(captureInput);
+	const job = (await database.query<Record<string, unknown>>("SELECT * FROM jobs WHERE id=$1", [capture.jobId]))
 		.rows[0];
-	if (!job || job.lease_owner !== capture.evidence.captureNodeId || job.status !== "leased")
-		throw new Error("采集任务租约无效或已过期");
-	let screenshotKey = capture.evidence.screenshotObjectKey;
-	if (screenshotBase64) {
-		await mkdir(join(geoPaths.artifacts, "captures", capture.projectId), { recursive: true });
-		screenshotKey = join("captures", capture.projectId, `${capture.captureId}.png`);
-		await writeFile(join(geoPaths.artifacts, screenshotKey), Buffer.from(screenshotBase64, "base64"), { flag: "wx" });
-	}
+	if (!job || job.lease_owner !== capture.executorId || job.status !== "leased")
+		throw new Error("云端采集任务租约无效或已过期");
+	const payload = job.payload as CaptureJobPayload;
 	await database.transaction(async (transaction) => {
-		// Raw evidence is append-only: duplicate job submissions are rejected by the unique job constraint.
+		// Raw API evidence is append-only; reparsing creates derived rows and never rewrites this capture.
 		await transaction.query(
 			`INSERT INTO query_captures
-			(id,job_id,batch_id,project_id,prompt_id,platform,attempt,status,answer_text,brand_matches,sources,query_fan_out,page_url,screenshot_key,trace_key,content_hash,adapter_version,collector_node_id,failure_code,failure_message,captured_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
+			 (id,job_id,batch_id,project_id,prompt_id,platform,attempt,status,answer_text,brand_matches,sources,
+			 query_fan_out,page_url,content_hash,adapter_version,failure_code,failure_message,captured_at,
+			 schema_version,capture_mode,model,protocol,search_tool_version,source_visibility,fanout_visibility,
+			 raw_artifact_key,provider_request_id,usage,cost_micros,latency_ms,executor_id)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb,$13,$14,$15,$16,$17,$18,
+			 $19,$20,$21,$22,$23,$24,$25,$26,$27,$28::jsonb,$29,$30,$31)`,
 			[
 				capture.captureId,
 				capture.jobId,
-				(job.payload as CaptureJobPayload).batchId,
+				payload.batchId,
 				capture.projectId,
 				capture.promptId,
 				capture.engine,
@@ -575,60 +685,178 @@ export async function storeCapture(
 				JSON.stringify(capture.brandMatches),
 				JSON.stringify(capture.sources),
 				JSON.stringify(capture.queryFanOut),
-				capture.evidence.pageUrl,
-				screenshotKey,
-				capture.evidence.traceObjectKey,
+				capture.evidence.endpoint,
 				capture.contentHash,
 				capture.adapterVersion,
-				capture.evidence.captureNodeId,
 				capture.failureCode,
 				capture.failureMessage,
 				capture.capturedAt,
+				capture.schemaVersion,
+				capture.captureMode,
+				capture.model,
+				capture.protocol,
+				capture.searchToolVersion,
+				capture.sourceVisibility,
+				capture.fanoutVisibility,
+				capture.evidence.rawResponseObjectKey,
+				capture.evidence.requestId,
+				capture.usage ? JSON.stringify(capture.usage) : null,
+				capture.costMicros,
+				capture.latencyMs,
+				capture.executorId,
 			],
 		);
 		await transaction.query(
-			"UPDATE jobs SET status = 'complete', lease_owner = NULL, lease_expires_at = NULL, updated_at = now() WHERE id = $1",
+			"UPDATE jobs SET status='complete',lease_owner=NULL,lease_expires_at=NULL,updated_at=now() WHERE id=$1",
 			[capture.jobId],
 		);
+		await transaction.query(
+			`INSERT INTO project_costs (id,project_id,batch_id,provider_id,operation,usage,cost_micros)
+			 VALUES ($1,$2,$3,$4,'capture',$5::jsonb,$6)`,
+			[
+				randomUUID(),
+				capture.projectId,
+				payload.batchId,
+				capture.engine,
+				capture.usage ? JSON.stringify(capture.usage) : null,
+				capture.costMicros,
+			],
+		);
 	});
-	await refreshBatchStatus(database, (job.payload as CaptureJobPayload).batchId);
+	await refreshBatchStatus(database, payload.batchId);
 }
 
 export async function refreshBatchStatus(database: Database, batchId: string): Promise<void> {
 	const counts = (
 		await database.query<{ remaining: number; failed: number }>(
 			`SELECT count(*) FILTER (WHERE status IN ('pending','leased'))::int AS remaining,
-		 count(*) FILTER (WHERE status = 'failed')::int AS failed FROM jobs WHERE payload->>'batchId' = $1`,
+			 (count(*) FILTER (WHERE status = 'failed') +
+			  (SELECT count(*) FROM query_captures WHERE batch_id=$1 AND status <> 'complete'))::int AS failed
+			 FROM jobs WHERE payload->>'batchId' = $1`,
 			[batchId],
 		)
 	).rows[0];
 	if (!counts) return;
-	if (counts.remaining === 0)
-		await database.query("UPDATE experiment_batches SET status = $2, completed_at = now() WHERE id = $1", [
-			batchId,
-			counts.failed > 0 ? "partial" : "complete",
-		]);
-	else
+	if (counts.remaining === 0) {
+		const finalized = await database.query(
+			`UPDATE experiment_batches SET status=$2,completed_at=now() WHERE id=$1 AND status NOT IN ('complete','partial')
+			 RETURNING id`,
+			[batchId, counts.failed > 0 ? "partial" : "complete"],
+		);
+		if (finalized.rows.length) await detectDriftAlerts(database, batchId);
+	} else
 		await database.query("UPDATE experiment_batches SET status = 'running' WHERE id = $1 AND status = 'queued'", [
 			batchId,
 		]);
 }
 
-const diagnosisResultSchema = z.object({
-	findings: z
-		.array(
-			z.object({
-				category: z.string(),
-				title: z.string(),
-				detail: z.string(),
-				confidence: z.number().min(0).max(1),
-				evidenceIds: z.array(z.string()).min(1),
-				targetPromptIds: z.array(z.string()).default([]),
-				recommendation: z.string(),
-			}),
+async function detectDriftAlerts(database: Database, batchId: string): Promise<void> {
+	const current = await getBatch(database, batchId);
+	if (!current || current.kind !== "retest" || !current.compare_to_batch_id) return;
+	const baseline = await getBatch(database, String(current.compare_to_batch_id));
+	if (
+		!baseline ||
+		!areBatchConfigsComparable(current.config as FrozenBatchConfig, baseline.config as FrozenBatchConfig)
+	)
+		return;
+	const currentMetrics = (current.metrics as { perPlatform: Record<string, Record<string, number | null>> })
+		.perPlatform;
+	const baselineMetrics = (baseline.metrics as { perPlatform: Record<string, Record<string, number | null>> })
+		.perPlatform;
+	for (const providerId of (current.config as FrozenBatchConfig).platforms) {
+		for (const metric of ["brandMentionRate", "brandShareOfVoice", "citationRate"] as const) {
+			const previous = baselineMetrics[providerId]?.[metric];
+			const next = currentMetrics[providerId]?.[metric];
+			if (typeof previous !== "number" || typeof next !== "number") continue;
+			const delta = next - previous;
+			if (delta > -0.1) continue;
+			const evidenceIds = (current.captures as QueryCapture[])
+				.filter((capture) => capture.engine === providerId)
+				.map((capture) => capture.captureId);
+			await database.query(
+				`INSERT INTO drift_alerts
+				 (id,project_id,batch_id,provider_id,metric,previous_value,current_value,severity,evidence_ids)
+				 SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb
+				 WHERE NOT EXISTS (SELECT 1 FROM drift_alerts WHERE batch_id=$3 AND provider_id=$4 AND metric=$5)`,
+				[
+					randomUUID(),
+					current.project_id,
+					batchId,
+					providerId,
+					metric,
+					previous,
+					next,
+					delta <= -0.2 ? "high" : "warning",
+					JSON.stringify(evidenceIds),
+				],
+			);
+		}
+	}
+}
+
+export async function listDriftAlerts(database: Database, projectId: string): Promise<unknown[]> {
+	return (
+		await database.query("SELECT * FROM drift_alerts WHERE project_id=$1 ORDER BY created_at DESC LIMIT 100", [
+			projectId,
+		])
+	).rows;
+}
+
+export async function getProjectCostSummary(database: Database, projectId: string): Promise<unknown> {
+	const rows = (
+		await database.query<Record<string, unknown>>(
+			"SELECT provider_id,operation,usage,cost_micros,occurred_at FROM project_costs WHERE project_id=$1 ORDER BY occurred_at DESC",
+			[projectId],
 		)
-		.max(30),
-});
+	).rows;
+	const groups = new Map<
+		string,
+		{
+			providerId: string;
+			operation: string;
+			requests: number;
+			inputTokens: number;
+			outputTokens: number;
+			totalTokens: number;
+			knownCostMicros: number;
+			costKnownRequests: number;
+		}
+	>();
+	for (const row of rows) {
+		const key = `${row.provider_id}:${row.operation}`;
+		const group = groups.get(key) ?? {
+			providerId: String(row.provider_id),
+			operation: String(row.operation),
+			requests: 0,
+			inputTokens: 0,
+			outputTokens: 0,
+			totalTokens: 0,
+			knownCostMicros: 0,
+			costKnownRequests: 0,
+		};
+		const usage = row.usage
+			? parseJsonColumn<Record<string, number>>(row.usage as string | Record<string, number>)
+			: {};
+		group.requests += 1;
+		group.inputTokens += Number(usage.inputTokens ?? 0);
+		group.outputTokens += Number(usage.outputTokens ?? 0);
+		group.totalTokens += Number(usage.totalTokens ?? 0);
+		if (row.cost_micros !== null && row.cost_micros !== undefined) {
+			group.knownCostMicros += Number(row.cost_micros);
+			group.costKnownRequests += 1;
+		}
+		groups.set(key, group);
+	}
+	return { records: rows.length, groups: [...groups.values()] };
+}
+
+export async function acknowledgeDriftAlert(database: Database, alertId: string): Promise<void> {
+	const result = await database.query(
+		"UPDATE drift_alerts SET acknowledged_at=COALESCE(acknowledged_at,now()) WHERE id=$1",
+		[alertId],
+	);
+	if (result.affectedRows !== 1) throw new Error("漂移告警不存在");
+}
 
 async function loadDiagnosisWebEvidence(
 	database: Database,
@@ -720,8 +948,7 @@ async function collectDiagnosisWebEvidence(
 export async function diagnoseBatch(
 	database: Database,
 	batchId: string,
-	options: { enhanceWithModel?: boolean } = {},
-): Promise<{ count: number; method: "evidence_rules" | "evidence_rules_and_model" }> {
+): Promise<{ count: number; method: "evidence_rules" }> {
 	const batch = await getBatch(database, batchId);
 	if (!batch) throw new Error("采集批次不存在");
 	const captures = batch.captures as QueryCapture[];
@@ -736,7 +963,6 @@ export async function diagnoseBatch(
 			// Answer evidence stays usable even when a customer domain no longer resolves.
 		}
 	}
-	let modelFindings: ReportFinding[] = [];
 	const webEvidence = await collectDiagnosisWebEvidence(database, String(batch.project_id), config, valid);
 	const deterministic = buildDeterministicFindings({
 		projectId: String(batch.project_id),
@@ -746,65 +972,13 @@ export async function diagnoseBatch(
 		websiteAudit,
 		webEvidence,
 	});
-	if (options.enhanceWithModel) {
-		const answerEvidence = valid.map((capture) => ({
-			id: capture.captureId,
-			platform: capture.engine,
-			question: capture.prompt,
-			answer: capture.answerText?.slice(0, 6000),
-			sources: capture.sources,
-		}));
-		const result = await deepSeekStructured({
-			name: "geo_diagnosis",
-			validate: diagnosisResultSchema,
-			schema: {
-				type: "object",
-				additionalProperties: false,
-				required: ["findings"],
-				properties: {
-					findings: {
-						type: "array",
-						maxItems: 30,
-						items: {
-							type: "object",
-							additionalProperties: false,
-							required: [
-								"category",
-								"title",
-								"detail",
-								"confidence",
-								"evidenceIds",
-								"targetPromptIds",
-								"recommendation",
-							],
-							properties: {
-								category: { type: "string" },
-								title: { type: "string" },
-								detail: { type: "string" },
-								confidence: { type: "number", minimum: 0, maximum: 1 },
-								evidenceIds: { type: "array", minItems: 1, items: { type: "string" } },
-								targetPromptIds: { type: "array", items: { type: "string" } },
-								recommendation: { type: "string" },
-							},
-						},
-					},
-				},
-			},
-			instructions:
-				"你是严谨的GEO证据分析师。只能依据给定回答或网页快照的证据ID得出结论。比较客户官网、竞品官网和AI真实引用页的内容覆盖、第三方来源、实体一致性、Schema和可引用事实。每条结论必须引用至少一个真实证据ID，并只填写输入中存在的关联问题ID targetPromptIds；不能从黑盒排名反推出未经证实的因果。证据不足的领域不输出结论。建议必须可执行、可验收。",
-			input: JSON.stringify({ project: config, metrics: batch.metrics, answerEvidence, webEvidence }),
-		});
-		modelFindings = result.findings;
-	}
 	const validIds = new Set([
 		...captures.map((capture) => capture.captureId),
 		...webEvidence.map((item) => item.id),
 		...(websiteAudit ? [websiteAudit.id] : []),
 	]);
 	const validPromptIds = new Set(config.prompts.map((prompt) => prompt.id));
-	const findings = [...deterministic, ...modelFindings].filter(
-		(finding, index, all) => all.findIndex((candidate) => candidate.title === finding.title) === index,
-	);
+	const findings = deterministic;
 	await database.transaction(async (transaction) => {
 		const existing = await transaction.query<{ id: string; category: string; title: string }>(
 			"SELECT id,category,title FROM diagnosis_findings WHERE batch_id=$1",
@@ -857,7 +1031,7 @@ export async function diagnoseBatch(
 				retainedIds,
 			]);
 	});
-	return { count: findings.length, method: options.enhanceWithModel ? "evidence_rules_and_model" : "evidence_rules" };
+	return { count: findings.length, method: "evidence_rules" };
 }
 
 function expectedMetricForFinding(category: string): string {
@@ -992,124 +1166,4 @@ export async function verifyTask(database: Database, taskId: string): Promise<{ 
 		[taskId, snapshot.id],
 	);
 	return { snapshotId: snapshot.id };
-}
-
-export async function generateTaskContent(database: Database, taskId: string): Promise<void> {
-	const task = (
-		await database.query<Record<string, unknown>>(
-			`SELECT t.*, p.name AS project_name, p.website_url, f.detail AS finding_detail,
-			 f.category AS finding_category, f.evidence_ids AS finding_evidence_ids
-	 FROM remediation_tasks t JOIN projects p ON p.id=t.project_id LEFT JOIN diagnosis_findings f ON f.id=t.finding_id WHERE t.id=$1`,
-			[taskId],
-		)
-	).rows[0];
-	if (!task) throw new Error("整改任务不存在");
-	const promptIds = parseJsonColumn<string[]>(task.target_prompt_ids as string[] | string);
-	const prompts = promptIds.length
-		? await database.query<{ question: string }>(
-				"SELECT question FROM prompts WHERE id=ANY($1::text[]) ORDER BY position",
-				[promptIds],
-			)
-		: { rows: [] };
-	const evidenceIds = parseJsonColumn<string[]>((task.finding_evidence_ids ?? task.evidence_ids) as string[] | string);
-	const questions = prompts.rows.map((row) => row.question);
-	const isTechnical = String(task.finding_category ?? "").includes("技术");
-	const brief = [
-		`整改目标：${task.title}`,
-		`客户：${task.project_name}`,
-		`官网：${task.website_url}`,
-		`证据结论：${task.finding_detail ?? task.detail}`,
-		`关联问题：${questions.length ? questions.join("；") : "适用于该诊断关联的全部问题"}`,
-		`证据 ID：${evidenceIds.join("、")}`,
-		"事实边界：所有资质、参数、价格、案例、效果和第三方评价必须由客户提供可公开核验的来源；没有来源的内容保持“待补充”，不得猜测。",
-		`验收：${task.acceptance_criteria}`,
-	].join("\n\n");
-	const draft = isTechnical
-		? [
-				`# ${task.project_name} 官网技术整改执行单`,
-				"",
-				"## 当前证据",
-				String(task.finding_detail ?? task.detail),
-				"",
-				"## 实施步骤",
-				"1. [待负责人填写] 修复证据中列出的访问、抓取或页面结构问题。",
-				"2. [待技术人员填写] 记录修改文件、配置、发布时间和回滚方式。",
-				"3. 使用线上公开 URL 重新运行官网审计，保留新的审计证据 ID。",
-				"4. 只有审计项通过后，才进入同条件 AI 复测。",
-				"",
-				"## 验收记录",
-				"- 发布 URL：[待补充]",
-				"- 变更时间：[待补充]",
-				"- 负责人：[待补充]",
-				"- 新审计证据 ID：[待补充]",
-			].join("\n")
-		: [
-				`# ${questions[0] ?? `${task.project_name} 选购与事实说明`}`,
-				"",
-				`> 本稿依据真实监测证据生成结构，所有方括号内容必须由 ${task.project_name} 审核并补充公开来源后才能发布。`,
-				"",
-				"## 先给结论",
-				`[待补充：用 2-3 句话说明 ${task.project_name} 在什么真实条件下适合被选择，并附事实来源。]`,
-				"",
-				"## 适合哪些需求",
-				...questions.map((question) => `- ${question}：[待补充可核验回答]`),
-				"",
-				"## 可核验事实",
-				"| 事实维度 | 客户确认内容 | 公开来源 URL | 更新时间 |",
-				"| --- | --- | --- | --- |",
-				"| 产品或服务范围 | [待补充] | [待补充] | [待补充] |",
-				"| 适用地区与人群 | [待补充] | [待补充] | [待补充] |",
-				"| 资质、标准或检测 | [待补充] | [待补充] | [待补充] |",
-				"| 价格与服务条件 | [待补充] | [待补充] | [待补充] |",
-				"",
-				"## 如何选择",
-				"[待补充：按使用条件、预算、限制和售后写可比较标准；只写客户真实具备的差异。]",
-				"",
-				"## 常见问题",
-				...questions.map((question) => `### ${question}\n[待补充有来源的简明回答]`),
-				"",
-				"## 联系与主体信息",
-				`官网：${task.website_url}`,
-				"主体、地址、电话及更新时间：[待补充并与官网其他页面保持一致]",
-			].join("\n");
-	await database.query("UPDATE remediation_tasks SET content_brief=$2,draft_content=$3,updated_at=now() WHERE id=$1", [
-		taskId,
-		brief,
-		draft,
-	]);
-}
-
-export async function createCollectorNode(database: Database, name: string): Promise<{ id: string; token: string }> {
-	const id = randomUUID();
-	const token = randomBytes(32).toString("base64url");
-	await database.query(
-		"INSERT INTO collector_nodes (id,name,token_hash,version,capabilities) VALUES ($1,$2,$3,$4,$5::jsonb)",
-		[id, name, sha256(token), currentCollectorVersion, JSON.stringify(["deepseek", "kimi"])],
-	);
-	return { id, token };
-}
-
-export async function listCollectorNodes(database: Database): Promise<unknown[]> {
-	return (
-		await database.query(
-			`SELECT id,name,version,capabilities,last_seen_at,revoked_at,created_at
-			 FROM collector_nodes ORDER BY revoked_at NULLS FIRST,last_seen_at DESC NULLS LAST,created_at DESC`,
-		)
-	).rows;
-}
-
-export async function revokeCollectorNode(database: Database, nodeId: string): Promise<void> {
-	const result = await database.query("UPDATE collector_nodes SET revoked_at=COALESCE(revoked_at,now()) WHERE id=$1", [
-		nodeId,
-	]);
-	if (result.affectedRows === 0) throw new Error("Collector 节点不存在");
-}
-
-export async function authenticateCollector(database: Database, token: string): Promise<{ id: string } | null> {
-	const row = (
-		await database.query<{ id: string }>("SELECT id FROM collector_nodes WHERE token_hash=$1 AND revoked_at IS NULL", [
-			sha256(token),
-		])
-	).rows[0];
-	return row ?? null;
 }

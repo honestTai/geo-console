@@ -2,12 +2,16 @@ import { randomUUID } from "node:crypto";
 import type { Database } from "./database";
 import type { CaptureJobPayload } from "./schema";
 
-export async function enqueueCaptureJob(database: Database, payload: CaptureJobPayload): Promise<string> {
+export async function enqueueCaptureJob(
+	database: Database,
+	payload: CaptureJobPayload,
+	availableAt?: Date,
+): Promise<string> {
 	const id = randomUUID();
 	await database.query(
 		`INSERT INTO jobs (id, type, payload, status, available_at, created_at, updated_at)
-		 VALUES ($1, 'capture', $2::jsonb, 'pending', now(), now(), now())`,
-		[id, JSON.stringify(payload)],
+		 VALUES ($1, 'capture', $2::jsonb, 'pending', COALESCE($3::timestamptz,now()), now(), now())`,
+		[id, JSON.stringify(payload), availableAt?.toISOString() ?? null],
 	);
 	return id;
 }
@@ -18,9 +22,10 @@ export async function claimCaptureJob(
 	database: Database,
 	owner: string,
 	leaseSeconds = 180,
+	platforms?: string[],
 ): Promise<LeasedJob | null> {
 	return database.transaction(async (transaction) => {
-		// Expired leases are claimable so a collector crash cannot strand a batch permanently.
+		// Expired leases are claimable so a worker crash cannot strand a batch permanently.
 		const result = await transaction.query<{
 			id: string;
 			payload: CaptureJobPayload;
@@ -32,6 +37,7 @@ export async function claimCaptureJob(
 				WHERE type = 'capture'
 				  AND attempts < max_attempts
 				  AND available_at <= now()
+				  AND ($3::text[] IS NULL OR payload->>'platform' = ANY($3::text[]))
 				  AND (status = 'pending' OR (status = 'leased' AND lease_expires_at < now()))
 				ORDER BY created_at
 				LIMIT 1
@@ -42,7 +48,7 @@ export async function claimCaptureJob(
 				lease_expires_at = now() + ($2 * interval '1 second'), attempts = attempts + 1, updated_at = now()
 			WHERE id = (SELECT id FROM candidate)
 			RETURNING id, payload, attempts, lease_expires_at`,
-			[owner, leaseSeconds],
+			[owner, leaseSeconds, platforms ?? null],
 		);
 		const row = result.rows[0];
 		return row
