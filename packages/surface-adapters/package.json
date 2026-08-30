@@ -1,0 +1,23 @@
+{
+	"name": "@geo/surface-adapters",
+	"version": "0.1.0",
+	"private": true,
+	"license": "MIT",
+	"type": "module",
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"dependencies": {
+		"@geo/evidence": "workspace:*",
+		"zod": "^4.4.3"
+	},
+	"devDependencies": {
+		"playwright": "^1.62.1",
+		"typescript": "^7.0.2",
+		"vitest": "^4.1.10"
+	}
+}

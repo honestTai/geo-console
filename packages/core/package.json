@@ -1,0 +1,32 @@
+{
+	"name": "@geo/core",
+	"version": "0.1.0",
+	"private": true,
+	"license": "MIT",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./database": "./src/database.ts",
+		"./repository": "./src/repository.ts",
+		"./schema": "./src/schema.ts",
+		"./paths": "./src/paths.ts",
+		"./secrets": "./src/secrets.ts"
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@electric-sql/pglite": "^0.3.14",
+		"drizzle-orm": "^0.45.2",
+		"pg": "^8.23.0",
+		"zod": "^4.4.3"
+	},
+	"devDependencies": {
+		"@types/node": "^26.2.0",
+		"@types/pg": "^8.21.0",
+		"drizzle-kit": "^0.31.10",
+		"typescript": "^7.0.2",
+		"vitest": "^4.1.10"
+	}
+}

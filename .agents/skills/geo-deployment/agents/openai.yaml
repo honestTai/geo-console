@@ -1,0 +1,4 @@
+interface:
+  display_name: "GEO 部署"
+  short_description: "执行本机安装和服务器 Docker 部署、升级、备份与回滚"
+  default_prompt: "部署或升级这个 GEO Console 实例。"

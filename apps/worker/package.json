@@ -1,0 +1,29 @@
+{
+	"name": "@geo/worker",
+	"version": "0.1.0",
+	"private": true,
+	"license": "MIT",
+	"type": "module",
+	"scripts": {
+		"dev": "tsx watch src/index.ts",
+		"start": "tsx src/index.ts",
+		"build": "tsc --noEmit",
+		"check-types": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@geo/core": "workspace:*",
+		"@geo/evidence": "workspace:*",
+		"@geo/metrics": "workspace:*",
+		"@geo/surface-adapters": "workspace:*",
+		"cheerio": "^1.2.0",
+		"csv-parse": "6.1.0",
+		"zod": "^4.4.3"
+	},
+	"devDependencies": {
+		"@types/node": "^26.2.0",
+		"tsx": "^4.23.12",
+		"typescript": "^7.0.2",
+		"vitest": "^4.1.10"
+	}
+}

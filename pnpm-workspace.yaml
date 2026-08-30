@@ -1,0 +1,18 @@
+packages:
+  - "apps/*"
+  - "packages/core"
+  - "packages/evidence"
+  - "packages/metrics"
+  - "packages/surface-adapters"
+
+allowBuilds:
+  "@prisma/client": false
+  better-sqlite3: false
+  esbuild: true
+
+blockExoticSubdeps: true
+minimumReleaseAge: 5760
+minimumReleaseAgeExclude:
+  - vite
+trustPolicy: no-downgrade
+trustPolicyIgnoreAfter: 129600

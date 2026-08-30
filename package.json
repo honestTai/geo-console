@@ -1,0 +1,24 @@
+{
+	"name": "geo-console",
+	"version": "0.1.0",
+	"private": true,
+	"license": "MIT",
+	"packageManager": "pnpm@11.18.0",
+	"engines": { "node": "24.x" },
+	"scripts": {
+		"geo": "tsx scripts/geo.ts",
+		"dev": "tsx scripts/geo.ts start",
+		"build": "turbo build",
+		"check-types": "turbo check-types",
+		"test": "turbo test",
+		"lint": "biome check --diagnostic-level=error --config-path=biome.json apps/web/src apps/web/vite.config.ts apps/worker/src apps/collector/src packages/core/src packages/evidence/src packages/metrics/src packages/surface-adapters/src scripts/geo.ts",
+		"lint:fix": "biome check --write --diagnostic-level=error --config-path=biome.json apps/web/src apps/web/vite.config.ts apps/worker/src apps/collector/src packages/core/src packages/evidence/src packages/metrics/src packages/surface-adapters/src scripts/geo.ts",
+		"license-check": "node scripts/check-licenses.mjs"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.8",
+		"tsx": "^4.23.12",
+		"turbo": "^2.10.10",
+		"typescript": "^7.0.2"
+	}
+}

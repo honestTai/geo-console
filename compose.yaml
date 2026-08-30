@@ -1,0 +1,102 @@
+name: geo-console
+services:
+  postgres:
+    image: postgres:18.1-alpine
+    environment:
+      POSTGRES_DB: geo
+      POSTGRES_USER: geo
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - "postgres_data:/var/lib/postgresql/data"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geo -d geo"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: worker
+    environment:
+      DATABASE_URL: postgresql://geo@postgres:5432/geo
+      GEO_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      DEEPSEEK_API_KEY_FILE: /run/secrets/deepseek_api_key
+      GEO_DATA_DIR: /data
+      PGPASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+      - deepseek_api_key
+      - admin_password
+    volumes:
+      - "evidence_data:/data"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3010/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: web
+    restart: unless-stopped
+  caddy:
+    image: caddy:2.10.2-alpine
+    environment:
+      GEO_DOMAIN: ${GEO_DOMAIN:?set GEO_DOMAIN}
+      GEO_ADMIN_HASH: ${GEO_ADMIN_HASH:?set GEO_ADMIN_HASH}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      worker:
+        condition: service_healthy
+      web:
+        condition: service_started
+    restart: unless-stopped
+  backup:
+    image: postgres:18.1-alpine
+    profiles:
+      - backup
+    environment:
+      PGHOST: postgres
+      PGDATABASE: geo
+      PGUSER: geo
+      PGPASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - "database_backups:/backups"
+    entrypoint:
+      - /bin/sh
+      - -c
+    command:
+      - "export PGPASSWORD=$$(cat /run/secrets/postgres_password); pg_dump -Fc -f /backups/geo-$$(date +%Y%m%d-%H%M%S).dump"
+    depends_on:
+      postgres:
+        condition: service_healthy
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  deepseek_api_key:
+    file: ./secrets/deepseek_api_key
+  admin_password:
+    file: ./secrets/admin_password
+volumes:
+  postgres_data:
+  evidence_data:
+  database_backups:
+  caddy_data:
+  caddy_config:
