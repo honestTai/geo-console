@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { areBatchConfigsComparable } from "./comparability";
-import { migrateDatabase, openMemoryDatabase } from "./database";
+import { migrateDatabase, openMemoryDatabase, postgresPoolConfig } from "./database";
 import { claimCaptureJob, enqueueCaptureJob } from "./repository";
 import type { CaptureJobPayload, FrozenBatchConfig } from "./schema";
 import { readEncryptedCredential, writeEncryptedCredential } from "./secrets";
@@ -19,6 +19,15 @@ describe("批次可比性", () => {
 	it("只接受完全相同的冻结条件", () => {
 		expect(areBatchConfigsComparable(config, structuredClone(config))).toBe(true);
 		expect(areBatchConfigsComparable(config, { ...config, repeats: 2 })).toBe(false);
+	});
+});
+
+describe("PostgreSQL 连接配置", () => {
+	it("把 Secret 文件密码写回连接字符串", () => {
+		const poolConfig = postgresPoolConfig("postgresql://geo@postgres:5432/geo", "server-secret");
+		const connection = new URL(String(poolConfig.connectionString));
+		expect(connection.username).toBe("geo");
+		expect(connection.password).toBe("server-secret");
 	});
 });
 

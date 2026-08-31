@@ -13,6 +13,6 @@
 | 报告 | 售前快审、整改方案、周期复测不可变快照；在线、PDF、JSON、CSV、过期分享 | 保留失败率和黑盒声明 |
 | 归因 | GA4、GSC、表单、电话和业务台账 CSV 去重导入 | 并列展示，不自动声称因果 |
 | 机构安全 | 管理员/分析师/只读、会话、审计日志、信封加密、撤销分享 | 第一版不开放注册和计费 |
-| 部署 | API、Capture Worker、Report Worker、PostgreSQL、S3兼容存储、Caddy | PGlite 仅开发测试 |
+| 部署 | API、Capture Worker、Agent Worker、Report Worker、PostgreSQL、S3兼容存储、Caddy | PGlite 仅开发测试 |
 
 借鉴 Elmo、Ansvisor、open-geo、GEO Optimizer 和 Semrush 的有价值工作流，但没有携带它们的营销站、计费、白标、海外 Provider 或额外基础设施。

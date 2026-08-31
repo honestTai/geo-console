@@ -22,4 +22,8 @@ describe("api", () => {
 		);
 		await expect(api("/api/test")).rejects.toThrow("证据不足");
 	});
+	it("把浏览器网络错误转换为可理解提示", async () => {
+		vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+		await expect(api("/api/test")).rejects.toThrow("无法连接服务器，请检查网络后重试");
+	});
 });

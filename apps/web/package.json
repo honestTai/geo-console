@@ -2,7 +2,7 @@
 	"name": "@geo/web",
 	"version": "0.1.0",
 	"private": true,
-	"license": "MIT",
+	"license": "UNLICENSED",
 	"type": "module",
 	"scripts": {
 		"dev": "vite --host 127.0.0.1 --port 3000",

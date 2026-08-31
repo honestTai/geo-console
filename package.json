@@ -2,7 +2,7 @@
 	"name": "geo-console",
 	"version": "0.1.0",
 	"private": true,
-	"license": "MIT",
+	"license": "UNLICENSED",
 	"packageManager": "pnpm@11.18.0",
 	"engines": { "node": "24.x" },
 	"scripts": {

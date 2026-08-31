@@ -2,7 +2,7 @@
 	"name": "@geo/evidence",
 	"version": "0.1.0",
 	"private": true,
-	"license": "MIT",
+	"license": "UNLICENSED",
 	"type": "module",
 	"scripts": {
 		"check-types": "tsc --noEmit",

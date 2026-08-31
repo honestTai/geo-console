@@ -2,11 +2,12 @@
 	"name": "@geo/worker",
 	"version": "0.1.0",
 	"private": true,
-	"license": "MIT",
+	"license": "UNLICENSED",
 	"type": "module",
 	"scripts": {
 		"dev": "tsx watch src/index.ts",
 		"start": "tsx src/index.ts",
+		"start:agent": "tsx src/agent-worker.ts",
 		"start:capture": "tsx src/capture-worker.ts",
 		"start:report": "tsx src/report-worker.ts",
 		"build": "tsc --noEmit",

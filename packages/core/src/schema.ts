@@ -255,12 +255,28 @@ export type CaptureJobPayload = {
 	brands: Array<{ id: string; name: string; aliases: string[] }>;
 };
 
+export type AgentPurpose =
+	| "customer_profile"
+	| "prompt_research"
+	| "diagnosis"
+	| "remediation"
+	| "content_brief"
+	| "report_narrative"
+	| "quality_review";
+
+export type AgentJobPayload = {
+	runId: string;
+	targetTaskId: string | null;
+};
+
+export type JobPayload = CaptureJobPayload | AgentJobPayload | { reportId: string };
+
 export const jobs = pgTable(
 	"jobs",
 	{
 		id: id("id"),
 		type: text("type").notNull(),
-		payload: jsonb("payload").$type<CaptureJobPayload>().notNull(),
+		payload: jsonb("payload").$type<JobPayload>().notNull(),
 		status: jobStatus("status").notNull().default("pending"),
 		attempts: integer("attempts").notNull().default(0),
 		maxAttempts: integer("max_attempts").notNull().default(3),
@@ -561,15 +577,6 @@ export const auditLogs = pgTable(
 	},
 	(table) => [index("audit_logs_organization_idx").on(table.organizationId, table.createdAt)],
 );
-
-export type AgentPurpose =
-	| "customer_profile"
-	| "prompt_research"
-	| "diagnosis"
-	| "remediation"
-	| "content_brief"
-	| "report_narrative"
-	| "quality_review";
 
 export const agentRuns = pgTable(
 	"agent_runs",

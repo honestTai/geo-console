@@ -7,14 +7,16 @@
                     -> API :3010 -> PostgreSQL
                                   -> S3 兼容证据存储
                     Capture Worker -> 五家联网 API
+                    Agent Worker   -> HRouter GPT
                     Report Worker  -> Playwright PDF
 ```
 
-本机使用同一业务代码，数据库切换为文件持久化 PGlite，对象存储切换为用户数据目录。`pnpm geo start` 启动 API、Capture Worker、Report Worker 和 Web。
+本机使用同一业务代码，数据库切换为文件持久化 PGlite，对象存储切换为用户数据目录。`pnpm geo start` 启动 API、Capture Worker、Agent Worker、Report Worker 和 Web。
 
 - `apps/web`：客户建档、监测、证据、审计、诊断、整改、归因、报告和平台管理 UI。
 - `apps/worker/src/index.ts`：机构会话、角色、项目 API、周期调度和审计日志。
 - `capture-worker.ts`：按数据库租约领取 `capture` 任务，只调用冻结配置中的供应商。
+- `agent-worker.ts`：领取 `agent_draft` 任务，实时保存受限工具轨迹，完成后进入人工审批。
 - `report-worker.ts`：领取 `report_pdf` 任务，以固定中文字体生成 PDF 后写对象存储。
 - `packages/search-providers`：五个平台的真实 API 协议与失败分类。
 - `packages/evidence`：`QueryCapture v1/v2` 不可变证据契约。

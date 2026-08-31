@@ -75,12 +75,18 @@ class PostgresDatabase implements Database {
 	}
 }
 
+export function postgresPoolConfig(databaseUrl: string, password?: string): pg.PoolConfig {
+	const connection = new URL(databaseUrl);
+	if (password) connection.password = password;
+	return { connectionString: connection.toString() };
+}
+
 export async function openDatabase(): Promise<Database> {
 	const databaseUrl = process.env.DATABASE_URL?.trim();
 	if (databaseUrl) {
 		const passwordFile = process.env.PGPASSWORD_FILE?.trim();
 		const password = passwordFile ? (await readFile(passwordFile, "utf8")).trim() : undefined;
-		return new PostgresDatabase(new pg.Pool({ connectionString: databaseUrl, password }));
+		return new PostgresDatabase(new pg.Pool(postgresPoolConfig(databaseUrl, password)));
 	}
 	await mkdir(geoPaths.database, { recursive: true });
 	return new PGliteDatabase(new PGlite(geoPaths.database));

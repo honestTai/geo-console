@@ -58,6 +58,7 @@ async function start(): Promise<void> {
 	launch("@geo/worker", "start");
 	await waitForWorker();
 	launch("@geo/worker", "start:capture");
+	launch("@geo/worker", "start:agent");
 	launch("@geo/worker", "start:report");
 	launch("@geo/web", "dev");
 	console.log("\nGEO Console: http://127.0.0.1:3000\n");

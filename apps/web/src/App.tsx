@@ -6,6 +6,7 @@ import {
 	IconBuilding,
 	IconChartLine,
 	IconCheck,
+	IconChevronDown,
 	IconChevronRight,
 	IconClipboardCheck,
 	IconDatabase,
@@ -309,11 +310,22 @@ type AgentRun = {
 	id: string;
 	batch_id: string | null;
 	purpose: string;
-	status: string;
+	status: "queued" | "running" | "awaiting_approval" | "approved" | "rejected" | "failed";
 	model: string;
 	draft: Record<string, unknown> | null;
 	error_message: string | null;
+	tool_trace: Array<{
+		type: "start" | "end";
+		tool: string;
+		isError?: boolean;
+		detail?: string | null;
+		at: string;
+	}>;
+	usage: { input?: number; output?: number; totalTokens?: number } | null;
+	job_attempts: number | null;
+	job_max_attempts: number | null;
 	created_at: string;
+	completed_at: string | null;
 };
 type ReportSnapshot = {
 	id: string;
@@ -428,6 +440,15 @@ function Button({
 			{children}
 		</button>
 	);
+}
+
+function useAgentRunPolling(runs: AgentRun[], reload: () => Promise<void>): void {
+	const active = runs.some((run) => run.status === "queued" || run.status === "running");
+	useEffect(() => {
+		if (!active) return;
+		const timer = window.setInterval(() => void reload().catch(() => undefined), 2_000);
+		return () => window.clearInterval(timer);
+	}, [active, reload]);
 }
 
 function Empty({ title, detail, action }: { title: string; detail: string; action?: ReactNode }) {
@@ -2084,6 +2105,7 @@ function Diagnosis({ project, refresh }: { project: Project; refresh(): Promise<
 	useEffect(() => {
 		void loadAgentRuns().catch(() => setAgentRuns([]));
 	}, [loadAgentRuns]);
+	useAgentRunPolling(agentRuns, loadAgentRuns);
 	async function run(enhanceWithModel = false) {
 		if (!selected) return;
 		setBusy(enhanceWithModel ? "model" : "rules");
@@ -2123,7 +2145,12 @@ function Diagnosis({ project, refresh }: { project: Project; refresh(): Promise<
 					<div>
 						<span className="eyebrow">Pi Agent · {run.model}</span>
 						<h3>{run.status === "awaiting_approval" ? "诊断草稿待审批" : `Agent 运行：${run.status}`}</h3>
-						<p>{run.error_message ?? "草稿中的每个结论已通过证据 ID 白名单校验；批准前不会写入正式诊断。"}</p>
+						<p>
+							{run.error_message ??
+								(["queued", "running"].includes(run.status)
+									? "Agent 正在后台读取项目证据；离开页面不会中断任务。"
+									: "草稿中的每个结论已通过证据 ID 白名单校验；批准前不会写入正式诊断。")}
+						</p>
 						{run.draft && <pre>{JSON.stringify(run.draft, null, 2)}</pre>}
 					</div>
 					{run.status === "awaiting_approval" && (
@@ -2188,6 +2215,7 @@ function Remediation({ project, refresh }: { project: Project; refresh(): Promis
 	useEffect(() => {
 		void loadAgentRuns().catch(() => setAgentRuns([]));
 	}, [loadAgentRuns]);
+	useAgentRunPolling(agentRuns, loadAgentRuns);
 	async function call(id: string, action: () => Promise<unknown>) {
 		setBusy(id);
 		setError(null);
@@ -2235,29 +2263,35 @@ function Remediation({ project, refresh }: { project: Project; refresh(): Promis
 			</div>
 			{error && <Notice type="error" message={error} />}
 			{agentRuns
-				.filter((run) => run.status === "awaiting_approval")
+				.filter((run) => ["queued", "running", "awaiting_approval", "failed"].includes(run.status))
 				.map((run) => (
 					<article className="agent-draft" key={run.id}>
 						<div>
 							<span className="eyebrow">Pi Agent · {run.purpose === "content_brief" ? "内容简报" : "整改规划"}</span>
-							<h3>草稿待人工审批</h3>
+							<h3>{run.status === "awaiting_approval" ? "草稿待人工审批" : `Agent 运行：${run.status}`}</h3>
+							{run.error_message && <p>{run.error_message}</p>}
 							{run.draft && <pre>{JSON.stringify(run.draft, null, 2)}</pre>}
 						</div>
-						<div className="actions">
-							<Button variant="secondary" onClick={() => post(`/api/agent-runs/${run.id}/reject`).then(loadAgentRuns)}>
-								拒绝
-							</Button>
-							<Button
-								onClick={() =>
-									post(`/api/agent-runs/${run.id}/approve`).then(async () => {
-										await loadAgentRuns();
-										await refresh();
-									})
-								}
-							>
-								批准并入库
-							</Button>
-						</div>
+						{run.status === "awaiting_approval" && (
+							<div className="actions">
+								<Button
+									variant="secondary"
+									onClick={() => post(`/api/agent-runs/${run.id}/reject`).then(loadAgentRuns)}
+								>
+									拒绝
+								</Button>
+								<Button
+									onClick={() =>
+										post(`/api/agent-runs/${run.id}/approve`).then(async () => {
+											await loadAgentRuns();
+											await refresh();
+										})
+									}
+								>
+									批准并入库
+								</Button>
+							</div>
+						)}
 					</article>
 				))}
 			{project.tasks.length === 0 ? (
@@ -2538,6 +2572,217 @@ function Attribution({ project }: { project: Project }) {
 	);
 }
 
+const agentToolLabels: Record<string, string> = {
+	read_project_context: "读取项目",
+	read_batch_evidence_index: "建立证据索引",
+	read_evidence: "核验原始证据",
+	submit_draft: "校验草稿",
+};
+
+const agentStatusLabels: Record<AgentRun["status"], string> = {
+	queued: "排队中",
+	running: "分析中",
+	awaiting_approval: "待审批",
+	approved: "已批准",
+	rejected: "已拒绝",
+	failed: "执行失败",
+};
+
+function agentPurposeLabel(purpose: string): string {
+	return purpose === "report_narrative" ? "报告叙述" : purpose === "quality_review" ? "质量检查" : purpose;
+}
+
+function agentRunPhase(run: AgentRun): string {
+	if (run.status === "queued") return run.error_message ?? "等待 Agent Worker 领取任务";
+	if (run.status === "awaiting_approval") return "结构化草稿已完成，等待人工审批";
+	if (run.status === "approved") return "草稿已批准，可冻结到新的报告版本";
+	if (run.status === "rejected") return "草稿已拒绝，不会进入报告版本";
+	if (run.status === "failed") return run.error_message ?? "Agent 执行失败";
+	const latest = run.tool_trace.at(-1);
+	if (!latest) return "正在连接模型并准备分析";
+	if (latest.tool === "submit_draft" && latest.type === "end" && latest.isError)
+		return "草稿校验未通过，Agent 正在修正后重新提交";
+	if (latest.type === "start") return `正在${agentToolLabels[latest.tool] ?? latest.tool}`;
+	if (latest.tool === "read_project_context") return "项目范围已确认，正在建立证据索引";
+	if (latest.tool === "read_batch_evidence_index") return "证据索引已建立，正在选择支撑证据";
+	if (latest.tool === "read_evidence") return "原始证据已读取，正在形成结论";
+	return "正在整理结构化草稿";
+}
+
+function agentRunProgress(run: AgentRun): number {
+	if (["awaiting_approval", "approved", "rejected"].includes(run.status)) return 100;
+	if (run.status === "failed") return Math.max(12, run.tool_trace.filter((item) => item.type === "end").length * 24);
+	if (run.status === "queued") return 4;
+	const completedTools = new Set(
+		run.tool_trace.filter((item) => item.type === "end" && !item.isError).map((item) => item.tool),
+	);
+	const currentBonus = run.tool_trace.at(-1)?.type === "start" ? 10 : 0;
+	return Math.min(92, 8 + completedTools.size * 22 + currentBonus);
+}
+
+function agentRunDuration(run: AgentRun): string {
+	const seconds = Math.max(
+		0,
+		Math.round((new Date(run.completed_at ?? Date.now()).getTime() - new Date(run.created_at).getTime()) / 1000),
+	);
+	return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
+}
+
+function AgentDraftContent({ run }: { run: AgentRun }) {
+	if (!run.draft) return null;
+	if (run.purpose === "report_narrative") {
+		const limitations = Array.isArray(run.draft.limitations) ? run.draft.limitations.map(String) : [];
+		return (
+			<div className="agent-draft-content">
+				<div>
+					<span>报告摘要</span>
+					<p>{String(run.draft.summary ?? "-")}</p>
+				</div>
+				<div>
+					<span>管理层叙述</span>
+					<p>{String(run.draft.executiveSummary ?? "-")}</p>
+				</div>
+				{limitations.length > 0 && (
+					<div>
+						<span>证据局限</span>
+						<ul>
+							{limitations.map((item) => (
+								<li key={item}>{item}</li>
+							))}
+						</ul>
+					</div>
+				)}
+			</div>
+		);
+	}
+	if (run.purpose === "quality_review") {
+		const issues = Array.isArray(run.draft.issues)
+			? (run.draft.issues as Array<{ severity?: string; detail?: string }>)
+			: [];
+		return (
+			<div className="agent-draft-content">
+				<div>
+					<span>检查结论</span>
+					<p>{String(run.draft.summary ?? "-")}</p>
+				</div>
+				<div>
+					<span>问题项 · {issues.length}</span>
+					{issues.length ? (
+						<ul>
+							{issues.map((issue) => (
+								<li key={`${issue.severity}:${issue.detail}`}>{issue.detail ?? "未说明"}</li>
+							))}
+						</ul>
+					) : (
+						<p>未发现需要阻止报告交付的问题。</p>
+					)}
+				</div>
+			</div>
+		);
+	}
+	return <pre>{JSON.stringify(run.draft, null, 2)}</pre>;
+}
+
+function ReportAgentRun({
+	run,
+	onApprove,
+	onReject,
+}: {
+	run: AgentRun;
+	onApprove(): Promise<void>;
+	onReject(): Promise<void>;
+}) {
+	const failedChecks = run.tool_trace.filter((item) => item.type === "end" && item.isError);
+	const active = run.status === "queued" || run.status === "running";
+	const completedTrace = run.tool_trace.filter((item) => item.type === "end");
+	const latestTrace = run.tool_trace.at(-1);
+	const visibleTrace = latestTrace?.type === "start" ? [...completedTrace, latestTrace] : completedTrace;
+	return (
+		<article className={`agent-run agent-run-${run.status}`}>
+			<div className="agent-run-status-icon" aria-hidden="true">
+				{active ? (
+					<IconLoader2 className="spin" size={18} />
+				) : run.status === "failed" ? (
+					<IconAlertTriangle size={18} />
+				) : (
+					<IconCheck size={18} />
+				)}
+			</div>
+			<div className="agent-run-main">
+				<header>
+					<div>
+						<b>{agentPurposeLabel(run.purpose)}</b>
+						<span className={`agent-status status-${run.status}`}>{agentStatusLabels[run.status]}</span>
+					</div>
+					<small>
+						{date(run.created_at)} · {agentRunDuration(run)}
+					</small>
+				</header>
+				<p className="agent-phase">{agentRunPhase(run)}</p>
+				<div
+					className="agent-progress"
+					role="progressbar"
+					aria-label="任务进度"
+					aria-valuemin={0}
+					aria-valuemax={100}
+					aria-valuenow={agentRunProgress(run)}
+				>
+					<span style={{ width: `${agentRunProgress(run)}%` }} />
+				</div>
+				<details className="agent-run-details" open={run.status === "failed"}>
+					<summary>
+						<IconChevronDown size={15} />
+						运行详情
+						{failedChecks.length > 0 && <span>{failedChecks.length} 次校验修正</span>}
+					</summary>
+					<div className="agent-run-facts">
+						<span>
+							模型 <b>{run.model}</b>
+						</span>
+						<span>
+							尝试{" "}
+							<b>
+								{run.job_attempts ?? 0}/{run.job_max_attempts ?? 0}
+							</b>
+						</span>
+						<span>
+							Token <b>{run.usage?.totalTokens?.toLocaleString("zh-CN") ?? "运行中"}</b>
+						</span>
+					</div>
+					{run.error_message && <Notice type="error" message={run.error_message} />}
+					{visibleTrace.length > 0 && (
+						<ol className="agent-tool-trace">
+							{visibleTrace.map((trace) => (
+								<li className={trace.isError ? "error" : ""} key={`${trace.at}-${trace.tool}-${trace.type}`}>
+									<IconCheck size={14} />
+									<div>
+										<b>{agentToolLabels[trace.tool] ?? trace.tool}</b>
+										<span>
+											{trace.type === "start" ? "开始" : trace.isError ? "校验未通过" : "完成"} · {date(trace.at)}
+										</span>
+										{trace.detail && <p>{trace.detail}</p>}
+									</div>
+								</li>
+							))}
+						</ol>
+					)}
+					<AgentDraftContent run={run} />
+				</details>
+			</div>
+			{run.status === "awaiting_approval" && (
+				<div className="agent-run-actions">
+					<Button variant="ghost" onClick={() => void onReject()}>
+						拒绝
+					</Button>
+					<Button icon={<IconCheck size={16} />} onClick={() => void onApprove()}>
+						批准
+					</Button>
+				</div>
+			)}
+		</article>
+	);
+}
+
 // The printable document stays in one component so its section numbering and conditional retest blocks remain auditable.
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: report composition intentionally mirrors the printed document
 function Report({ project }: { project: Project }) {
@@ -2571,6 +2816,12 @@ function Report({ project }: { project: Project }) {
 		void loadSnapshots().catch(() => setSnapshots([]));
 		void loadAgentRuns().catch(() => setAgentRuns([]));
 	}, [loadSnapshots, loadAgentRuns]);
+	const hasActiveAgentRuns = agentRuns.some((run) => run.status === "queued" || run.status === "running");
+	useEffect(() => {
+		if (!hasActiveAgentRuns) return;
+		const timer = window.setInterval(() => void loadAgentRuns().catch(() => undefined), 2_000);
+		return () => window.clearInterval(timer);
+	}, [hasActiveAgentRuns, loadAgentRuns]);
 	useEffect(() => {
 		setShareUrl(null);
 		if (!latestSnapshotId) {
@@ -2602,6 +2853,9 @@ function Report({ project }: { project: Project }) {
 	const overall = batch?.metrics.overall;
 	const selectedSnapshots = snapshots.filter((item) => item.batch_id === selected);
 	const latestSnapshot = selectedSnapshots[0];
+	const activeAgentPurposes = new Set(
+		agentRuns.filter((run) => run.status === "queued" || run.status === "running").map((run) => run.purpose),
+	);
 	async function createSnapshot() {
 		if (!batch) return;
 		setReportBusy("snapshot");
@@ -2665,6 +2919,7 @@ function Report({ project }: { project: Project }) {
 	async function runReportAgent(purpose: "report_narrative" | "quality_review") {
 		if (!batch) return;
 		setReportBusy(purpose);
+		setReportError(null);
 		try {
 			await post(`/api/batches/${batch.id}/agent`, { purpose });
 			await loadAgentRuns();
@@ -2676,146 +2931,198 @@ function Report({ project }: { project: Project }) {
 	}
 	return (
 		<section className="report">
-			<div className="section-head no-print">
-				<div>
-					<h2>中文效果报告</h2>
-					<p>先冻结不可变报告快照，再由云端 Report Worker 生成中文 PDF、分享页和数据导出。</p>
-				</div>
-				<div className="actions">
+			<div className="report-workspace no-print">
+				<header className="report-workspace-head">
+					<div>
+						<span className="eyebrow">报告工作台</span>
+						<h2>中文效果报告</h2>
+						<p>
+							{batch ? `${batchKindLabel(batch.kind)} · ${date(batch.created_at)} · ${batch.status}` : "未选择批次"}
+						</p>
+					</div>
 					<BatchPicker project={project} selected={selected} setSelected={setSelected} />
-					<Button
-						variant="secondary"
-						busy={reportBusy === "report_narrative"}
-						disabled={!batch}
-						onClick={() => runReportAgent("report_narrative")}
-					>
-						Agent 报告叙述
-					</Button>
-					<Button
-						variant="secondary"
-						busy={reportBusy === "quality_review"}
-						disabled={!batch}
-						onClick={() => runReportAgent("quality_review")}
-					>
-						Agent 质量检查
-					</Button>
-					<Button
-						variant="secondary"
-						busy={reportBusy === "snapshot"}
-						disabled={!batch || ["queued", "running"].includes(batch.status)}
-						onClick={createSnapshot}
-					>
-						冻结新报告快照
-					</Button>
-					<Button variant="secondary" busy={reportBusy === "share"} disabled={!latestSnapshot} onClick={createShare}>
-						创建30天分享链接
-					</Button>
-					<Button
-						icon={<IconDownload size={17} />}
-						busy={reportBusy === "pdf"}
-						disabled={!latestSnapshot}
-						onClick={createPdf}
-					>
-						云端生成 PDF
-					</Button>
+				</header>
+				<div className="report-command-bar">
+					<div className="report-command-group">
+						<span>Agent 分析</span>
+						<div>
+							<Button
+								variant="secondary"
+								icon={<IconFileText size={17} />}
+								busy={reportBusy === "report_narrative"}
+								disabled={!batch || activeAgentPurposes.has("report_narrative")}
+								onClick={() => runReportAgent("report_narrative")}
+							>
+								生成报告叙述
+							</Button>
+							<Button
+								variant="secondary"
+								icon={<IconShieldCheck size={17} />}
+								busy={reportBusy === "quality_review"}
+								disabled={!batch || activeAgentPurposes.has("quality_review")}
+								onClick={() => runReportAgent("quality_review")}
+							>
+								运行质量检查
+							</Button>
+						</div>
+					</div>
+					<div className="report-command-group">
+						<span>版本</span>
+						<div>
+							<Button
+								variant="secondary"
+								icon={<IconDatabase size={17} />}
+								busy={reportBusy === "snapshot"}
+								disabled={!batch || ["queued", "running"].includes(batch.status)}
+								onClick={createSnapshot}
+							>
+								冻结新版本
+							</Button>
+						</div>
+					</div>
+					<div className="report-command-group report-command-delivery">
+						<span>交付</span>
+						<div>
+							<Button
+								variant="secondary"
+								icon={<IconRoute size={17} />}
+								busy={reportBusy === "share"}
+								disabled={!latestSnapshot}
+								onClick={createShare}
+							>
+								创建分享链接
+							</Button>
+							<Button
+								icon={<IconDownload size={17} />}
+								busy={reportBusy === "pdf"}
+								disabled={!latestSnapshot}
+								onClick={createPdf}
+							>
+								生成 PDF
+							</Button>
+						</div>
+					</div>
 				</div>
 			</div>
 			{reportError && <Notice type="error" message={reportError} />}
-			{shareUrl && (
-				<div className="share-result">
-					<Notice type="success" message={`分享链接已复制：${shareUrl}`} />
-				</div>
-			)}
-			{shares.length > 0 && latestSnapshot && (
-				<div className="share-list no-print">
-					{shares.map((share) => {
-						const expired = new Date(share.expires_at).getTime() <= Date.now();
-						const active = !share.revoked_at && !expired;
-						return (
-							<article key={share.id}>
+			<section className="agent-activity no-print">
+				<header>
+					<div>
+						<span className="eyebrow">Agent 任务</span>
+						<h3>分析活动</h3>
+					</div>
+					<span>
+						{hasActiveAgentRuns
+							? `${agentRuns.filter((run) => run.status === "queued" || run.status === "running").length} 个进行中`
+							: `${agentRuns.length} 条记录`}
+					</span>
+				</header>
+				{agentRuns.length ? (
+					<div className="agent-run-list">
+						{agentRuns.slice(0, 8).map((run) => (
+							<ReportAgentRun
+								key={run.id}
+								run={run}
+								onApprove={async () => {
+									await post(`/api/agent-runs/${run.id}/approve`);
+									await loadAgentRuns();
+								}}
+								onReject={async () => {
+									await post(`/api/agent-runs/${run.id}/reject`);
+									await loadAgentRuns();
+								}}
+							/>
+						))}
+					</div>
+				) : (
+					<p className="agent-activity-empty">当前批次暂无 Agent 任务。</p>
+				)}
+			</section>
+			<section className="report-assets no-print">
+				<header>
+					<div>
+						<span className="eyebrow">交付资产</span>
+						<h3>报告版本与分享</h3>
+					</div>
+					<span>{selectedSnapshots.length} 个冻结版本</span>
+				</header>
+				{shareUrl && <Notice type="success" message={`分享链接已复制：${shareUrl}`} />}
+				{selectedSnapshots.length > 0 ? (
+					<div className="snapshot-strip">
+						{selectedSnapshots.map((snapshot) => (
+							<article key={snapshot.id}>
 								<div>
-									<b>{active ? "分享中" : share.revoked_at ? "已撤销" : "已过期"}</b>
+									<b>{snapshot.title}</b>
 									<small>
-										{share.created_by_email ?? "系统"} · 创建 {date(share.created_at)} · 到期 {date(share.expires_at)}
+										{date(snapshot.created_at)} · 哈希 {snapshot.payload_hash.slice(0, 12)}
 									</small>
 								</div>
-								{active && (
+								<div className="actions">
+									<a className="button secondary" href={`/api/reports/${snapshot.id}/export.csv`}>
+										CSV
+									</a>
 									<Button
 										variant="ghost"
 										onClick={() =>
-											api(`/api/report-shares/${share.id}`, { method: "DELETE" }).then(() =>
-												loadShares(latestSnapshot.id),
+											api(`/api/reports/${snapshot.id}`).then((value) =>
+												downloadText(
+													`${snapshot.title}.json`,
+													JSON.stringify(value, null, 2),
+													"application/json;charset=utf-8",
+												),
 											)
 										}
 									>
-										撤销
+										JSON
 									</Button>
-								)}
+									{snapshot.pdf_artifact_key && (
+										<a
+											className="button secondary"
+											href={`/artifacts/${snapshot.pdf_artifact_key}`}
+											target="_blank"
+											rel="noreferrer"
+										>
+											查看 PDF
+										</a>
+									)}
+								</div>
 							</article>
-						);
-					})}
-				</div>
-			)}
-			{agentRuns
-				.filter((run) => run.status === "awaiting_approval")
-				.map((run) => (
-					<article className="agent-draft no-print" key={run.id}>
-						<div>
-							<span className="eyebrow">Pi Agent · {run.purpose === "report_narrative" ? "报告叙述" : "质量检查"}</span>
-							<h3>报告草稿待审批</h3>
-							{run.draft && <pre>{JSON.stringify(run.draft, null, 2)}</pre>}
-						</div>
-						<div className="actions">
-							<Button variant="secondary" onClick={() => post(`/api/agent-runs/${run.id}/reject`).then(loadAgentRuns)}>
-								拒绝
-							</Button>
-							<Button onClick={() => post(`/api/agent-runs/${run.id}/approve`).then(loadAgentRuns)}>批准</Button>
-						</div>
-					</article>
-				))}
-			{selectedSnapshots.length > 0 && (
-				<div className="snapshot-strip no-print">
-					{selectedSnapshots.map((snapshot) => (
-						<article key={snapshot.id}>
-							<div>
-								<b>{snapshot.title}</b>
-								<small>
-									{date(snapshot.created_at)} · 哈希 {snapshot.payload_hash.slice(0, 12)}
-								</small>
-							</div>
-							<div className="actions">
-								<a className="button secondary" href={`/api/reports/${snapshot.id}/export.csv`}>
-									CSV
-								</a>
-								<Button
-									variant="ghost"
-									onClick={() =>
-										api(`/api/reports/${snapshot.id}`).then((value) =>
-											downloadText(
-												`${snapshot.title}.json`,
-												JSON.stringify(value, null, 2),
-												"application/json;charset=utf-8",
-											),
-										)
-									}
-								>
-									JSON
-								</Button>
-								{snapshot.pdf_artifact_key && (
-									<a
-										className="button secondary"
-										href={`/artifacts/${snapshot.pdf_artifact_key}`}
-										target="_blank"
-										rel="noreferrer"
-									>
-										查看 PDF
-									</a>
-								)}
-							</div>
-						</article>
-					))}
-				</div>
-			)}
+						))}
+					</div>
+				) : (
+					<p className="report-assets-empty">当前批次尚未冻结报告版本。</p>
+				)}
+				{shares.length > 0 && latestSnapshot && (
+					<div className="share-list">
+						{shares.map((share) => {
+							const expired = new Date(share.expires_at).getTime() <= Date.now();
+							const active = !share.revoked_at && !expired;
+							return (
+								<article key={share.id}>
+									<div>
+										<b>{active ? "分享中" : share.revoked_at ? "已撤销" : "已过期"}</b>
+										<small>
+											{share.created_by_email ?? "系统"} · 创建 {date(share.created_at)} · 到期 {date(share.expires_at)}
+										</small>
+									</div>
+									{active && (
+										<Button
+											variant="ghost"
+											onClick={() =>
+												api(`/api/report-shares/${share.id}`, { method: "DELETE" }).then(() =>
+													loadShares(latestSnapshot.id),
+												)
+											}
+										>
+											撤销
+										</Button>
+									)}
+								</article>
+							);
+						})}
+					</div>
+				)}
+			</section>
 			{batch && analysis ? (
 				<>
 					<header className="report-cover">

@@ -1,0 +1,250 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+resolve_script_dir() {
+	local source_path="${BASH_SOURCE[0]}"
+	while [[ -L "$source_path" ]]; do
+		local source_dir
+		source_dir="$(cd -- "$(dirname -- "$source_path")" && pwd)"
+		source_path="$(readlink "$source_path")"
+		[[ "$source_path" == /* ]] || source_path="$source_dir/$source_path"
+	done
+	cd -- "$(dirname -- "$source_path")" && pwd
+}
+
+readonly SCRIPT_DIR="$(resolve_script_dir)"
+readonly APP_DIR="${GEO_INSTALL_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+if [[ "$(basename "$(dirname "$APP_DIR")")" == "releases" ]]; then
+	readonly INSTALL_ROOT="${GEO_INSTALL_ROOT:-$(cd "$APP_DIR/../.." && pwd)}"
+else
+	readonly INSTALL_ROOT="${GEO_INSTALL_ROOT:-$APP_DIR}"
+fi
+if [[ -f "$APP_DIR/.geo-release" ]]; then
+	IMAGE_TAG="$(awk -F= '$1 == "RELEASE_ID" { print $2; exit }' "$APP_DIR/.geo-release")"
+else
+	IMAGE_TAG="local"
+fi
+readonly IMAGE_TAG
+
+log() {
+	printf '[GEO] %s\n' "$*"
+}
+
+fail() {
+	printf '[GEO] ERROR: %s\n' "$*" >&2
+	exit 1
+}
+
+usage() {
+	cat <<'EOF'
+Usage: geo-console <command> [arguments]
+
+Commands:
+  deploy                 Build and start the complete stack in migration-safe order
+  status                 Show service state and the public health response
+  doctor                 Validate Compose, service health, HTTPS, and backups
+  logs [service]         Follow logs for all services or one service
+  backup                 Back up PostgreSQL and local evidence together
+  upgrade BUNDLE         Install an uploaded .run release bundle
+  restart                Restart application services in migration-safe order
+  show-admin-password    Print the bootstrap administrator password
+  version                Show the deployed Git revision
+  help                   Show this help
+EOF
+}
+
+dc() {
+	COMPOSE_PARALLEL_LIMIT=1 GEO_IMAGE_TAG="$IMAGE_TAG" docker compose --project-directory "$APP_DIR" --env-file "$APP_DIR/.env" "$@"
+}
+
+env_value() {
+	local key="$1"
+	awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$APP_DIR/.env"
+}
+
+require_installation() {
+	[[ -f "$APP_DIR/compose.yaml" ]] || fail "compose.yaml not found in $APP_DIR"
+	[[ -f "$APP_DIR/.env" ]] || fail ".env not found in $APP_DIR"
+	[[ -d "$APP_DIR/secrets" ]] || fail "secrets directory not found in $APP_DIR"
+	command -v docker >/dev/null 2>&1 || fail "Docker is not installed"
+	docker compose version >/dev/null 2>&1 || fail "Docker Compose plugin is not available"
+}
+
+service_state() {
+	local service="$1"
+	local container_id
+	container_id="$(dc ps -q "$service")"
+	[[ -n "$container_id" ]] || return 1
+	docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id"
+}
+
+wait_for_service() {
+	local service="$1"
+	local timeout_seconds="$2"
+	local elapsed=0
+	while ((elapsed < timeout_seconds)); do
+		local state=""
+		state="$(service_state "$service" 2>/dev/null || true)"
+		if [[ "$state" == "healthy" || "$state" == "running" ]]; then
+			log "$service is $state"
+			return 0
+		fi
+		if [[ "$state" == "unhealthy" || "$state" == "exited" || "$state" == "dead" ]]; then
+			dc logs --tail=120 "$service" >&2 || true
+			fail "$service entered state: $state"
+		fi
+		sleep 2
+		elapsed=$((elapsed + 2))
+	done
+	dc logs --tail=120 "$service" >&2 || true
+	fail "$service did not become healthy within ${timeout_seconds}s"
+}
+
+wait_for_https() {
+	local domain
+	domain="$(env_value GEO_DOMAIN)"
+	local elapsed=0
+	while ((elapsed < 180)); do
+		if curl --connect-timeout 5 --max-time 10 -fsS "https://$domain/api/health" >/dev/null 2>&1; then
+			log "HTTPS health check passed: https://$domain/api/health"
+			return 0
+		fi
+		sleep 5
+		elapsed=$((elapsed + 5))
+	done
+	dc logs --tail=160 caddy >&2 || true
+	fail "HTTPS health check failed; verify DNS and cloud firewall ports 80/443"
+}
+
+run_backup() {
+	local backup_dir
+	backup_dir="$(env_value GEO_BACKUP_DIR)"
+	[[ -n "$backup_dir" ]] || fail "GEO_BACKUP_DIR is not configured"
+	mkdir -p "$backup_dir"
+	dc --profile backup run --rm backup
+	local newest_dump newest_evidence
+	newest_dump="$(find "$backup_dir" -maxdepth 1 -type f -name 'geo-*.dump' -print | sort | tail -n 1)"
+	newest_evidence="$(find "$backup_dir" -maxdepth 1 -type f -name 'evidence-*.tgz' -print | sort | tail -n 1)"
+	[[ -n "$newest_dump" && -s "$newest_dump" ]] || fail "PostgreSQL backup was not created"
+	[[ -n "$newest_evidence" && -s "$newest_evidence" ]] || fail "Evidence backup was not created"
+	log "Backup verified: $newest_dump"
+	log "Evidence archive verified: $newest_evidence"
+}
+
+build_images() {
+	dc config --quiet
+	dc pull postgres caddy
+	dc build --pull api web
+}
+
+start_stack() {
+	local create_backup="${1:-true}"
+	dc up -d postgres
+	wait_for_service postgres 120
+	dc up -d api
+	wait_for_service api 180
+	dc up -d capture-worker agent-worker report-worker web
+	wait_for_service capture-worker 60
+	wait_for_service agent-worker 60
+	wait_for_service report-worker 60
+	wait_for_service web 60
+	dc up -d caddy
+	wait_for_service caddy 60
+	wait_for_https
+	if [[ "$create_backup" == "true" ]]; then
+		run_backup
+	fi
+}
+
+stop_application_services() {
+	dc stop caddy capture-worker agent-worker report-worker api web || true
+}
+
+show_status() {
+	dc ps
+	local domain
+	domain="$(env_value GEO_DOMAIN)"
+	printf '\n'
+	curl --connect-timeout 5 --max-time 10 -fsS "https://$domain/api/health" || true
+	printf '\n'
+}
+
+doctor() {
+	dc config --quiet
+	for service in postgres api capture-worker agent-worker report-worker web caddy; do
+		local state=""
+		state="$(service_state "$service" 2>/dev/null || true)"
+		[[ "$state" == "healthy" || "$state" == "running" ]] || fail "$service is not healthy: ${state:-missing}"
+		log "$service: $state"
+	done
+	wait_for_https
+	local backup_dir
+	backup_dir="$(env_value GEO_BACKUP_DIR)"
+	find "$backup_dir" -maxdepth 1 -type f \( -name 'geo-*.dump' -o -name 'evidence-*.tgz' \) -print | sort | tail -n 4
+}
+
+upgrade_bundle() {
+	local bundle="${1:-}"
+	[[ -n "$bundle" && -f "$bundle" ]] || fail "usage: geo-console upgrade /path/to/geo-console-<version>.run"
+	GEO_INSTALL_ROOT="$INSTALL_ROOT" bash "$bundle" --install-dir "$INSTALL_ROOT"
+}
+
+main() {
+	local command="${1:-help}"
+	shift || true
+	if [[ "$command" == "help" || "$command" == "--help" || "$command" == "-h" ]]; then
+		usage
+		return
+	fi
+	require_installation
+	cd "$APP_DIR"
+	case "$command" in
+		deploy)
+			build_images
+			start_stack true
+			show_status
+			;;
+		prepare)
+			build_images
+			;;
+		activate)
+			start_stack false
+			;;
+		stop)
+			stop_application_services
+			;;
+		status)
+			show_status
+			;;
+		doctor)
+			doctor
+			;;
+		logs)
+			if (($# > 0)); then dc logs -f --tail=200 "$1"; else dc logs -f --tail=200; fi
+			;;
+		backup)
+			run_backup
+			;;
+		upgrade)
+			upgrade_bundle "${1:-}"
+			;;
+		restart)
+			stop_application_services
+			start_stack false
+			;;
+		show-admin-password)
+			[[ -r "$APP_DIR/secrets/admin_password" ]] || fail "run this command with sudo"
+			cat "$APP_DIR/secrets/admin_password"
+			printf '\n'
+			;;
+		version)
+			if [[ -f "$APP_DIR/.geo-release" ]]; then cat "$APP_DIR/.geo-release"; else git -C "$APP_DIR" log -1 --format='%h %cI %s'; fi
+			;;
+		*)
+			usage >&2
+			fail "unknown command: $command"
+			;;
+	esac
+}
+
+main "$@"

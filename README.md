@@ -39,6 +39,6 @@ corepack pnpm lint
 corepack pnpm license-check
 ```
 
-服务器 Docker、S3 兼容存储、HTTPS、备份与回滚见 [部署文档](docs/deployment.md)。系统边界见 [架构文档](docs/architecture.md)，五平台契约见 [适配器文档](docs/search-provider-adapters.md)，故障处理见 [运维文档](docs/operations.md)。
+服务器 Docker、S3 兼容存储、HTTPS、备份与回滚见 [部署文档](docs/deployment.md)。闭源服务器发布使用 `bash deploy/package.sh` 在本地生成单文件 `.run`，通过 SCP 上传后一次安装；后续开发版本使用同一发布包机制升级，不依赖公开 Git 仓库。系统边界见 [架构文档](docs/architecture.md)，五平台契约见 [适配器文档](docs/search-provider-adapters.md)，故障处理见 [运维文档](docs/operations.md)。
 
-本项目使用 [MIT License](LICENSE.md)；第三方许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+本项目为专有闭源软件，未经书面授权不得使用、复制、修改或分发；具体条款见 [LICENSE](LICENSE.md)。第三方许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

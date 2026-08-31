@@ -6,5 +6,7 @@ node_modules
 coverage
 .env*
 secrets
+server-backups
+dist
 .DS_Store
 *.log

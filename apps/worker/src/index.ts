@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { geoPaths, migrateDatabase, openDatabase, searchProviderIds } from "@geo/core";
 import { z } from "zod";
-import { approveAgentRun, listAgentRuns, rejectAgentRun, runAgentDraft, runTaskContentAgent } from "./agent";
+import { approveAgentRun, enqueueAgentDraft, enqueueTaskContentAgent, listAgentRuns, rejectAgentRun } from "./agent";
 import { getAttribution, importAttributionCsv } from "./attribution";
 import {
 	AuthenticationError,
@@ -204,8 +204,8 @@ async function handleBatchTaskRoutes(
 		if (!batchValue) throw new Error("采集批次不存在");
 		json(
 			response,
-			201,
-			await runAgentDraft(database, {
+			202,
+			await enqueueAgentDraft(database, {
 				projectId: String(batchValue.project_id),
 				batchId: modelDiagnosis[0],
 				purpose: "diagnosis",
@@ -222,8 +222,8 @@ async function handleBatchTaskRoutes(
 		if (!batchValue) throw new Error("采集批次不存在");
 		json(
 			response,
-			201,
-			await runAgentDraft(database, {
+			202,
+			await enqueueAgentDraft(database, {
 				projectId: String(batchValue.project_id),
 				batchId: batchAgent[0],
 				purpose: body.purpose,
@@ -335,7 +335,7 @@ async function handleBatchTaskRoutes(
 	}
 	const content = routeMatch(path, /^\/api\/tasks\/([^/]+)\/content$/);
 	if (content && request.method === "POST") {
-		json(response, 201, await runTaskContentAgent(database, content[0]));
+		json(response, 202, await enqueueTaskContentAgent(database, content[0]));
 		return true;
 	}
 	return false;

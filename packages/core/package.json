@@ -2,7 +2,7 @@
 	"name": "@geo/core",
 	"version": "0.1.0",
 	"private": true,
-	"license": "MIT",
+	"license": "UNLICENSED",
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
