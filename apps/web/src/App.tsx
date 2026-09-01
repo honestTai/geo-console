@@ -14,6 +14,7 @@ import {
 	IconFileAnalytics,
 	IconFileText,
 	IconGlobe,
+	IconHistory,
 	IconKey,
 	IconLoader2,
 	IconPlus,
@@ -24,6 +25,7 @@ import {
 	IconSettings,
 	IconShieldCheck,
 	IconTrash,
+	IconUsers,
 	IconWorldSearch,
 } from "@tabler/icons-react";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
@@ -40,7 +42,24 @@ const providerLabels: Record<string, string> = {
 	deepseek: "DeepSeek 历史消费端",
 	kimi: "Kimi 历史消费端",
 };
+const providerLogoPaths: Record<ProviderId, string> = {
+	deepseek_api: `${import.meta.env.BASE_URL}provider-logos/deepseek.svg`,
+	kimi_api: `${import.meta.env.BASE_URL}provider-logos/kimi.png`,
+	doubao_api: `${import.meta.env.BASE_URL}provider-logos/volcengine.png`,
+	qwen_api: `${import.meta.env.BASE_URL}provider-logos/qwen.svg`,
+	yuanbao_hunyuan: `${import.meta.env.BASE_URL}provider-logos/yuanbao.png`,
+};
 const providerLabel = (id: string): string => providerLabels[id] ?? id;
+const providerShortLabel = (id: string): string =>
+	({
+		deepseek_api: "DeepSeek",
+		kimi_api: "Kimi",
+		doubao_api: "豆包",
+		qwen_api: "通义千问",
+		yuanbao_hunyuan: "元宝+混元",
+	})[id] ?? providerLabel(id);
+const shortDate = (value: string): string =>
+	new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit" }).format(new Date(value));
 const batchKindLabel = (kind: BatchSummary["kind"]): string =>
 	kind === "quick_audit" ? "售前快审" : kind === "baseline" ? "正式基线" : "同条件复测";
 
@@ -381,6 +400,7 @@ type ProviderSetting = {
 	lastTestMessage: string | null;
 	lastTestedAt: string | null;
 };
+type ProviderDraft = Partial<ProviderSetting> & { apiKey?: string; secondaryApiKey?: string };
 type View =
 	| "overview"
 	| "monitor"
@@ -390,7 +410,9 @@ type View =
 	| "remediation"
 	| "attribution"
 	| "report"
-	| "settings";
+	| "settings"
+	| "members"
+	| "auditLogs";
 
 const views: Array<{ id: View; label: string; icon: typeof IconActivity }> = [
 	{ id: "overview", label: "项目总览", icon: IconBuilding },
@@ -402,6 +424,8 @@ const views: Array<{ id: View; label: string; icon: typeof IconActivity }> = [
 	{ id: "attribution", label: "业务归因", icon: IconRoute },
 	{ id: "report", label: "复测报告", icon: IconReportAnalytics },
 	{ id: "settings", label: "平台设置", icon: IconSettings },
+	{ id: "members", label: "机构成员", icon: IconUsers },
+	{ id: "auditLogs", label: "审计日志", icon: IconHistory },
 ];
 
 const percentage = (value: number | null | undefined) => (value == null ? "-" : `${(value * 100).toFixed(1)}%`);
@@ -528,7 +552,7 @@ export function App() {
 		return (
 			<main className="center">
 				<IconLoader2 className="spin" />
-				<span>正在打开 GEO Console</span>
+				<span>正在打开 ZZ Geo</span>
 			</main>
 		);
 	if (!user)
@@ -572,9 +596,9 @@ export function App() {
 		<div className="shell">
 			<aside className="sidebar">
 				<div className="brand">
-					<span className="brand-mark">G</span>
+					<span className="brand-mark">Z</span>
 					<div>
-						<strong>GEO Console</strong>
+						<strong>ZZ Geo</strong>
 						<small>真实 AI 可见度工作台</small>
 					</div>
 				</div>
@@ -591,7 +615,10 @@ export function App() {
 				</button>
 				<nav>
 					{views
-						.filter((item) => item.id !== "settings" || user.role === "admin")
+						.filter(
+							(item) =>
+								!["settings", "members", "auditLogs"].includes(item.id) || user.role === "admin",
+						)
 						.map((item) => (
 							<button
 								type="button"
@@ -640,7 +667,7 @@ export function App() {
 					/>
 				) : (
 					<>
-						{view === "overview" && <Overview project={project} onNavigate={setView} refresh={loadProject} />}
+						{view === "overview" && <Overview project={project} refresh={loadProject} />}
 						{view === "monitor" && <Monitoring project={project} refresh={loadProject} />}
 						{view === "evidence" && <Evidence project={project} />}
 						{view === "audit" && <WebsiteAudit project={project} refresh={loadProject} />}
@@ -648,7 +675,9 @@ export function App() {
 						{view === "remediation" && <Remediation project={project} refresh={loadProject} />}
 						{view === "attribution" && <Attribution project={project} />}
 						{view === "report" && <Report project={project} />}
-						{view === "settings" && user.role === "admin" && <Settings localBypass={user.localBypass} />}
+						{view === "settings" && user.role === "admin" && <Settings />}
+						{view === "members" && user.role === "admin" && <Members localBypass={user.localBypass} />}
+						{view === "auditLogs" && user.role === "admin" && <AuditLogs />}
 					</>
 				)}
 			</main>
@@ -678,9 +707,9 @@ function Login({ error, onLogin }: { error: string | null; onLogin(user: UserIde
 		<main className="login-page">
 			<form className="login-panel" onSubmit={submit}>
 				<div className="brand">
-					<span className="brand-mark">G</span>
+					<span className="brand-mark">Z</span>
 					<div>
-						<strong>GEO Console</strong>
+						<strong>ZZ Geo</strong>
 						<small>机构云端工作台</small>
 					</div>
 				</div>
@@ -756,9 +785,9 @@ function ProjectHome({
 		<main className="project-home">
 			<header>
 				<div className="brand">
-					<span className="brand-mark">G</span>
+					<span className="brand-mark">Z</span>
 					<div>
-						<strong>GEO Console</strong>
+						<strong>ZZ Geo</strong>
 						<small>真实 AI 可见度工作台</small>
 					</div>
 				</div>
@@ -987,7 +1016,7 @@ function Onboarding({ project, refresh }: { project: Project; refresh(): Promise
 				<b>3</b>
 				<span>建立基线</span>
 			</div>
-			<div className="section-head">
+			<div className="section-head view-head">
 				<div>
 					<h2>审核监测范围</h2>
 					<p>
@@ -1122,103 +1151,187 @@ function Onboarding({ project, refresh }: { project: Project; refresh(): Promise
 	);
 }
 
-function Overview({
-	project,
-	onNavigate,
-	refresh,
+function OverviewKpis({ trends, tasks }: { trends: TrendResponse; tasks: Task[] }) {
+	const latest = trends.comparable.at(-1);
+	const baseline = trends.comparable.length > 1 ? trends.comparable[0] : null;
+	if (!latest) return null;
+	const openTasks = tasks.filter((task) => task.status === "todo" || task.status === "in_progress").length;
+	const draftPending = tasks.some(
+		(task) => task.draft_content && task.status !== "published" && task.status !== "verified" && task.status !== "done",
+	);
+	const deltaPoints = (key: string): number | null => {
+		if (!baseline) return null;
+		const before = overallMetric(baseline, key);
+		const after = overallMetric(latest, key);
+		return before == null || after == null ? null : (after - before) * 100;
+	};
+	const evidenceCount = latest.metrics.validSamples + latest.metrics.failedSamples;
+	const evidenceDelta = baseline ? evidenceCount - (baseline.metrics.validSamples + baseline.metrics.failedSamples) : null;
+	const deltaChip = (value: number | null, unit: string) =>
+		value == null ? (
+			<span className="kpi-delta">首个基线</span>
+		) : value === 0 ? (
+			<span className="kpi-delta">与基线持平</span>
+		) : (
+			<span className={`kpi-delta ${value >= 0 ? "up" : "down"}`}>
+				较基线 {value >= 0 ? "+" : ""}
+				{value.toFixed(1)}
+				{unit}
+			</span>
+		);
+	return (
+		<div className="kpi-grid">
+			<div className="kpi-card">
+				<span className="kpi-label">品牌提及率</span>
+				<div className="kpi-value">{percentage(overallMetric(latest, "brandMentionRate"))}</div>
+				{deltaChip(deltaPoints("brandMentionRate"), "")}
+			</div>
+			<div className="kpi-card">
+				<span className="kpi-label">首位推荐率</span>
+				<div className="kpi-value">{percentage(overallMetric(latest, "firstRecommendationRate"))}</div>
+				{deltaChip(deltaPoints("firstRecommendationRate"), "")}
+			</div>
+			<div className="kpi-card">
+				<span className="kpi-label">官网引用率</span>
+				<div className="kpi-value">{percentage(overallMetric(latest, "citationRate"))}</div>
+				{deltaChip(deltaPoints("citationRate"), "")}
+			</div>
+			<div className="kpi-card">
+				<span className="kpi-label">证据存证</span>
+				<div className="kpi-value">
+					{evidenceCount}
+					<small> 条</small>
+				</div>
+				{deltaChip(evidenceDelta, " 条")}
+			</div>
+			<div className="kpi-card">
+				<span className="kpi-label">整改任务</span>
+				<div className="kpi-value">
+					{openTasks}
+					<small> 待审批</small>
+				</div>
+				<span className="kpi-delta">{draftPending ? "Pi Agent 草稿待审" : openTasks > 0 ? "待人工处理" : "全部已验收"}</span>
+			</div>
+		</div>
+	);
+}
+
+function OverviewTrendPanel({
+	latest,
+	trends,
+	loading,
 }: {
-	project: Project;
-	onNavigate(view: View): void;
-	refresh(): Promise<void>;
+	latest: BatchSummary | undefined;
+	trends: TrendResponse | null;
+	loading: boolean;
 }) {
+	let content: ReactNode;
+	if (!latest) {
+		content = <p className="muted trend-empty">建立首个基线后，这里会显示关键指标随批次的变化趋势。</p>;
+	} else if (loading) {
+		content = (
+			<div className="chart-loading">
+				<IconLoader2 className="spin" size={17} />
+				<span>正在加载趋势</span>
+			</div>
+		);
+	} else if (!trends || trends.comparable.length === 0) {
+		content = <p className="muted trend-empty">暂无可比较的批次数据。</p>;
+	} else {
+		const latestComparable = trends.comparable.at(-1);
+		content = (
+			<>
+				{trends.comparable.length < 2 ? (
+					<p className="muted trend-empty">当前只有一个同配置批次；完成一次“同条件复测”后显示趋势曲线。</p>
+				) : (
+					<LineTrendChart
+						labels={trends.comparable.map((item) => ({ id: item.id, label: shortDate(item.createdAt) }))}
+						series={[
+							{
+								label: "品牌提及率",
+								color: "var(--brand)",
+								values: trends.comparable.map((item) => overallPercent(item, "brandMentionRate")),
+							},
+							{
+								label: "首位推荐率",
+								color: "var(--info)",
+								values: trends.comparable.map((item) => overallPercent(item, "firstRecommendationRate")),
+							},
+							{
+								label: "官网引用率",
+								color: "var(--warning)",
+								values: trends.comparable.map((item) => overallPercent(item, "citationRate")),
+							},
+						]}
+					/>
+				)}
+				{latestComparable ? (
+					<MentionBarChart
+						title="平台覆盖（最新可比批次品牌提及率）"
+						items={perPlatformMention(latestComparable.metrics)}
+						note="失败平台不进入品牌率分母；未开放来源的平台引用率记为不可用。"
+					/>
+				) : null}
+			</>
+		);
+	}
+	return (
+		<div className="overview-trends">
+			{content}
+		</div>
+	);
+}
+
+function Overview({ project, refresh }: { project: Project; refresh(): Promise<void> }) {
 	const latest = project.batches[0];
+	const latestId = latest?.id;
 	const [editingScope, setEditingScope] = useState(false);
+	const [trends, setTrends] = useState<TrendResponse | null>(null);
+	const [trendsLoading, setTrendsLoading] = useState(false);
+	useEffect(() => {
+		if (!latestId) {
+			setTrends(null);
+			return;
+		}
+		let current = true;
+		setTrendsLoading(true);
+		api<TrendResponse>(`/api/projects/${project.id}/trends/${latestId}`)
+			.then((result) => {
+				if (current) setTrends(result);
+			})
+			.catch(() => {
+				if (current) setTrends(null);
+			})
+			.finally(() => {
+				if (current) setTrendsLoading(false);
+			});
+		return () => {
+			current = false;
+		};
+	}, [project.id, latestId]);
 	return (
 		<section>
-			<div className="workflow">
-				<button type="button" onClick={() => onNavigate("monitor")}>
-					<span>01</span>
-					<IconActivity />
-					<strong>建立基线</strong>
-					<small>五平台联网 API</small>
-				</button>
-				<i />
-				<button type="button" onClick={() => onNavigate("evidence")}>
-					<span>02</span>
-					<IconDatabase />
-					<strong>检查证据</strong>
-					<small>回答、来源、原始响应</small>
-				</button>
-				<i />
-				<button type="button" onClick={() => onNavigate("diagnosis")}>
-					<span>03</span>
-					<IconSearch />
-					<strong>诊断差距</strong>
-					<small>仅基于证据ID</small>
-				</button>
-				<i />
-				<button type="button" onClick={() => onNavigate("remediation")}>
-					<span>04</span>
-					<IconClipboardCheck />
-					<strong>整改发布</strong>
-					<small>真实URL验收</small>
-				</button>
-				<i />
-				<button type="button" onClick={() => onNavigate("report")}>
-					<span>05</span>
-					<IconReportAnalytics />
-					<strong>同条件复测</strong>
-					<small>前后变化报告</small>
-				</button>
-			</div>
-			<div className="overview-grid">
-				<div className="plain-section">
-					<span className="eyebrow">客户画像</span>
-					<div className="overview-title">
-						<h2>{project.name}</h2>
-						<Button variant="secondary" icon={<IconSettings size={16} />} onClick={() => setEditingScope(true)}>
-							编辑监测范围
-						</Button>
-					</div>
-					<p>{String(project.profile?.businessSummary ?? "官网分析已完成，画像详情以已保存的真实分析结果为准。")}</p>
-					<dl className="facts">
-						<div>
-							<dt>官网</dt>
-							<dd>
-								<a href={project.website_url} target="_blank" rel="noreferrer">
-									{project.domain}
-								</a>
-							</dd>
-						</div>
-						<div>
-							<dt>地区 / 语言</dt>
-							<dd>
-								{project.region} · {project.language}
-							</dd>
-						</div>
-						<div>
-							<dt>监测问题</dt>
-							<dd>{project.prompts.length}</dd>
-						</div>
-						<div>
-							<dt>竞品</dt>
-							<dd>{project.competitors.length}</dd>
-						</div>
-					</dl>
+			<div className="overview-head">
+				<div>
+					<span className="eyebrow">项目总览</span>
+					<h2>{project.name} · 可见度总览</h2>
 				</div>
-				<div className="plain-section">
-					<span className="eyebrow">当前状态</span>
-					<h2>{latest ? `最近批次：${latest.status}` : "等待建立首个基线"}</h2>
-					<p>
-						{latest
-							? `创建于 ${date(latest.created_at)}。进入 AI 监测查看有效样本和失败样本。`
-							: "建档已经确认。下一步先运行售前快审，或建立分时采样的正式基线。"}
-					</p>
-					<Button onClick={() => onNavigate("monitor")} icon={<IconChevronRight size={17} />}>
-						{latest ? "查看监测" : "建立基线"}
-					</Button>
-				</div>
+				<Button variant="secondary" icon={<IconSettings size={16} />} onClick={() => setEditingScope(true)}>
+					编辑监测范围
+				</Button>
 			</div>
+			{trendsLoading ? (
+				<div className="kpi-grid" aria-hidden="true">
+					<div className="kpi-card kpi-skeleton" />
+					<div className="kpi-card kpi-skeleton" />
+					<div className="kpi-card kpi-skeleton" />
+					<div className="kpi-card kpi-skeleton" />
+					<div className="kpi-card kpi-skeleton" />
+				</div>
+			) : trends ? (
+				<OverviewKpis trends={trends} tasks={project.tasks} />
+			) : null}
+			<OverviewTrendPanel latest={latest} trends={trends} loading={trendsLoading} />
 			{editingScope && <ScopeEditor project={project} onClose={() => setEditingScope(false)} refresh={refresh} />}
 		</section>
 	);
@@ -1437,6 +1550,119 @@ function ScopeEditor({ project, onClose, refresh }: { project: Project; onClose(
 	);
 }
 
+function runActivityStatus(status: string, active: boolean, captured: number): string {
+	if (status === "partial") return "采集完成 · 部分平台失败，原始证据已保留";
+	if (!active) return "采集完成 · 指标与证据已入库";
+	return captured > 0 ? `采集中 · 已写入 ${captured} 条证据` : "任务已创建 · 等待 Capture Worker";
+}
+
+function captureLogMessage(capture: Capture): string {
+	if (capture.status === "complete") return "回答与原始响应已存证";
+	return `${capture.status}${capture.failureMessage ? ` · ${capture.failureMessage}` : ""}`;
+}
+
+function RunCaptureLog({
+	captures,
+	active,
+}: {
+	captures: Capture[];
+	active: boolean;
+}) {
+	if (!captures.length)
+		return (
+			<div className="run-log">
+				<div>
+					<time>--:--:--</time>
+					<span>{active ? "冻结批次配置，等待首条采集证据" : "当前批次没有可展示的采集日志"}</span>
+				</div>
+			</div>
+		);
+	return (
+		<div className="run-log">
+			{captures.map((capture) => (
+				<div key={capture.captureId}>
+					<time>
+						{new Intl.DateTimeFormat("zh-CN", {
+							hour: "2-digit",
+							minute: "2-digit",
+							second: "2-digit",
+							hour12: false,
+						}).format(new Date(capture.capturedAt))}
+					</time>
+					<span>
+						{providerShortLabel(capture.engine)} · {captureLogMessage(capture)}
+					</span>
+					<b className={capture.status === "complete" ? "ok" : "error"}>
+						{capture.status === "complete" ? "✓" : "!"}
+					</b>
+				</div>
+			))}
+			{!active ? (
+				<div>
+					<time>完成</time>
+					<span>指标已刷新 · {captures.length} 条近期 capture 已写入证据链</span>
+					<b className="ok">✓</b>
+				</div>
+			) : null}
+		</div>
+	);
+}
+
+function RunActivityPanel({
+	batch,
+	summary,
+	busy,
+	onRerun,
+}: {
+	batch: Batch | null;
+	summary: BatchSummary | undefined;
+	busy: boolean;
+	onRerun(): Promise<void>;
+}) {
+	if (!summary) return null;
+	const expected = batch?.metrics.expectedSamples ?? 0;
+	const captured = batch?.captures.length ?? 0;
+	const batchStatus = batch?.status ?? summary.status;
+	const active = ["queued", "running"].includes(batchStatus);
+	const progress = expected > 0 ? Math.min(100, Math.round((captured / expected) * 100)) : active ? 4 : 100;
+	const recentCaptures = [...(batch?.captures ?? [])]
+		.sort((left, right) => left.capturedAt.localeCompare(right.capturedAt))
+		.slice(-6);
+	const status = runActivityStatus(batchStatus, active, captured);
+	return (
+		<section className="run-activity" aria-live="polite">
+			<header>
+				<div>
+					<h3>监测任务</h3>
+					<p>
+						{active ? "本次运行" : "上次运行"}：{date(summary.created_at)}
+						{expected > 0 ? ` · ${captured}/${expected} 条采集已存证` : ""}
+					</p>
+				</div>
+				{active ? (
+					<span className="status running">运行中</span>
+				) : (
+					<Button variant="secondary" busy={busy} icon={<IconRefresh size={16} />} onClick={() => void onRerun()}>
+						再次运行监测
+					</Button>
+				)}
+			</header>
+			<div
+				className="run-progress"
+				role="progressbar"
+				aria-label="采集进度"
+				aria-valuemin={0}
+				aria-valuemax={100}
+				aria-valuenow={progress}
+			>
+				<i style={{ width: `${progress}%` }} />
+			</div>
+			<strong className={`run-status ${active ? "running" : "complete"}`}>{status}</strong>
+			<RunCaptureLog captures={recentCaptures} active={active} />
+		</section>
+	);
+}
+
 function Monitoring({ project, refresh }: { project: Project; refresh(): Promise<void> }) {
 	const [selected, setSelected] = useState(project.batches[0]?.id ?? null);
 	const [batch, setBatch] = useState<Batch | null>(null);
@@ -1469,9 +1695,10 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 			api<TrendResponse>(`/api/projects/${project.id}/trends/${selected}`)
 				.then(setTrends)
 				.catch(() => setTrends(null));
-		const timer = window.setInterval(() => void load(), 8000);
+		const pollingMs = ["queued", "running"].includes(batch?.status ?? selectedBatch?.status ?? "") ? 3_000 : 8_000;
+		const timer = window.setInterval(() => void load(), pollingMs);
 		return () => window.clearInterval(timer);
-	}, [load, project.id, selected]);
+	}, [batch?.status, load, project.id, selected, selectedBatch?.status]);
 	async function saveSchedule() {
 		setBusy(true);
 		setError(null);
@@ -1489,7 +1716,10 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 			setBusy(false);
 		}
 	}
-	async function create(kind: "quick_audit" | "baseline" | "retest") {
+	async function create(
+		kind: "quick_audit" | "baseline" | "retest",
+		compareToBatchId: string | null = selected,
+	) {
 		setBusy(true);
 		setError(null);
 		try {
@@ -1497,8 +1727,10 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 				`/api/projects/${project.id}/batches`,
 				kind !== "retest"
 					? { kind, platforms: runPlatforms, repeats: kind === "quick_audit" ? 1 : runRepeats }
-					: { kind, compareToBatchId: selected },
+					: { kind, compareToBatchId },
 			);
+			setBatch(null);
+			setTrends(null);
 			setSelected(result.id);
 			await refresh();
 		} catch (reason) {
@@ -1509,29 +1741,33 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 	}
 	return (
 		<section>
-			<div className="section-head">
+			<div className="overview-head monitor-head">
 				<div>
+					<span className="eyebrow">AI监测</span>
 					<h2>五平台联网监测</h2>
-					<p>快审每题 1 次；正式基线默认分三个时间窗口采样。失败平台不进入品牌率分母。</p>
+					<p className="muted">快审每题 1 次；正式基线默认分三个时间窗口采样。失败平台不进入品牌率分母。</p>
 				</div>
-				<div className="actions">
+				<div className="monitor-toolbar toolbar">
 					<div className="run-config">
-						{providerIds.map((platform) => (
-							<label key={platform}>
-								<input
-									type="checkbox"
-									checked={runPlatforms.includes(platform)}
-									onChange={(event) =>
-										setRunPlatforms(
-											event.target.checked
-												? [...new Set([...runPlatforms, platform])]
-												: runPlatforms.filter((item) => item !== platform),
-										)
-									}
-								/>
-								{providerLabel(platform)}
-							</label>
-						))}
+						<fieldset className="run-platforms">
+							<legend>本次监测平台</legend>
+							{providerIds.map((platform) => (
+								<label key={platform}>
+									<input
+										type="checkbox"
+										checked={runPlatforms.includes(platform)}
+										onChange={(event) =>
+											setRunPlatforms(
+												event.target.checked
+													? [...new Set([...runPlatforms, platform])]
+													: runPlatforms.filter((item) => item !== platform),
+											)
+										}
+									/>
+									{providerShortLabel(platform)}
+								</label>
+							))}
+						</fieldset>
 						<select
 							aria-label="基线重复次数"
 							value={runRepeats}
@@ -1544,28 +1780,51 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 							))}
 						</select>
 					</div>
-					<Button
-						variant="secondary"
-						busy={busy}
-						onClick={() => create("retest")}
-						disabled={selectedBatch?.kind !== "baseline"}
-						title={selectedBatch?.kind !== "baseline" ? "只能选择正式基线作为复测锚点" : undefined}
-					>
-						按此条件复测
-					</Button>
-					<Button variant="secondary" busy={busy} disabled={!runPlatforms.length} onClick={() => create("quick_audit")}>
-						运行售前快审
-					</Button>
-					<Button
-						busy={busy}
-						disabled={!runPlatforms.length}
-						icon={<IconPlus size={17} />}
-						onClick={() => create("baseline")}
-					>
-						新建正式基线
-					</Button>
+					<div className="run-actions">
+						<Button
+							className="run-retest"
+							variant="secondary"
+							busy={busy}
+							onClick={() => create("retest")}
+							disabled={selectedBatch?.kind !== "baseline"}
+							title={selectedBatch?.kind !== "baseline" ? "只能选择正式基线作为复测锚点" : undefined}
+						>
+							按此条件复测
+						</Button>
+						<Button
+							className="run-audit"
+							variant="secondary"
+							busy={busy}
+							disabled={!runPlatforms.length}
+							onClick={() => create("quick_audit")}
+						>
+							运行售前快审
+						</Button>
+						<Button
+							className="run-baseline"
+							busy={busy}
+							disabled={!runPlatforms.length}
+							icon={<IconPlus size={17} />}
+							onClick={() => create("baseline")}
+						>
+							新建正式基线
+						</Button>
+					</div>
 				</div>
 			</div>
+			<RunActivityPanel
+				batch={batch}
+				summary={selectedBatch}
+				busy={busy}
+				onRerun={() =>
+					selectedBatch?.kind === "quick_audit"
+						? create("quick_audit")
+						: create(
+								"retest",
+								selectedBatch?.kind === "baseline" ? selectedBatch.id : selectedBatch?.compare_to_batch_id,
+							)
+				}
+			/>
 			{error && <Notice type="error" message={error} />}
 			{alerts
 				.filter((alert) => !alert.acknowledged_at)
@@ -1682,7 +1941,11 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 								type="button"
 								className={selected === item.id ? "active" : ""}
 								key={item.id}
-								onClick={() => setSelected(item.id)}
+								onClick={() => {
+									setBatch(null);
+									setTrends(null);
+									setSelected(item.id);
+								}}
 							>
 								<span>{batchKindLabel(item.kind)}</span>
 								<strong>{date(item.created_at)}</strong>
@@ -1699,6 +1962,7 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 }
 
 function TrendChart({ trends }: { trends: TrendResponse }) {
+	const anchor = trends.comparable.find((item) => item.id === trends.anchorBatchId) ?? trends.comparable.at(-1);
 	return (
 		<div className="trend-section">
 			<div className="section-head compact">
@@ -1737,7 +2001,279 @@ function TrendChart({ trends }: { trends: TrendResponse }) {
 					})}
 				</div>
 			)}
+			<div className="trend-charts">
+				<MentionBarChart
+					title="各批次品牌提及率"
+					items={trends.comparable.map((item) => ({
+						label: `${batchKindLabel(item.kind as BatchSummary["kind"])} · ${shortDate(item.createdAt)}`,
+						value: overallMetric(item, "brandMentionRate"),
+					}))}
+				/>
+				{anchor ? (
+					<MentionBarChart
+						title="各平台品牌提及率"
+						items={perPlatformMention(anchor.metrics)}
+						note="取自当前选中批次；失败平台不进入品牌率分母。"
+					/>
+				) : null}
+			</div>
 		</div>
+	);
+}
+
+type ChartSeries = { label: string; color: string; values: Array<number | null> };
+type ChartLabel = { id: string; label: string };
+
+const overallMetric = (item: TrendResponse["comparable"][number], key: string): number | null =>
+	(item.metrics.overall[key] as number | null | undefined) ?? null;
+
+const overallPercent = (item: TrendResponse["comparable"][number], key: string): number | null => {
+	const value = overallMetric(item, key);
+	return value == null ? null : value * 100;
+};
+
+const perPlatformMention = (metrics: Batch["metrics"]): Array<{ label: string; value: number | null }> =>
+	Object.entries(metrics.perPlatform).map(([platform, item]) => ({ label: providerShortLabel(platform), value: item.brandMentionRate }));
+
+function ChartLegend({ series }: { series: ChartSeries[] }) {
+	return (
+		<div className="chart-legend">
+			{series.map((item) => (
+				<span key={item.label}>
+					<i style={{ background: item.color }} />
+					{item.label}
+				</span>
+			))}
+		</div>
+	);
+}
+
+function LineTrendChart({ series, labels }: { series: ChartSeries[]; labels: ChartLabel[] }) {
+	const width = 1000;
+	const height = 260;
+	const padLeft = 46;
+	const padRight = 16;
+	const padTop = 16;
+	const padBottom = 30;
+	const innerWidth = width - padLeft - padRight;
+	const innerHeight = height - padTop - padBottom;
+	const xAt = (index: number) => (labels.length > 1 ? padLeft + (innerWidth * index) / (labels.length - 1) : width / 2);
+	const yAt = (value: number) => padTop + innerHeight * (1 - Math.min(100, Math.max(0, value)) / 100);
+	return (
+		<div className="chart-card">
+			<div className="chart-head">
+				<h4>关键指标趋势</h4>
+				<ChartLegend series={series} />
+			</div>
+			<svg className="chart-svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="关键指标趋势图">
+				{[0, 25, 50, 75, 100].map((tick) => (
+					<g key={tick}>
+						<line x1={padLeft} y1={yAt(tick)} x2={width - padRight} y2={yAt(tick)} stroke="var(--line)" strokeWidth="1" />
+						<text x={padLeft - 8} y={yAt(tick) + 4} textAnchor="end">
+							{tick}%
+						</text>
+					</g>
+				))}
+				{labels.map((item, index) => (
+					<text key={item.id} x={xAt(index)} y={height - 8} textAnchor="middle">
+						{item.label}
+					</text>
+				))}
+				{series.map((item) => {
+					const segments: string[] = [];
+					let current = "";
+					item.values.forEach((value, index) => {
+						if (value == null) {
+							if (current) segments.push(current);
+							current = "";
+							return;
+						}
+						current += `${current ? " L" : "M"}${xAt(index).toFixed(1)},${yAt(value).toFixed(1)}`;
+					});
+					if (current) segments.push(current);
+					return (
+						<g key={item.label}>
+							{segments.map((d) => (
+								<path key={d} d={d} fill="none" stroke={item.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+							))}
+							{item.values.map((value, index) =>
+								value == null ? null : (
+									<circle
+										key={`${item.label}-${labels[index]?.id ?? value}`}
+										cx={xAt(index)}
+										cy={yAt(value)}
+										r="3.5"
+										fill="var(--surface)"
+										stroke={item.color}
+										strokeWidth="2"
+									/>
+								),
+							)}
+						</g>
+					);
+				})}
+			</svg>
+		</div>
+	);
+}
+
+function MentionBarChart({
+	title,
+	items,
+	note,
+}: {
+	title: string;
+	items: Array<{ label: string; value: number | null }>;
+	note?: string;
+}) {
+	if (!items.length) return null;
+	return (
+		<div className="chart-card">
+			<div className="chart-head">
+				<h4>{title}</h4>
+			</div>
+			<div className="chart-bars">
+				{items.map((item) => (
+					<div className="chart-bar-row" key={item.label}>
+						<span className="chart-bar-label" title={item.label}>
+							{item.label}
+						</span>
+						<span className="chart-bar-track">
+							<i className="chart-bar-fill" style={{ width: `${Math.round((item.value ?? 0) * 100)}%` }} />
+						</span>
+						<span className="chart-bar-value">{percentage(item.value)}</span>
+					</div>
+				))}
+			</div>
+			{note ? <p className="chart-note">{note}</p> : null}
+		</div>
+	);
+}
+
+function ComparisonDeltaChart({
+	current,
+	baseline,
+	title = "基线 → 复测变化（百分点）",
+}: {
+	current: Batch;
+	baseline: Batch;
+	title?: string;
+}) {
+	const metrics = [
+		{ key: "brandMentionRate", label: "品牌提及率" },
+		{ key: "firstRecommendationRate", label: "首位推荐率" },
+		{ key: "citationRate", label: "官网引用率" },
+	] as const;
+	const rows = current.config.platforms.flatMap((platform) =>
+		metrics.map((metric) => {
+			const before = baseline.metrics.perPlatform[platform]?.[metric.key] ?? null;
+			const after = current.metrics.perPlatform[platform]?.[metric.key] ?? null;
+			return {
+				label: `${providerShortLabel(platform)} · ${metric.label}`,
+				value: before == null || after == null ? null : (after - before) * 100,
+			};
+		}),
+	);
+	if (!rows.some((row) => row.value != null)) return null;
+	return (
+		<div className="chart-card">
+			<div className="chart-head">
+				<h4>{title}</h4>
+			</div>
+			<div className="chart-bars">
+				{rows.map((row) => {
+					const widthPercent = Math.min(50, Math.abs(row.value ?? 0) / 2);
+					return (
+						<div className="chart-bar-row" key={row.label}>
+							<span className="chart-bar-label" title={row.label}>
+								{row.label}
+							</span>
+							<span className="chart-delta-track">
+								<i className="chart-delta-zero" />
+								{row.value == null ? null : (
+									<i
+										className={`chart-delta-fill ${row.value >= 0 ? "pos" : "neg"}`}
+										style={row.value >= 0 ? { left: "50%", width: `${widthPercent}%` } : { right: "50%", width: `${widthPercent}%` }}
+									/>
+								)}
+							</span>
+							<span className={`chart-bar-value ${row.value == null ? "" : row.value >= 0 ? "positive" : "negative"}`}>
+								{row.value == null ? "-" : `${row.value >= 0 ? "+" : ""}${row.value.toFixed(1)}`}
+							</span>
+						</div>
+					);
+				})}
+			</div>
+			<p className="chart-note">正值表示复测高于基线；数据来自两个冻结批次的平台指标，失败平台不计入分母。</p>
+		</div>
+	);
+}
+
+function ReportExecutiveOverview({
+	batch,
+	analysis,
+	baselineBatch,
+	pdfAction,
+}: {
+	batch: Batch;
+	analysis: ReportAnalysis;
+	baselineBatch: Batch | null;
+	pdfAction?: ReactNode;
+}) {
+	const overall = batch.metrics.overall;
+	return (
+		<section className="report-executive-overview">
+			<div className="executive-summary">
+				<div>
+					<span className="eyebrow">管理层摘要</span>
+					<h2>{analysis.executive.headline}</h2>
+					<p className="ds-sub">{analysis.executive.summary}</p>
+				</div>
+				<div className={`evidence-level level-${analysis.executive.evidenceLevel}`}>
+					<span>证据等级</span>
+					<strong>{analysis.executive.evidenceLevel}</strong>
+				</div>
+			</div>
+			<p className="validity-note">{analysis.executive.validityNote}</p>
+			<div className="ds-darkstrip">
+				<div className="dm">
+					<span>品牌提及率</span>
+					<b>{percentage(overall.brandMentionRate as number | undefined)}</b>
+				</div>
+				<div className="dm">
+					<span>首位推荐率</span>
+					<b>{percentage(overall.firstRecommendationRate as number | undefined)}</b>
+				</div>
+				<div className="dm">
+					<span>官网引用率</span>
+					<b>{percentage(overall.citationRate as number | undefined)}</b>
+				</div>
+				<div className="dm">
+					<span>平均提及位置</span>
+					<b>
+						{typeof overall.averageMentionPosition === "number" ? overall.averageMentionPosition.toFixed(1) : "-"}
+					</b>
+				</div>
+				<div className="dm">
+					<span>有效样本</span>
+					<b>
+						{batch.metrics.validSamples}/{batch.metrics.expectedSamples}
+					</b>
+				</div>
+			</div>
+			{baselineBatch ? (
+				<div className="report-card report-comparison-card">
+					<div className="report-head">
+						<div>
+							<strong>01 整改前后对比</strong>
+							<span>与基线使用完全相同的问法、平台与采样条件</span>
+						</div>
+						{pdfAction}
+					</div>
+					<ComparisonDeltaChart current={batch} baseline={baselineBatch} title="整改前后对比（百分点）" />
+				</div>
+			) : null}
+		</section>
 	);
 }
 
@@ -1766,19 +2302,15 @@ function BatchMetrics({ batch }: { batch: Batch }) {
 					<article className="metric-card" key={platform}>
 						<header>
 							<strong>{providerLabel(platform)}</strong>
-							<span>
+							<span className="metric-badge">
 								{metrics.answeredCaptures}/{metrics.totalCaptures} 有回答
 							</span>
 						</header>
+						<div className="metric-hero">
+							<b>{percentage(metrics.brandMentionRate)}</b>
+							<span>品牌提及率</span>
+						</div>
 						<dl>
-							<div>
-								<dt>回答覆盖率</dt>
-								<dd>{percentage(metrics.answerCoverage)}</dd>
-							</div>
-							<div>
-								<dt>品牌提及率</dt>
-								<dd>{percentage(metrics.brandMentionRate)}</dd>
-							</div>
 							<div>
 								<dt>首位推荐率</dt>
 								<dd>{percentage(metrics.firstRecommendationRate)}</dd>
@@ -1798,6 +2330,10 @@ function BatchMetrics({ batch }: { batch: Batch }) {
 							<div>
 								<dt>平均提及位置</dt>
 								<dd>{metrics.averageMentionPosition?.toFixed(1) ?? "-"}</dd>
+							</div>
+							<div>
+								<dt>回答覆盖率</dt>
+								<dd>{percentage(metrics.answerCoverage)}</dd>
 							</div>
 						</dl>
 					</article>
@@ -1847,6 +2383,8 @@ function Evidence({ project }: { project: Project }) {
 		() => batch?.captures.filter((item) => platform === "all" || item.engine === platform) ?? [],
 		[batch, platform],
 	);
+	const [activeCaptureId, setActiveCaptureId] = useState<string | null>(null);
+	const activeCapture = captures.find((item) => item.captureId === activeCaptureId) ?? captures[0] ?? null;
 	function exportCsv() {
 		const headers = [
 			"证据ID",
@@ -1896,87 +2434,142 @@ function Evidence({ project }: { project: Project }) {
 		return <Empty title="还没有证据" detail="完成至少一个真实采集批次后，回答、来源和原始 API 响应会出现在这里。" />;
 	return (
 		<section>
-			<div className="section-head">
+			<div className="overview-head evidence-head">
 				<div>
-					<h2>原始证据索引</h2>
-					<p>原始回答与 API 响应写入后不可修改；派生指标可以按新规则重算。</p>
+					<span className="eyebrow">证据中心</span>
+					<h2>回答原文存证</h2>
+					<p className="muted">原始回答与 API 响应写入后不可修改；派生指标可以按新规则重算。</p>
 				</div>
 				<div className="filters">
 					<BatchPicker project={project} selected={selected} setSelected={setSelected} />
-					<select value={platform} onChange={(event) => setPlatform(event.target.value)}>
-						<option value="all">全部平台</option>
-						{[...new Set(batch?.config.platforms ?? providerIds)].map((id) => (
-							<option value={id} key={id}>
-								{providerLabel(id)}
-							</option>
-						))}
-					</select>
 					<Button variant="secondary" icon={<IconDownload size={16} />} disabled={!captures.length} onClick={exportCsv}>
 						导出证据 CSV
 					</Button>
 				</div>
 			</div>
+			<div className="filter-chips">
+				<button
+					type="button"
+					className={platform === "all" ? "filter-chip sel" : "filter-chip"}
+					onClick={() => setPlatform("all")}
+				>
+					全部
+				</button>
+				{[...new Set(batch?.config.platforms ?? providerIds)].map((id) => (
+					<button
+						type="button"
+						className={platform === id ? "filter-chip sel" : "filter-chip"}
+						key={id}
+						onClick={() => setPlatform(id)}
+					>
+						{providerLabel(id)}
+					</button>
+				))}
+			</div>
 			{captures.length === 0 ? (
 				<Empty title="批次尚无采集结果" detail="云端 Worker 可能仍在等待分时窗口，或平台配置需要处理。" />
 			) : (
-				<div className="evidence-list">
-					{captures.map((capture) => (
-						<article className="evidence-item" key={capture.captureId}>
-							<header>
-								<div>
-									<span className={`platform ${capture.engine}`}>{providerLabel(capture.engine)}</span>
-									<strong>{capture.prompt}</strong>
-								</div>
-								<span className={`status ${capture.status}`}>{capture.status}</span>
-							</header>
-							<div className="evidence-meta">
-								第 {capture.attempt} 次采样 · {capture.model ?? "历史页面"} · {capture.protocol ?? capture.captureMode}{" "}
-								· {date(capture.capturedAt)} · 证据ID {capture.captureId}
-							</div>
-							{capture.answerText ? (
-								<p className="answer">{capture.answerText}</p>
-							) : (
-								<Notice type="error" message={capture.failureMessage ?? "本次采集没有回答"} />
-							)}
-							{capture.sources.length > 0 && (
-								<div className="sources">
-									<b>引用来源</b>
-									{capture.sources.map((source) => (
-										<a href={source.url} target="_blank" rel="noreferrer" key={`${source.position}-${source.url}`}>
-											{source.position}. {source.title ?? source.domain}
-										</a>
-									))}
-								</div>
-							)}
-							{capture.sourceVisibility === "unavailable" && (
-								<p className="muted">该平台本次未开放来源数据，引用率记为不可用，不按 0 计算。</p>
-							)}
-							{capture.queryFanOut.length > 0 && (
-								<div className="query-fanout">
-									<b>平台检索拆解</b>
-									<div>
-										{capture.queryFanOut.map((query) => (
-											<span key={query}>{query}</span>
-										))}
-									</div>
-								</div>
-							)}
-							{(capture.evidence.rawResponseObjectKey || capture.evidence.screenshotObjectKey) && (
-								<a
-									className="screenshot-link"
-									href={`/artifacts/${capture.evidence.rawResponseObjectKey ?? capture.evidence.screenshotObjectKey}`}
-									target="_blank"
-									rel="noreferrer"
-								>
-									<IconFileText size={16} />
-									{capture.captureMode === "llm_search_api" ? "查看原始 API 响应" : "查看历史页面截图"}
-								</a>
-							)}
-						</article>
+				<>
+					<div className="evidence-grid">
+						{captures.map((capture) => (
+							<button
+								type="button"
+								className={`evidence-card ${activeCapture?.captureId === capture.captureId ? "selected" : ""}`}
+								key={capture.captureId}
+								onClick={() => setActiveCaptureId(capture.captureId)}
+							>
+								<span className="ev-platform">{providerLabel(capture.engine)}</span>
+								<strong>“{capture.prompt}”</strong>
+								<span className="ev-meta">
+									{capture.status === "success" ? "有回答" : capture.status} · 第 {capture.attempt} 次采样 ·{" "}
+									{date(capture.capturedAt)}
+								</span>
+							</button>
+						))}
+					</div>
+					{activeCapture && <EvidenceDetail capture={activeCapture} />}
+				</>
+			)}
+		</section>
+	);
+}
+
+function EvidenceDetail({ capture }: { capture: Capture }) {
+	return (
+		<article className="evidence-detail">
+			<div className="ed-head">
+				<span className="ev-platform">{providerLabel(capture.engine)}</span>
+				<div>
+					<strong>“{capture.prompt}”</strong>
+					<span className="ed-time">
+						采集于 {date(capture.capturedAt)} · 第 {capture.attempt} 次采样 · {capture.model ?? "历史页面"} ·{" "}
+						{capture.protocol ?? capture.captureMode} · 证据ID {capture.captureId}
+					</span>
+				</div>
+				{capture.evidence.requestId && (
+					<span className="ed-hash" title="证据请求 ID，用于校验完整性">
+						<IconShieldCheck size={12} />
+						<code>{capture.evidence.requestId}</code>
+					</span>
+				)}
+			</div>
+			{capture.answerText ? (
+				<blockquote className="ed-quote">{capture.answerText}</blockquote>
+			) : (
+				<Notice type="error" message={capture.failureMessage ?? "本次采集没有回答"} />
+			)}
+			<div className="ed-foot">
+				<span className="ed-status">
+					结论：
+					{capture.status === "success"
+						? capture.brandMatches.length > 0
+							? `品牌被提及 ${capture.brandMatches.length} 次`
+							: "回答未提及品牌"
+						: (capture.failureMessage ?? "本次采集未完成")}
+				</span>
+				<span className="ed-tags">
+					{capture.brandMatches.length > 0
+						? `提及位置 ${capture.brandMatches.map((match) => match.position).join("、")}`
+						: "未提及"}
+					{capture.sources.length > 0 ? ` · 引用来源 ${capture.sources.length} 条` : ""}
+					{capture.evidence.rawResponseObjectKey || capture.evidence.screenshotObjectKey ? " · 截图 + 原文已存证" : ""}
+				</span>
+			</div>
+			{capture.sources.length > 0 && (
+				<div className="sources">
+					<b>引用来源</b>
+					{capture.sources.map((source) => (
+						<a href={source.url} target="_blank" rel="noreferrer" key={`${source.position}-${source.url}`}>
+							{source.position}. {source.title ?? source.domain}
+						</a>
 					))}
 				</div>
 			)}
-		</section>
+			{capture.sourceVisibility === "unavailable" && (
+				<p className="muted">该平台本次未开放来源数据，引用率记为不可用，不按 0 计算。</p>
+			)}
+			{capture.queryFanOut.length > 0 && (
+				<div className="query-fanout">
+					<b>平台检索拆解</b>
+					<div>
+						{capture.queryFanOut.map((query) => (
+							<span key={query}>{query}</span>
+						))}
+					</div>
+				</div>
+			)}
+			{(capture.evidence.rawResponseObjectKey || capture.evidence.screenshotObjectKey) && (
+				<a
+					className="screenshot-link"
+					href={`/artifacts/${capture.evidence.rawResponseObjectKey ?? capture.evidence.screenshotObjectKey}`}
+					target="_blank"
+					rel="noreferrer"
+				>
+					<IconFileText size={16} />
+					{capture.captureMode === "llm_search_api" ? "查看原始 API 响应" : "查看历史页面截图"}
+				</a>
+			)}
+		</article>
 	);
 }
 
@@ -1998,10 +2591,11 @@ function WebsiteAudit({ project, refresh }: { project: Project; refresh(): Promi
 	}
 	return (
 		<section className="audit-page">
-			<div className="section-head">
+			<div className="overview-head audit-head">
 				<div>
-					<h2>官网 GEO 技术审计</h2>
-					<p>检查 AI 与搜索系统能否稳定读取官网，以及页面是否提供可理解、可引用的实体和事实结构。</p>
+					<span className="eyebrow">官网审计</span>
+					<h2>公开页面的 AI 可读性检查</h2>
+					<p className="muted">检查 AI 与搜索系统能否稳定读取官网，以及页面是否提供可理解、可引用的实体和事实结构。</p>
 				</div>
 				<Button busy={busy} icon={<IconShieldCheck size={17} />} onClick={run}>
 					{audit ? "重新审计" : "开始真实审计"}
@@ -2015,26 +2609,27 @@ function WebsiteAudit({ project, refresh }: { project: Project; refresh(): Promi
 				/>
 			) : (
 				<>
-					<div className="audit-summary">
-						<div className={`audit-score ${audit.result.verdict}`}>
-							<strong>{audit.result.score}</strong>
+					<div className="audit-overview">
+						<div className={`audit-score-hero ${audit.result.verdict}`}>
+							<b>{audit.result.score}</b>
 							<span>/ 100</span>
 						</div>
 						<div>
-							<span className="eyebrow">最新审计 · {date(audit.result.checkedAt)}</span>
-							<h3>
+							<strong>
 								{audit.result.verdict === "ready"
 									? "官网读取基础完整"
 									: audit.result.verdict === "blocked"
 										? "官网存在读取阻断"
 										: "官网可读取，但存在重要缺口"}
-							</h3>
+							</strong>
+							<p>
+								最近审计：{date(audit.result.checkedAt)} · {audit.result.checks.length} 项检查 · 审计证据 ID:{audit.id}
+							</p>
 							<p>
 								HTTPS {audit.result.transport.https.ok ? "正常" : "异常"} · Sitemap{" "}
 								{audit.result.discovery.sitemap.urlCount} 个 URL · JSON-LD{" "}
 								{audit.result.homepage.structuredDataTypes.length || 0} 类
 							</p>
-							<small>审计证据 ID：{audit.id}</small>
 						</div>
 					</div>
 					{!audit.result.transport.https.ok &&
@@ -2069,22 +2664,24 @@ function WebsiteAudit({ project, refresh }: { project: Project; refresh(): Promi
 							<h3>审计项目</h3>
 							<span>{audit.result.checks.filter((check) => check.status === "pass").length} 项通过</span>
 						</header>
-						{audit.result.checks.map((check) => (
-							<div className="audit-check" key={check.id}>
-								<span className={`check-state ${check.status}`}>
-									{check.status === "pass"
-										? "通过"
-										: check.status === "fail"
-											? "失败"
-											: check.status === "warning"
-												? "警告"
-												: "参考"}
-								</span>
-								<b>{check.label}</b>
-								<p>{check.detail}</p>
-								<code>{check.id}</code>
-							</div>
-						))}
+						<div className="audit-check-grid">
+							{audit.result.checks.map((check) => (
+								<article className={`audit-check-card ${check.status}`} key={check.id}>
+									<span className={`check-state ${check.status}`}>
+										{check.status === "pass"
+											? "通过"
+											: check.status === "fail"
+												? "失败"
+												: check.status === "warning"
+													? "警告"
+													: "参考"}
+									</span>
+									<strong>{check.label}</strong>
+									<p>{check.detail}</p>
+									<code>{check.id}</code>
+								</article>
+							))}
+						</div>
 					</div>
 				</>
 			)}
@@ -2124,10 +2721,13 @@ function Diagnosis({ project, refresh }: { project: Project; refresh(): Promise<
 		return <Empty title="尚不能诊断" detail="诊断必须基于成功采集的真实回答。请先建立基线。" />;
 	return (
 		<section>
-			<div className="section-head">
+			<div className="overview-head">
 				<div>
-					<h2>证据约束诊断</h2>
-					<p>确定性规则输出可复核指标；Pi Agent 只能读取项目证据，并通过 HRouter GPT 生成待人工审批草稿。</p>
+					<span className="eyebrow">差距诊断</span>
+					<h2>证据定位的可整改差距</h2>
+					<p className="muted">
+						确定性规则输出可复核指标；Pi Agent 只能读取项目证据，并通过 HRouter GPT 生成待人工审批草稿。
+					</p>
 				</div>
 				<div className="actions">
 					<BatchPicker project={project} selected={selected} setSelected={setSelected} />
@@ -2178,26 +2778,26 @@ function Diagnosis({ project, refresh }: { project: Project; refresh(): Promise<
 					detail="采集完成后可直接运行证据规则；没有模型密钥也能生成真实诊断和整改任务。"
 				/>
 			) : (
-				<div className="finding-list">
+				<ul className="gap-list">
 					{findings.map((finding) => (
-						<article className="finding" key={finding.id}>
-							<div className="finding-score">
+						<li className="gap-item" key={finding.id}>
+							<span className="gap-level gap-confidence">
 								{Math.round(finding.confidence * 100)}
-								<small>%证据充分度</small>
-							</div>
+								<small>%</small>
+							</span>
 							<div>
 								<span className="eyebrow">{finding.category}</span>
-								<h3>{finding.title}</h3>
+								<strong>{finding.title}</strong>
 								<p>{finding.detail}</p>
-								<div className="recommendation">
-									<b>整改建议</b>
-									{finding.recommendation}
-								</div>
-								<small>关联证据：{finding.evidence_ids.join("、")}</small>
 							</div>
-						</article>
+							<span className="gap-suggest">
+								<b>整改建议</b>
+								{finding.recommendation}
+							</span>
+							<small className="gap-evidence">关联证据：{finding.evidence_ids.join("、")}</small>
+						</li>
 					))}
-				</div>
+				</ul>
 			)}
 		</section>
 	);
@@ -2231,10 +2831,14 @@ function Remediation({ project, refresh }: { project: Project; refresh(): Promis
 	}
 	return (
 		<section>
-			<div className="section-head">
+			<div className="overview-head">
 				<div>
-					<h2>整改任务</h2>
-					<p>初稿需要人工审核；发布后填写真实 URL，系统重新抓取页面完成验收。</p>
+					<span className="eyebrow">整改中心</span>
+					<h2>证据驱动的待审批任务</h2>
+					<p className="muted">
+						Pi Agent 只生成草稿；每项任务都要由负责人核对证据、验收标准和发布地址后批准。发布后填写真实
+						URL，系统重新抓取页面完成验收。
+					</p>
 				</div>
 				<div className="actions">
 					<Button
@@ -2297,7 +2901,7 @@ function Remediation({ project, refresh }: { project: Project; refresh(): Promis
 			{project.tasks.length === 0 ? (
 				<Empty title="还没有整改任务" detail="先完成诊断，再把有证据的结论转换为可跟踪任务。" />
 			) : (
-				<div className="task-list">
+				<div className="remediation-list">
 					{project.tasks.map((task) => (
 						<TaskItem key={task.id} task={task} busy={busy === task.id} act={(action) => call(task.id, action)} />
 					))}
@@ -2307,38 +2911,58 @@ function Remediation({ project, refresh }: { project: Project; refresh(): Promis
 	);
 }
 
+const taskStatusLabels: Record<string, string> = {
+	todo: "待处理",
+	in_progress: "处理中",
+	published: "已发布",
+	verified: "已验收",
+	done: "已完成",
+};
+
+function taskPriorityMeta(priority: string): { className: string; label: string } {
+	if (priority === "high") return { className: "high", label: "高优先级" };
+	if (priority === "medium" || priority === "mid") return { className: "mid", label: "中优先级" };
+	return { className: "low", label: "常规" };
+}
+
 function TaskItem({ task, busy, act }: { task: Task; busy: boolean; act(action: () => Promise<unknown>): void }) {
 	const [url, setUrl] = useState(task.published_url ?? "");
 	const [owner, setOwner] = useState(task.owner ?? "");
 	const [dueDate, setDueDate] = useState(task.due_date ? task.due_date.slice(0, 10) : "");
+	const priority = taskPriorityMeta(task.priority);
 	return (
-		<article className="task">
-			<header>
-				<div>
-					<span className={`priority ${task.priority}`}>{task.priority === "high" ? "高优先级" : "中优先级"}</span>
-					<h3>{task.title}</h3>
-				</div>
-				<div className="task-header-actions">
-					<select
-						value={task.status}
-						onChange={(event) => act(() => patch(`/api/tasks/${task.id}`, { status: event.target.value }))}
-					>
-						<option value="todo">待处理</option>
-						<option value="in_progress">处理中</option>
-						<option value="published">已发布</option>
-						<option value="verified">已验收</option>
-						<option value="done">已完成</option>
-					</select>
-					<Button
-						variant="ghost"
-						icon={<IconTrash size={17} />}
-						aria-label="删除整改任务"
-						title="删除整改任务"
-						onClick={() => act(() => api(`/api/tasks/${task.id}`, { method: "DELETE" }))}
-					/>
-				</div>
-			</header>
-			<p>{task.detail}</p>
+		<article className="task remediation-item">
+			<div className="remediation-main">
+				<span className={`task-priority ${priority.className}`}>{priority.label}</span>
+				<strong>{task.title}</strong>
+				<p>{task.detail}</p>
+				<small>
+					目标：{task.expected_metric} · 关联 {task.target_prompt_ids.length} 个问题
+				</small>
+			</div>
+			<span className={`task-status-badge task-status-${task.status}`}>
+				{taskStatusLabels[task.status] ?? task.status}
+			</span>
+			<div className="task-header-actions">
+				<select
+					aria-label="任务状态"
+					value={task.status}
+					onChange={(event) => act(() => patch(`/api/tasks/${task.id}`, { status: event.target.value }))}
+				>
+					<option value="todo">待处理</option>
+					<option value="in_progress">处理中</option>
+					<option value="published">已发布</option>
+					<option value="verified">已验收</option>
+					<option value="done">已完成</option>
+				</select>
+				<Button
+					variant="ghost"
+					icon={<IconTrash size={17} />}
+					aria-label="删除整改任务"
+					title="删除整改任务"
+					onClick={() => act(() => api(`/api/tasks/${task.id}`, { method: "DELETE" }))}
+				/>
+			</div>
 			<dl className="task-contract">
 				<div>
 					<dt>预期指标</dt>
@@ -2470,10 +3094,11 @@ function Attribution({ project }: { project: Project }) {
 	}
 	return (
 		<section className="attribution-page">
-			<div className="section-head">
+			<div className="overview-head">
 				<div>
-					<h2>真实业务归因</h2>
-					<p>汇总 GA4、Search Console、表单、电话和业务台账，检查 AI 可见度之外是否出现真实访问与咨询。</p>
+					<span className="eyebrow">业务归因</span>
+					<h2>业务数据与 GEO 指标并列观察</h2>
+					<p className="muted">导入 GA4、Search Console、表单、电话和业务台账；系统防重复计数，但不自动声称因果。</p>
 				</div>
 			</div>
 			{error && <Notice type="error" message={error} />}
@@ -2515,43 +3140,35 @@ function Attribution({ project }: { project: Project }) {
 				/>
 			) : (
 				<>
-					<div className="attribution-summary">
+					<div className="attribution-kpis">
 						{data.summary.map((item) => (
-							<div key={`${item.source_type}-${item.metric}`}>
-								<span>{sourceLabels[item.source_type] ?? item.source_type}</span>
-								<strong>{item.value.toLocaleString("zh-CN")}</strong>
-								<b>{metricLabels[item.metric] ?? item.metric}</b>
-								<small>
+							<div className="attribution-kpi" key={`${item.source_type}-${item.metric}`}>
+								<span className="kpi-label">
+									{sourceLabels[item.source_type] ?? item.source_type} · {metricLabels[item.metric] ?? item.metric}
+								</span>
+								<span className="kpi-value">{item.value.toLocaleString("zh-CN")}</span>
+								<span className="kpi-chip">
 									{item.observations} 条观察 · 至 {date(item.last_observed_at)}
-								</small>
+								</span>
 							</div>
 						))}
 					</div>
 					<div className="attribution-columns">
 						<div>
 							<h3>最近业务观察</h3>
-							<table className="comparison-table">
-								<thead>
-									<tr>
-										<th>日期</th>
-										<th>来源</th>
-										<th>指标</th>
-										<th>数值</th>
-										<th>落地页 / 渠道</th>
-									</tr>
-								</thead>
-								<tbody>
-									{data.events.map((event) => (
-										<tr key={event.id}>
-											<td>{date(event.observed_at)}</td>
-											<td>{sourceLabels[event.source_type] ?? event.source_type}</td>
-											<td>{metricLabels[event.metric] ?? event.metric}</td>
-											<td>{event.value.toLocaleString("zh-CN")}</td>
-											<td>{event.landing_url ?? event.channel ?? "-"}</td>
-										</tr>
-									))}
-								</tbody>
-							</table>
+							<div className="attribution-table">
+								{data.events.map((event) => (
+									<div key={event.id}>
+										<strong>{date(event.observed_at)}</strong>
+										<span>
+											{sourceLabels[event.source_type] ?? event.source_type} ·{" "}
+											{metricLabels[event.metric] ?? event.metric}
+											{(event.landing_url ?? event.channel) ? ` · ${event.landing_url ?? event.channel}` : ""}
+										</span>
+										<b>{event.value.toLocaleString("zh-CN")}</b>
+									</div>
+								))}
+							</div>
 						</div>
 						<aside>
 							<h3>导入记录</h3>
@@ -2850,7 +3467,6 @@ function Report({ project }: { project: Project }) {
 	if (!project.batches.length)
 		return <Empty title="还没有报告数据" detail="完成基线后可打印单批次报告；完成同条件复测后可展示前后变化。" />;
 	const analysis = report?.analysis;
-	const overall = batch?.metrics.overall;
 	const selectedSnapshots = snapshots.filter((item) => item.batch_id === selected);
 	const latestSnapshot = selectedSnapshots[0];
 	const activeAgentPurposes = new Set(
@@ -2932,16 +3548,16 @@ function Report({ project }: { project: Project }) {
 	return (
 		<section className="report">
 			<div className="report-workspace no-print">
-				<header className="report-workspace-head">
+				<div className="overview-head">
 					<div>
 						<span className="eyebrow">报告工作台</span>
 						<h2>中文效果报告</h2>
-						<p>
+						<p className="muted">
 							{batch ? `${batchKindLabel(batch.kind)} · ${date(batch.created_at)} · ${batch.status}` : "未选择批次"}
 						</p>
 					</div>
 					<BatchPicker project={project} selected={selected} setSelected={setSelected} />
-				</header>
+				</div>
 				<div className="report-command-bar">
 					<div className="report-command-group">
 						<span>Agent 分析</span>
@@ -2992,19 +3608,23 @@ function Report({ project }: { project: Project }) {
 							>
 								创建分享链接
 							</Button>
-							<Button
-								icon={<IconDownload size={17} />}
-								busy={reportBusy === "pdf"}
-								disabled={!latestSnapshot}
-								onClick={createPdf}
-							>
-								生成 PDF
-							</Button>
 						</div>
 					</div>
 				</div>
 			</div>
 			{reportError && <Notice type="error" message={reportError} />}
+			{batch && analysis ? (
+				<ReportExecutiveOverview
+					batch={batch}
+					analysis={analysis}
+					baselineBatch={baselineBatch}
+					pdfAction={
+						<Button icon={<IconDownload size={17} />} busy={reportBusy === "pdf"} disabled={!latestSnapshot} onClick={createPdf}>
+							导出 PDF
+						</Button>
+					}
+				/>
+			) : null}
 			<section className="agent-activity no-print">
 				<header>
 					<div>
@@ -3125,51 +3745,6 @@ function Report({ project }: { project: Project }) {
 			</section>
 			{batch && analysis ? (
 				<>
-					<header className="report-cover">
-						<span>联网 AI GEO 可见度报告</span>
-						<h1>{project.name}</h1>
-						<p>
-							{batchKindLabel(batch.kind)} · {date(batch.created_at)}
-						</p>
-					</header>
-					<div className="executive-summary">
-						<div>
-							<span className="eyebrow">管理层摘要</span>
-							<h2>{analysis.executive.headline}</h2>
-							<p>{analysis.executive.summary}</p>
-						</div>
-						<div className={`evidence-level level-${analysis.executive.evidenceLevel}`}>
-							<span>证据等级</span>
-							<strong>{analysis.executive.evidenceLevel}</strong>
-						</div>
-					</div>
-					<p className="validity-note">{analysis.executive.validityNote}</p>
-					<div className="report-kpis">
-						<div>
-							<span>品牌提及率</span>
-							<strong>{percentage(overall?.brandMentionRate as number | undefined)}</strong>
-						</div>
-						<div>
-							<span>首位推荐率</span>
-							<strong>{percentage(overall?.firstRecommendationRate as number | undefined)}</strong>
-						</div>
-						<div>
-							<span>官网引用率</span>
-							<strong>{percentage(overall?.citationRate as number | undefined)}</strong>
-						</div>
-						<div>
-							<span>平均提及位置</span>
-							<strong>
-								{typeof overall?.averageMentionPosition === "number" ? overall.averageMentionPosition.toFixed(1) : "-"}
-							</strong>
-						</div>
-						<div>
-							<span>有效样本</span>
-							<strong>
-								{batch.metrics.validSamples}/{batch.metrics.expectedSamples}
-							</strong>
-						</div>
-					</div>
 					<div className="report-section">
 						<div className="report-title-row">
 							<div>
@@ -3549,11 +4124,135 @@ function Report({ project }: { project: Project }) {
 	);
 }
 
-function Settings({ localBypass }: { localBypass: boolean }) {
+function ProviderPanel({
+	provider,
+	draft,
+	busy,
+	update,
+	runAction,
+}: {
+	provider: ProviderSetting;
+	draft: ProviderDraft;
+	busy: string | null;
+	update(values: ProviderDraft): void;
+	runAction(name: string, run: () => Promise<unknown>): Promise<void>;
+}) {
+	return (
+		<article
+			id="active-provider-panel"
+			role="tabpanel"
+			aria-labelledby={`provider-tab-${provider.providerId}`}
+		>
+			<header>
+				<div>
+					<span className="platform-logo">
+						<img src={providerLogoPaths[provider.providerId]} alt="" aria-hidden="true" />
+					</span>
+					<div>
+						<h3>{provider.label}</h3>
+						<p>{provider.disclosure}</p>
+					</div>
+				</div>
+				<label className="toggle-label">
+					<input
+						type="checkbox"
+						checked={Boolean(draft.enabled)}
+						onChange={(event) => update({ enabled: event.target.checked })}
+					/>
+					启用
+				</label>
+			</header>
+			<div className="provider-contract">
+				<code>{provider.protocol}</code>
+				<span>搜索工具 {provider.searchToolVersion}</span>
+				<span>密钥 {provider.configured ? "已配置" : "未配置"}</span>
+				{provider.secondaryConfigured !== null ? (
+					<span>混元密钥 {provider.secondaryConfigured ? "已配置" : "未配置"}</span>
+				) : null}
+			</div>
+			<div className="provider-form">
+				<label>
+					模型
+					<input value={String(draft.model ?? "")} onChange={(event) => update({ model: event.target.value })} />
+				</label>
+				<label>
+					API 地址
+					<input value={String(draft.endpoint ?? "")} onChange={(event) => update({ endpoint: event.target.value })} />
+				</label>
+				{provider.secondaryEndpoint !== null ? (
+					<label>
+						混元合成地址
+						<input
+							value={String(draft.secondaryEndpoint ?? "")}
+							onChange={(event) => update({ secondaryEndpoint: event.target.value })}
+						/>
+					</label>
+				) : null}
+				<label>
+					API Key
+					<input
+						type="password"
+						value={draft.apiKey ?? ""}
+						onChange={(event) => update({ apiKey: event.target.value })}
+						placeholder={provider.configured ? "留空保持现有密钥" : "必填"}
+					/>
+				</label>
+				{provider.secondaryConfigured !== null ? (
+					<label>
+						混元 API Key
+						<input
+							type="password"
+							value={draft.secondaryApiKey ?? ""}
+							onChange={(event) => update({ secondaryApiKey: event.target.value })}
+							placeholder={provider.secondaryConfigured ? "留空保持现有密钥" : "必填"}
+						/>
+					</label>
+				) : null}
+			</div>
+			<footer>
+				<span className={`status ${provider.lastTestStatus ?? "idle"}`}>
+					{provider.lastTestStatus ?? "未测试"} {provider.lastTestMessage ?? ""}
+				</span>
+				<div className="actions">
+					<Button
+						variant="secondary"
+						busy={busy === `${provider.providerId}-test`}
+						onClick={() =>
+							runAction(`${provider.providerId}-test`, () =>
+								post(`/api/settings/providers/${provider.providerId}/test`),
+							)
+						}
+					>
+						测试连接
+					</Button>
+					<Button
+						busy={busy === `${provider.providerId}-save`}
+						onClick={() =>
+							runAction(`${provider.providerId}-save`, () =>
+								put(`/api/settings/providers/${provider.providerId}`, {
+									enabled: Boolean(draft.enabled),
+									model: draft.model,
+									endpoint: draft.endpoint,
+									secondaryEndpoint: draft.secondaryEndpoint,
+									...(draft.apiKey ? { apiKey: draft.apiKey } : {}),
+									...(draft.secondaryApiKey ? { secondaryApiKey: draft.secondaryApiKey } : {}),
+									options: {},
+								}),
+							)
+						}
+					>
+						保存平台
+					</Button>
+				</div>
+			</footer>
+		</article>
+	);
+}
+
+function Settings() {
 	const [providers, setProviders] = useState<ProviderSetting[]>([]);
-	const [drafts, setDrafts] = useState<
-		Record<string, Partial<ProviderSetting> & { apiKey?: string; secondaryApiKey?: string }>
-	>({});
+	const [activeProviderId, setActiveProviderId] = useState<ProviderId>("deepseek_api");
+	const [drafts, setDrafts] = useState<Record<string, ProviderDraft>>({});
 	const [analysis, setAnalysis] = useState({ baseUrl: "https://hrouter.net/v1", model: "", configured: false });
 	const [analysisKey, setAnalysisKey] = useState("");
 	const [models, setModels] = useState<Array<{ id: string }>>([]);
@@ -3565,6 +4264,11 @@ function Settings({ localBypass }: { localBypass: boolean }) {
 			analysis: { baseUrl: string; model: string | null; configured: boolean };
 		}>("/api/settings");
 		setProviders(value.providers);
+		setActiveProviderId((current) =>
+			value.providers.some((provider) => provider.providerId === current)
+				? current
+				: (value.providers[0]?.providerId ?? "deepseek_api"),
+		);
 		setDrafts(Object.fromEntries(value.providers.map((provider) => [provider.providerId, { ...provider }])));
 		setAnalysis({ ...value.analysis, model: value.analysis.model ?? "" });
 	}, []);
@@ -3586,16 +4290,29 @@ function Settings({ localBypass }: { localBypass: boolean }) {
 	}
 	function updateProvider(
 		id: ProviderId,
-		values: Partial<ProviderSetting> & { apiKey?: string; secondaryApiKey?: string },
+		values: ProviderDraft,
 	) {
 		setDrafts((current) => ({ ...current, [id]: { ...current[id], ...values } }));
 	}
+	const activeProvider = providers.find((provider) => provider.providerId === activeProviderId) ?? providers[0];
+	const activeDraft = activeProvider ? (drafts[activeProvider.providerId] ?? activeProvider) : null;
+	function moveProviderFocus(offset: number): void {
+		const currentIndex = providers.findIndex((provider) => provider.providerId === activeProviderId);
+		const nextIndex = (currentIndex + offset + providers.length) % providers.length;
+		const next = providers[nextIndex];
+		if (!next) return;
+		setActiveProviderId(next.providerId);
+		window.requestAnimationFrame(() => document.getElementById(`provider-tab-${next.providerId}`)?.focus());
+	}
 	return (
 		<section>
-			<div className="section-head">
+			<div className="overview-head">
 				<div>
-					<h2>平台、GPT 与机构设置</h2>
-					<p>五个平台使用云端联网 API；HRouter GPT 与 Pi Agent 只生成待审批草稿。密钥以主密钥信封加密保存。</p>
+					<span className="eyebrow">平台设置</span>
+					<h2>平台与 GPT 设置</h2>
+					<p className="muted">
+						五个平台使用云端联网 API；HRouter GPT 与 Pi Agent 只生成待审批草稿。密钥以主密钥信封加密保存。
+					</p>
 				</div>
 				<Button variant="secondary" icon={<IconRefresh size={17} />} onClick={() => void load()}>
 					刷新状态
@@ -3688,129 +4405,81 @@ function Settings({ localBypass }: { localBypass: boolean }) {
 				</div>
 			</div>
 			<div className="provider-settings">
-				{providers.map((provider) => {
-					const draft = drafts[provider.providerId] ?? provider;
-					return (
-						<article key={provider.providerId}>
-							<header>
-								<div>
-									<span className="platform-logo">{provider.label.slice(0, 1)}</span>
-									<div>
-										<h3>{provider.label}</h3>
-										<p>{provider.disclosure}</p>
-									</div>
-								</div>
-								<label className="toggle-label">
-									<input
-										type="checkbox"
-										checked={Boolean(draft.enabled)}
-										onChange={(event) => updateProvider(provider.providerId, { enabled: event.target.checked })}
-									/>
-									启用
-								</label>
-							</header>
-							<div className="provider-contract">
-								<code>{provider.protocol}</code>
-								<span>搜索工具 {provider.searchToolVersion}</span>
-								<span>密钥 {provider.configured ? "已配置" : "未配置"}</span>
-								{provider.secondaryConfigured !== null && (
-									<span>混元密钥 {provider.secondaryConfigured ? "已配置" : "未配置"}</span>
-								)}
-							</div>
-							<div className="provider-form">
-								<label>
-									模型
-									<input
-										value={String(draft.model ?? "")}
-										onChange={(event) => updateProvider(provider.providerId, { model: event.target.value })}
-									/>
-								</label>
-								<label>
-									API 地址
-									<input
-										value={String(draft.endpoint ?? "")}
-										onChange={(event) => updateProvider(provider.providerId, { endpoint: event.target.value })}
-									/>
-								</label>
-								{provider.secondaryEndpoint !== null && (
-									<label>
-										混元合成地址
-										<input
-											value={String(draft.secondaryEndpoint ?? "")}
-											onChange={(event) =>
-												updateProvider(provider.providerId, { secondaryEndpoint: event.target.value })
-											}
-										/>
-									</label>
-								)}
-								<label>
-									API Key
-									<input
-										type="password"
-										value={draft.apiKey ?? ""}
-										onChange={(event) => updateProvider(provider.providerId, { apiKey: event.target.value })}
-										placeholder={provider.configured ? "留空保持现有密钥" : "必填"}
-									/>
-								</label>
-								{provider.secondaryConfigured !== null && (
-									<label>
-										混元 API Key
-										<input
-											type="password"
-											value={draft.secondaryApiKey ?? ""}
-											onChange={(event) => updateProvider(provider.providerId, { secondaryApiKey: event.target.value })}
-											placeholder={provider.secondaryConfigured ? "留空保持现有密钥" : "必填"}
-										/>
-									</label>
-								)}
-							</div>
-							<footer>
-								<span className={`status ${provider.lastTestStatus ?? "idle"}`}>
-									{provider.lastTestStatus ?? "未测试"} {provider.lastTestMessage ?? ""}
-								</span>
-								<div className="actions">
-									<Button
-										variant="secondary"
-										busy={busy === `${provider.providerId}-test`}
-										onClick={() =>
-											action(`${provider.providerId}-test`, () =>
-												post(`/api/settings/providers/${provider.providerId}/test`),
-											)
-										}
-									>
-										测试连接
-									</Button>
-									<Button
-										busy={busy === `${provider.providerId}-save`}
-										onClick={() =>
-											action(`${provider.providerId}-save`, () =>
-												put(`/api/settings/providers/${provider.providerId}`, {
-													enabled: Boolean(draft.enabled),
-													model: draft.model,
-													endpoint: draft.endpoint,
-													secondaryEndpoint: draft.secondaryEndpoint,
-													...(draft.apiKey ? { apiKey: draft.apiKey } : {}),
-													...(draft.secondaryApiKey ? { secondaryApiKey: draft.secondaryApiKey } : {}),
-													options: {},
-												}),
-											)
-										}
-									>
-										保存平台
-									</Button>
-								</div>
-							</footer>
-						</article>
-					);
-				})}
+				<nav className="provider-breadcrumb" aria-label="平台设置路径">
+					<ol>
+						<li>平台设置</li>
+						<li>联网平台</li>
+						<li aria-current="page">{activeProvider ? providerShortLabel(activeProvider.providerId) : "加载中"}</li>
+					</ol>
+				</nav>
+				<div className="provider-tabs" role="tablist" aria-label="联网平台">
+					{providers.map((provider) => (
+						<button
+							type="button"
+							role="tab"
+							id={`provider-tab-${provider.providerId}`}
+							aria-controls="active-provider-panel"
+							aria-selected={provider.providerId === activeProvider?.providerId}
+							tabIndex={provider.providerId === activeProvider?.providerId ? 0 : -1}
+							className={provider.providerId === activeProvider?.providerId ? "active" : ""}
+							key={provider.providerId}
+							onClick={() => setActiveProviderId(provider.providerId)}
+							onKeyDown={(event) => {
+								if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+									event.preventDefault();
+									moveProviderFocus(1);
+								}
+								if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+									event.preventDefault();
+									moveProviderFocus(-1);
+								}
+							}}
+						>
+							<img src={providerLogoPaths[provider.providerId]} alt="" aria-hidden="true" />
+							<span>
+								<strong>{providerShortLabel(provider.providerId)}</strong>
+								<small>{provider.enabled ? "已启用" : provider.configured ? "已配置" : "未配置"}</small>
+							</span>
+							<i className={provider.lastTestStatus ?? "idle"} aria-hidden="true" />
+						</button>
+					))}
+				</div>
+				{activeProvider && activeDraft ? (
+					<ProviderPanel
+						provider={activeProvider}
+						draft={activeDraft}
+						busy={busy}
+						update={(values) => updateProvider(activeProvider.providerId, values)}
+						runAction={action}
+					/>
+				) : (
+					<div className="chart-loading">
+						<IconLoader2 className="spin" size={17} />
+						<span>正在加载平台配置</span>
+					</div>
+				)}
+			</div>
+		</section>
+	);
+}
+
+function Members({ localBypass }: { localBypass: boolean }) {
+	return (
+		<section>
+			<div className="overview-head">
+				<div>
+					<span className="eyebrow">机构成员</span>
+					<h2>角色与访问状态</h2>
+					<p className="muted">管理员维护机构成员、角色和访问状态；成员停用后其现有会话会被撤销。</p>
+				</div>
 			</div>
 			{localBypass ? (
-				<div className="settings-band">
+				<div className="settings-band member-mode-note">
 					<div>
 						<IconKey size={24} />
-						<h3>机构成员</h3>
+						<h3>本机免登录开发模式</h3>
 						<p>
-							当前是本机免登录开发模式。配置 GEO_ADMIN_EMAIL 和 GEO_ADMIN_PASSWORD
+							配置 GEO_ADMIN_EMAIL 和 GEO_ADMIN_PASSWORD
 							后重启，即可启用管理员、分析师和只读成员管理。
 						</p>
 					</div>
@@ -3818,6 +4487,20 @@ function Settings({ localBypass }: { localBypass: boolean }) {
 			) : (
 				<UserManagement />
 			)}
+		</section>
+	);
+}
+
+function AuditLogs() {
+	return (
+		<section>
+			<div className="overview-head">
+				<div>
+					<span className="eyebrow">审计日志</span>
+					<h2>写操作与审批记录</h2>
+					<p className="muted">查看机构成员的写操作、审批、成员变更与平台设置记录。</p>
+				</div>
+			</div>
 			<AuditLogPanel />
 		</section>
 	);
@@ -3841,7 +4524,6 @@ function AuditLogPanel() {
 	}, []);
 	return (
 		<div className="audit-log-panel">
-			<h3>审计日志</h3>
 			<p>保留最近 200 条成员写操作、审批和设置变更。</p>
 			<div className="audit-log-list">
 				{logs.slice(0, 50).map((log) => (
@@ -3891,10 +4573,6 @@ function UserManagement() {
 	}
 	return (
 		<div className="user-management">
-			<div>
-				<h3>机构成员</h3>
-				<p>管理员管理配置；分析师执行项目；只读成员查看证据和报告。</p>
-			</div>
 			{error && <Notice type="error" message={error} />}
 			<div className="user-create">
 				<input
@@ -3926,19 +4604,27 @@ function UserManagement() {
 			<div className="user-list">
 				{users.map((user) => (
 					<article key={user.id}>
+						<span className="member-avatar" aria-hidden="true">
+							{user.display_name.slice(0, 1)}
+						</span>
 						<div>
 							<b>{user.display_name}</b>
 							<small>
-								{user.email} · {user.role} · {user.disabled_at ? "已停用" : "有效"}
+								{user.email} · {user.role}
 							</small>
 						</div>
-						<Button
-							variant="ghost"
-							disabled={Boolean(user.disabled_at)}
-							onClick={() => api(`/api/users/${user.id}`, { method: "DELETE" }).then(load)}
-						>
-							停用
-						</Button>
+						<div className="user-row-side">
+							<b className={user.disabled_at ? "user-status is-disabled" : "user-status"}>
+								{user.disabled_at ? "已停用" : "有效"}
+							</b>
+							<Button
+								variant="ghost"
+								disabled={Boolean(user.disabled_at)}
+								onClick={() => api(`/api/users/${user.id}`, { method: "DELETE" }).then(load)}
+							>
+								停用
+							</Button>
+						</div>
 					</article>
 				))}
 			</div>
