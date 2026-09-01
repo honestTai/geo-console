@@ -8,6 +8,7 @@ import {
 	type SearchProviderId,
 	searchProviderIds,
 } from "@geo/core";
+import { StructuredLogger, safeErrorMessage } from "@geo/logging";
 import { ADAPTER_VERSION, type ProviderCaptureResult } from "@geo/search-providers";
 import { putArtifact } from "./object-store";
 import { buildProviderAdapter, providerDefinitions } from "./providers";
@@ -21,6 +22,7 @@ export function frozenProviderContract(config: FrozenBatchConfig, providerId: Se
 }
 
 const executorId = process.env.GEO_EXECUTOR_ID?.trim() || `cloud-worker:${process.pid}:${randomUUID()}`;
+const captureLogger = new StructuredLogger("capture-worker");
 
 async function persistRawResponse(projectId: string, captureId: string, payload: unknown): Promise<string> {
 	const objectKey = join("captures", projectId, `${captureId}.json`);
@@ -57,25 +59,40 @@ function configurationFailure(
 	};
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Frozen contract validation, provider execution, evidence commit, and terminal logging are one atomic job path.
 export async function runOneCloudCapture(database: Database): Promise<boolean> {
 	const job = await claimCaptureJob(database, executorId, 300, [...searchProviderIds]);
 	if (!job) return false;
 	const providerId = job.payload.platform as SearchProviderId;
 	const captureId = randomUUID();
+	let organizationId: string | null = null;
 	const renewTimer = setInterval(() => {
 		renewJobLease(database, job.id, executorId, 300).catch((error) =>
-			console.error("云端采集租约续期失败", job.id, error),
+			captureLogger.error("capture.lease_renewal_failed", safeErrorMessage(error), {
+				organizationId,
+				projectId: job.payload.projectId,
+				traceId: job.id,
+				metadata: { batchId: job.payload.batchId, providerId },
+			}),
 		);
 	}, 60_000);
 	renewTimer.unref();
 	try {
 		let result: ProviderCaptureResult;
 		const batchRow = (
-			await database.query<{ config: FrozenBatchConfig | string }>(
-				"SELECT config FROM experiment_batches WHERE id=$1 AND project_id=$2",
+			await database.query<{ config: FrozenBatchConfig | string; organization_id: string }>(
+				`SELECT b.config,p.organization_id FROM experiment_batches b JOIN projects p ON p.id=b.project_id
+				 WHERE b.id=$1 AND b.project_id=$2`,
 				[job.payload.batchId, job.payload.projectId],
 			)
 		).rows[0];
+		organizationId = batchRow?.organization_id ?? null;
+		captureLogger.info("capture.started", "开始执行联网采集", {
+			organizationId,
+			projectId: job.payload.projectId,
+			traceId: job.id,
+			metadata: { batchId: job.payload.batchId, providerId, attempt: job.payload.attempt },
+		});
 		const frozen = batchRow
 			? frozenProviderContract(parseJsonColumn<FrozenBatchConfig>(batchRow.config), providerId)
 			: null;
@@ -95,14 +112,19 @@ export async function runOneCloudCapture(database: Database): Promise<boolean> {
 			);
 		} else {
 			try {
-				const adapter = await buildProviderAdapter(database, providerId, {
-					endpoint: frozen.endpoint,
-					secondaryEndpoint: frozen.secondaryEndpoint,
-					model: frozen.model,
-					protocol: frozen.protocol,
-					searchToolVersion: frozen.searchToolVersion,
-					searchStrategy: frozen.searchStrategy,
-				});
+				const adapter = await buildProviderAdapter(
+					database,
+					providerId,
+					{
+						endpoint: frozen.endpoint,
+						secondaryEndpoint: frozen.secondaryEndpoint,
+						model: frozen.model,
+						protocol: frozen.protocol,
+						searchToolVersion: frozen.searchToolVersion,
+						searchStrategy: frozen.searchStrategy,
+					},
+					batchRow?.organization_id ?? "default",
+				);
 				result = await adapter.capture({
 					prompt: job.payload.prompt,
 					region: job.payload.region,
@@ -159,7 +181,32 @@ export async function runOneCloudCapture(database: Database): Promise<boolean> {
 			failureCode: result.failureCode,
 			failureMessage: result.failureMessage,
 		});
+		const context = {
+			organizationId,
+			projectId: job.payload.projectId,
+			traceId: job.id,
+			metadata: {
+				batchId: job.payload.batchId,
+				captureId,
+				providerId,
+				attempt: job.payload.attempt,
+				status: result.status,
+				failureCode: result.failureCode,
+				latencyMs: result.latencyMs,
+				sourceCount: result.sources.length,
+			},
+		};
+		if (result.status === "complete") captureLogger.info("capture.completed", "联网采集完成", context);
+		else captureLogger.warn("capture.provider_failed", "联网采集返回失败状态", context);
 		return true;
+	} catch (error) {
+		captureLogger.error("capture.failed", safeErrorMessage(error), {
+			organizationId,
+			projectId: job.payload.projectId,
+			traceId: job.id,
+			metadata: { batchId: job.payload.batchId, providerId, attempt: job.payload.attempt },
+		});
+		throw error;
 	} finally {
 		clearInterval(renewTimer);
 	}
@@ -173,7 +220,7 @@ export function startCloudRunner(database: Database): () => void {
 		while (!stopped && active < concurrency) {
 			active += 1;
 			runOneCloudCapture(database)
-				.catch((error) => console.error("云端采集执行失败", error))
+				.catch(() => undefined)
 				.finally(() => {
 					active -= 1;
 				});
@@ -185,4 +232,8 @@ export function startCloudRunner(database: Database): () => void {
 		stopped = true;
 		clearInterval(timer);
 	};
+}
+
+export async function flushCaptureLogs(): Promise<void> {
+	await captureLogger.flush();
 }

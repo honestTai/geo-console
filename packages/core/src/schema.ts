@@ -62,6 +62,7 @@ export const projects = pgTable("projects", {
 	region: text("region").notNull(),
 	language: text("language").notNull(),
 	businessFocus: text("business_focus"),
+	industry: text("industry"),
 	aliases: jsonb("aliases").$type<string[]>().notNull().default([]),
 	profile: jsonb("profile").$type<Record<string, unknown> | null>(),
 	status: projectStatus("status").notNull().default("draft"),
@@ -69,6 +70,32 @@ export const projects = pgTable("projects", {
 	createdAt,
 	updatedAt,
 });
+
+export const promptLibraryQuestions = pgTable(
+	"prompt_library_questions",
+	{
+		id: id("id"),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		industry: text("industry").notNull(),
+		question: text("question").notNull(),
+		intent: text("intent").notNull(),
+		topic: text("topic"),
+		persona: text("persona"),
+		tags: jsonb("tags").$type<string[]>().notNull().default([]),
+		createdBy: text("created_by"),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		createdAt,
+		updatedAt,
+	},
+	(table) => [
+		uniqueIndex("prompt_library_active_question_unique")
+			.on(table.organizationId, table.industry, table.question)
+			.where(sql`${table.archivedAt} IS NULL`),
+		index("prompt_library_organization_industry_idx").on(table.organizationId, table.industry, table.createdAt),
+	],
+);
 
 export const competitors = pgTable(
 	"competitors",
@@ -98,6 +125,9 @@ export const prompts = pgTable(
 		projectId: text("project_id")
 			.notNull()
 			.references(() => projects.id, { onDelete: "cascade" }),
+		libraryQuestionId: text("library_question_id").references(() => promptLibraryQuestions.id, {
+			onDelete: "set null",
+		}),
 		question: text("question").notNull(),
 		intent: text("intent").notNull(),
 		topic: text("topic"),
@@ -185,7 +215,14 @@ export const websiteAudits = pgTable(
 );
 
 export type FrozenBatchConfig = {
-	project: { name: string; domain: string; region: string; language: string; aliases: string[] };
+	project: {
+		name: string;
+		domain: string;
+		region: string;
+		language: string;
+		industry?: string | null;
+		aliases: string[];
+	};
 	competitors: Array<{ id: string; name: string; domain: string; aliases: string[] }>;
 	prompts: Array<{
 		id: string;
@@ -534,6 +571,7 @@ export const users = pgTable(
 		email: text("email").notNull(),
 		displayName: text("display_name").notNull(),
 		role: text("role").$type<OrganizationRole>().notNull(),
+		isSuperAdmin: boolean("is_super_admin").notNull().default(false),
 		passwordHash: text("password_hash").notNull(),
 		disabledAt: timestamp("disabled_at", { withTimezone: true }),
 		createdAt,
@@ -576,6 +614,30 @@ export const auditLogs = pgTable(
 		createdAt,
 	},
 	(table) => [index("audit_logs_organization_idx").on(table.organizationId, table.createdAt)],
+);
+
+export type ServiceLogLevel = "debug" | "info" | "warn" | "error";
+
+export const serviceLogs = pgTable(
+	"service_logs",
+	{
+		id: id("id"),
+		organizationId: text("organization_id"),
+		service: text("service").notNull(),
+		level: text("level").$type<ServiceLogLevel>().notNull(),
+		event: text("event").notNull(),
+		message: text("message").notNull(),
+		traceId: text("trace_id"),
+		projectId: text("project_id"),
+		metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+		occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+		createdAt,
+	},
+	(table) => [
+		index("service_logs_organization_time_idx").on(table.organizationId, table.occurredAt),
+		index("service_logs_service_level_time_idx").on(table.service, table.level, table.occurredAt),
+		index("service_logs_trace_idx").on(table.traceId),
+	],
 );
 
 export const agentRuns = pgTable(
@@ -629,6 +691,7 @@ export const reportSnapshots = pgTable(
 		payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
 		payloadHash: text("payload_hash").notNull(),
 		pdfArtifactKey: text("pdf_artifact_key"),
+		wordArtifactKey: text("word_artifact_key"),
 		createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
 		createdAt,
 	},

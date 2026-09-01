@@ -1,5 +1,6 @@
 import { migrateDatabase, openDatabase } from "@geo/core";
-import { startCloudRunner } from "./cloud-runner";
+import { StructuredLogger } from "@geo/logging";
+import { flushCaptureLogs, startCloudRunner } from "./cloud-runner";
 import { checkObjectStore } from "./object-store";
 import { ensureProviderConfigs } from "./providers";
 
@@ -8,12 +9,15 @@ await migrateDatabase(database);
 await ensureProviderConfigs(database);
 await checkObjectStore();
 const stop = startCloudRunner(database);
-console.log("GEO Capture Worker 已启动");
+const logger = new StructuredLogger("capture-worker");
+logger.info("service.started", "GEO Capture Worker 已启动");
 
 await new Promise<void>((resolve) => {
 	for (const signal of ["SIGINT", "SIGTERM"] as const)
 		process.once(signal, () => {
 			stop();
-			void database.close().finally(resolve);
+			void Promise.all([logger.flush(), flushCaptureLogs()])
+				.then(() => database.close())
+				.finally(resolve);
 		});
 });

@@ -108,7 +108,8 @@ export async function readEncryptedCredential(
 			[organizationId, credentialKey],
 		)
 	).rows[0];
-	if (!row) return readSecret(credentialKey);
+	// Process-level provider secrets are bootstrap defaults only; other tenants must have their own encrypted row.
+	if (!row) return organizationId === "default" ? readSecret(credentialKey) : null;
 	const master = await readSecret("geo_master_key");
 	if (!master) throw new Error("已存在加密凭据，但 GEO_MASTER_KEY 不可用");
 	const decipher = createDecipheriv("aes-256-gcm", decodeMasterKey(master), Buffer.from(row.iv, "base64"));

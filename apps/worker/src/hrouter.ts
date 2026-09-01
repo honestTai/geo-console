@@ -7,21 +7,30 @@ const DEFAULT_BASE_URL = "https://hrouter.net/v1";
 
 export type HRouterConfig = { baseUrl: string; model: string | null; configured: boolean };
 
-export async function getHRouterConfig(database: Database): Promise<HRouterConfig> {
-	const row = (await database.query<{ value: unknown }>("SELECT value FROM settings WHERE key='hrouter_config'"))
-		.rows[0];
+const hrouterSettingsKey = (organizationId: string): string => `organization:${organizationId}:hrouter_config`;
+
+export async function getHRouterConfig(database: Database, organizationId = "default"): Promise<HRouterConfig> {
+	const row = (
+		await database.query<{ value: unknown }>(
+			"SELECT value FROM settings WHERE key=$1 OR ($2='default' AND key='hrouter_config') ORDER BY key DESC LIMIT 1",
+			[hrouterSettingsKey(organizationId), organizationId],
+		)
+	).rows[0];
 	const value = row ? parseJsonColumn<Record<string, unknown>>(row.value as string | Record<string, unknown>) : {};
 	return {
 		baseUrl: typeof value.baseUrl === "string" ? value.baseUrl.replace(/\/$/, "") : DEFAULT_BASE_URL,
 		model: typeof value.model === "string" ? value.model : null,
-		configured: Boolean(await readEncryptedCredential(database, "hrouter_api_key")),
+		configured: Boolean(await readEncryptedCredential(database, "hrouter_api_key", organizationId)),
 	};
 }
 
-export async function listHRouterModels(database: Database): Promise<Array<{ id: string; ownedBy: string | null }>> {
-	const apiKey = await readEncryptedCredential(database, "hrouter_api_key");
+export async function listHRouterModels(
+	database: Database,
+	organizationId = "default",
+): Promise<Array<{ id: string; ownedBy: string | null }>> {
+	const apiKey = await readEncryptedCredential(database, "hrouter_api_key", organizationId);
 	if (!apiKey) throw new Error("尚未配置 HRouter API Key");
-	const config = await getHRouterConfig(database);
+	const config = await getHRouterConfig(database, organizationId);
 	const response = await fetch(`${config.baseUrl}/models`, {
 		headers: { authorization: `Bearer ${apiKey}` },
 		signal: AbortSignal.timeout(30_000),
@@ -54,14 +63,18 @@ const hrouterSettingsSchema = z.object({
 	apiKey: z.string().trim().min(10).optional(),
 });
 
-export async function saveHRouterConfig(database: Database, input: unknown): Promise<void> {
+export async function saveHRouterConfig(database: Database, input: unknown, organizationId = "default"): Promise<void> {
 	const data = hrouterSettingsSchema.parse(input);
-	if (data.apiKey) await writeEncryptedCredential(database, "hrouter_api_key", data.apiKey);
-	if (!(await readEncryptedCredential(database, "hrouter_api_key"))) throw new Error("必须提供 HRouter API Key");
+	if (data.apiKey) await writeEncryptedCredential(database, "hrouter_api_key", data.apiKey, organizationId);
+	if (!(await readEncryptedCredential(database, "hrouter_api_key", organizationId)))
+		throw new Error("必须提供 HRouter API Key");
 	await database.query(
-		`INSERT INTO settings (key,value) VALUES ('hrouter_config',$1::jsonb)
+		`INSERT INTO settings (key,value) VALUES ($1,$2::jsonb)
 		 ON CONFLICT (key) DO UPDATE SET value=excluded.value,updated_at=now()`,
-		[JSON.stringify({ baseUrl: data.baseUrl.replace(/\/$/, ""), model: data.model })],
+		[
+			hrouterSettingsKey(organizationId),
+			JSON.stringify({ baseUrl: data.baseUrl.replace(/\/$/, ""), model: data.model }),
+		],
 	);
 }
 
@@ -89,10 +102,12 @@ export async function hrouterStructured<T>(
 		instructions: string;
 		input: string;
 		validate: z.ZodType<T>;
+		organizationId?: string;
 	},
 ): Promise<T> {
-	const config = await getHRouterConfig(database);
-	const apiKey = await readEncryptedCredential(database, "hrouter_api_key");
+	const organizationId = options.organizationId ?? "default";
+	const config = await getHRouterConfig(database, organizationId);
+	const apiKey = await readEncryptedCredential(database, "hrouter_api_key", organizationId);
 	if (!apiKey || !config.model) throw new Error("尚未配置 HRouter API Key 与 GPT 模型");
 	const response = await fetch(`${config.baseUrl}/responses`, {
 		method: "POST",
@@ -149,6 +164,7 @@ const analysisSchema = z.object({
 export async function analyzeCustomer(
 	database: Database,
 	input: {
+		organizationId?: string;
 		name: string;
 		websiteUrl: string;
 		region: string;
@@ -165,6 +181,7 @@ export async function analyzeCustomer(
 		)
 		.join("\n\n");
 	return hrouterStructured(database, {
+		organizationId: input.organizationId,
 		name: "customer_geo_profile",
 		schema: {
 			type: "object",

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { cp, mkdir, stat } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { ensureMasterKey, geoPaths, migrateDatabase, openDatabase } from "@geo/core";
@@ -38,28 +39,30 @@ async function setup(): Promise<void> {
 	console.log("在网页“平台设置”中配置五个平台和 HRouter 密钥后即可运行真实云端链路。");
 }
 
-async function waitForWorker(): Promise<void> {
+async function waitForService(url: string, name: string): Promise<void> {
 	for (let index = 0; index < 40; index += 1) {
-		try { if ((await fetch("http://127.0.0.1:3010/api/health")).ok) return; } catch { /* keep waiting */ }
+		try { if ((await fetch(url)).ok) return; } catch { /* keep waiting */ }
 		await new Promise((resolve) => setTimeout(resolve, 250));
 	}
-	throw new Error("Worker 在 10 秒内没有启动成功");
+	throw new Error(`${name} 在 10 秒内没有启动成功`);
 }
 
 async function start(): Promise<void> {
+	process.env.GEO_LOG_SERVICE_URL ||= "http://127.0.0.1:3020";
+	process.env.GEO_LOG_SERVICE_TOKEN ||= randomBytes(32).toString("base64url");
+	process.env.GEO_LOCAL_COMBINED = "true";
 	await setup();
 	const processes: ChildProcess[] = [];
-	const launch = (filter: string, script: string) => {
-		const child = spawn("corepack", ["pnpm", "--filter", filter, script], { stdio: "inherit", env: process.env });
+	const launch = (filter: string, script: string, environment: NodeJS.ProcessEnv = process.env) => {
+		const child = spawn("corepack", ["pnpm", "--filter", filter, script], { stdio: "inherit", env: environment });
 		processes.push(child);
 		child.on("exit", (code) => { if (code && code !== 0) console.error(`${filter} 已退出，状态码 ${code}`); });
 		return child;
 	};
+	launch("@geo/log-service", "start", { ...process.env, GEO_DATA_DIR: join(geoPaths.root, "log-service") });
+	await waitForService("http://127.0.0.1:3020/health", "日志服务");
 	launch("@geo/worker", "start");
-	await waitForWorker();
-	launch("@geo/worker", "start:capture");
-	launch("@geo/worker", "start:agent");
-	launch("@geo/worker", "start:report");
+	await waitForService("http://127.0.0.1:3010/api/health", "API");
 	launch("@geo/web", "dev");
 	console.log("\nGEO Console 工作台: http://127.0.0.1:3000/app/\n");
 	const stop = () => { for (const child of processes) child.kill("SIGTERM"); };
@@ -74,6 +77,7 @@ async function doctor(): Promise<void> {
 	console.log(`Node: ${process.version}`);
 	console.log(`数据目录: ${geoPaths.root} (${await exists(geoPaths.root) ? "存在" : "未初始化"})`);
 	try { const health = await fetch("http://127.0.0.1:3010/api/health"); console.log(`Worker: ${health.ok ? "正常" : `HTTP ${health.status}`}`); } catch { console.log("Worker: 未运行"); }
+	try { const health = await fetch("http://127.0.0.1:3020/health"); console.log(`日志服务: ${health.ok ? "正常" : `HTTP ${health.status}`}`); } catch { console.log("日志服务: 未运行"); }
 }
 
 async function backup(): Promise<void> {
@@ -83,6 +87,8 @@ async function backup(): Promise<void> {
 	const destination = join(geoPaths.backups, new Date().toISOString().replace(/[:.]/g, "-"));
 	await mkdir(destination, { recursive: true });
 	if (await exists(geoPaths.database)) await cp(geoPaths.database, join(destination, "database"), { recursive: true, errorOnExist: true });
+	const logDatabase = join(geoPaths.root, "log-service", "database");
+	if (await exists(logDatabase)) await cp(logDatabase, join(destination, "log-database"), { recursive: true, errorOnExist: true });
 	if (await exists(geoPaths.artifacts)) await cp(geoPaths.artifacts, join(destination, "artifacts"), { recursive: true, errorOnExist: true });
 	console.log("备份完成：", destination);
 }

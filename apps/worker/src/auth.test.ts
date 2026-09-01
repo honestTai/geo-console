@@ -15,8 +15,9 @@ describe("机构身份与角色", () => {
 			await ensureBootstrapAdmin(database);
 			let cookie = "";
 			const response = {
-				setHeader: (_name: string, value: string) => {
-					cookie = value.split(";")[0] ?? "";
+				setHeader: (_name: string, value: string | string[]) => {
+					const session = (Array.isArray(value) ? value : [value]).find((item) => item.startsWith("geo_session="));
+					cookie = session?.split(";")[0] ?? "";
 				},
 			} as unknown as ServerResponse;
 			const admin = await login(database, response, {
@@ -25,6 +26,8 @@ describe("机构身份与角色", () => {
 			});
 			const identity = await authenticateRequest(database, { headers: { cookie } } as IncomingMessage);
 			expect(identity?.email).toBe(admin.email);
+			expect(identity?.isSuperAdmin).toBe(true);
+			expect(identity?.organizationId).toBe("default");
 			expect(identity && hasRole(identity, "admin")).toBe(true);
 			const analyst = await createUser(database, {
 				email: "analyst@example.com",

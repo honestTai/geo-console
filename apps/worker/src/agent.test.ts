@@ -114,4 +114,76 @@ describe("Pi Agent 领域工具边界", () => {
 			await database.close();
 		}
 	});
+
+	it("报告口碑只接受回答证据中的真实信息源", async () => {
+		const database = openMemoryDatabase();
+		try {
+			await migrateDatabase(database);
+			await database.query(
+				`INSERT INTO projects (id,name,website_url,domain,region,language,status)
+				 VALUES ('project','客户','https://brand.example','brand.example','中国','zh-CN','active')`,
+			);
+			await database.query(
+				`INSERT INTO prompts (id,project_id,question,intent,tags,approved,position)
+				 VALUES ('prompt','project','客户口碑怎么样？','口碑','[]'::jsonb,true,0)`,
+			);
+			await database.query(
+				`INSERT INTO experiment_batches (id,project_id,kind,status,config,config_hash)
+				 VALUES ('batch','project','quick_audit','complete','{}'::jsonb,'hash')`,
+			);
+			await database.query("INSERT INTO jobs (id,type,payload,status) VALUES ('job','capture','{}'::jsonb,'complete')");
+			await database.query(
+				`INSERT INTO query_captures
+				 (id,job_id,batch_id,project_id,prompt_id,platform,attempt,status,answer_text,brand_matches,sources,
+				 query_fan_out,adapter_version,captured_at)
+				 VALUES ('capture','job','batch','project','prompt','qwen_api',1,'complete','有用户提到售后较慢','[]'::jsonb,
+				 '[{"url":"https://review.example/1","domain":"review.example","title":"用户评价","position":1,"isCitation":true}]'::jsonb,
+				 '[]'::jsonb,'test',now())`,
+			);
+			const sink = { value: null as Record<string, unknown> | null, evidenceIds: [] as string[] };
+			const tools = await createDomainTools(database, "project", "batch", "report_narrative", sink);
+			const submit = tools.find((tool) => tool.name === "submit_draft");
+			const draft = (sourceUrls: string[]) => ({
+				summary: "报告摘要",
+				executiveSummary: "管理摘要",
+				reputation: {
+					overall: "negative",
+					summary: "出现售后负面评价",
+					positiveSignals: [],
+					negativeSignals: [
+						{
+							statement: "售后较慢",
+							sourceStatus: "cited",
+							sourceUrls,
+							evidenceIds: ["capture"],
+						},
+					],
+				},
+				geoRecommendations: [
+					{
+						priority: "high",
+						title: "澄清售后标准",
+						action: "发布可核验的响应时效。",
+						rationale: "回应当前负面评价。",
+						evidenceIds: ["capture"],
+					},
+				],
+				limitations: [],
+				evidenceIds: ["capture"],
+			});
+			await expect(
+				submit?.execute("call", {
+					evidenceIds: ["capture"],
+					draftJson: JSON.stringify(draft(["https://invented.example/negative"])),
+				} as never),
+			).rejects.toThrow("不属于对应回答证据");
+			await submit?.execute("call", {
+				evidenceIds: ["capture"],
+				draftJson: JSON.stringify(draft(["https://review.example/1"])),
+			} as never);
+			expect(sink.value).toMatchObject({ reputation: { overall: "negative" } });
+		} finally {
+			await database.close();
+		}
+	});
 });

@@ -238,6 +238,7 @@ GEO_DOMAIN=$domain
 GEO_ADMIN_EMAIL=$admin_email
 GEO_CAPTURE_CONCURRENCY=$capture_concurrency
 GEO_BACKUP_DIR=$backup_dir
+GEO_LOG_RETENTION_DAYS=90
 
 GEO_OBJECT_STORE=local
 GEO_S3_ENDPOINT=
@@ -264,6 +265,7 @@ configure_secrets() {
 	generate_secret "$secret_dir/postgres_password" 32
 	generate_secret "$secret_dir/master_key" 32
 	generate_secret "$secret_dir/admin_password" 24
+	generate_secret "$secret_dir/log_service_token" 32
 	chmod 600 "$secret_dir"/*
 	local master_key_bytes
 	master_key_bytes="$(openssl base64 -d -A <"$secret_dir/master_key" | wc -c | tr -d ' ')"

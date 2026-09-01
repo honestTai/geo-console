@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { migrateDatabase, openDatabase } from "@geo/core";
+import { StructuredLogger, safeErrorMessage } from "@geo/logging";
 import { checkObjectStore } from "./object-store";
-import { queueScheduledReportSnapshots, runOneReportJob } from "./report-snapshots";
+import { flushReportLogs, queueScheduledReportSnapshots, runOneReportJob } from "./report-snapshots";
 
 const database = await openDatabase();
 await migrateDatabase(database);
 await checkObjectStore();
 const owner = process.env.GEO_REPORT_EXECUTOR_ID?.trim() || `report:${process.pid}:${randomUUID()}`;
+const logger = new StructuredLogger("report-worker");
 let active = false;
 let lastScheduleScan = 0;
 async function tick(): Promise<void> {
@@ -19,17 +21,19 @@ async function tick(): Promise<void> {
 		}
 		await runOneReportJob(database, owner);
 	} catch (error) {
-		console.error("报告任务执行失败", error);
+		logger.error("worker.tick_failed", safeErrorMessage(error), { traceId: owner });
 	} finally {
 		active = false;
 	}
 }
 const timer = setInterval(() => void tick(), 1_000);
 void tick();
-console.log(`GEO Report Worker 已启动：${owner}`);
+logger.info("service.started", "GEO Report Worker 已启动", { traceId: owner });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const)
 	process.once(signal, () => {
 		clearInterval(timer);
-		void database.close().finally(() => process.exit(0));
+		void Promise.all([logger.flush(), flushReportLogs()]).finally(() =>
+			database.close().finally(() => process.exit(0)),
+		);
 	});

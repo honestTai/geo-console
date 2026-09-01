@@ -1,0 +1,19 @@
+{
+	"name": "@geo/logging",
+	"version": "0.1.0",
+	"private": true,
+	"license": "UNLICENSED",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"devDependencies": {
+		"@types/node": "^26.2.0",
+		"typescript": "^7.0.2",
+		"vitest": "^4.1.10"
+	}
+}

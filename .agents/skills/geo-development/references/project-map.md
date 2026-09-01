@@ -15,12 +15,13 @@ Browser -> Caddy -> static landing (/)
                  -> React Web (/app/)
                  -> API (apps/worker/src/index.ts) -> PGlite/PostgreSQL
                                                   -> local/S3 artifacts
+API/Workers -> Log Service -> structured service_logs
 Capture Worker -> frozen provider adapter -> raw response + QueryCapture v2
 Agent Worker   -> HRouter/Pi Agent -> pending structured draft -> human approval
 Report Worker  -> immutable snapshot -> Playwright PDF -> artifact store
 ```
 
-本机 `corepack pnpm geo start` 启动 API、Capture Worker、Agent Worker、Report Worker 和 Vite Web。服务器 Compose 将五个应用服务分开，只有 Caddy 暴露 80/443。
+本机 `corepack pnpm geo start` 启动独立 Log Service、包含三个队列执行器的组合 API 进程和 Vite Web，避免多进程 PGlite 目录争用；Log Service 使用独立本机 PGlite。服务器 PostgreSQL Compose 将 Log/API/三个 Worker/Web/Caddy 分开，只有 Caddy 暴露 80/443。
 
 ## 所有者地图
 
@@ -32,17 +33,20 @@ Report Worker  -> immutable snapshot -> Playwright PDF -> artifact store
 | 证据 JSON 契约 | `packages/evidence/src/schema.ts` | adapters、cloud runner、metrics、reports |
 | 五平台协议 | `packages/search-providers/src/*.ts` | `apps/worker/src/providers.ts` |
 | 指标分母与汇总 | `packages/metrics/src/visibility.ts` | batch/report UI |
-| HTTP、RBAC、公开分享 | `apps/worker/src/index.ts`、`auth.ts` | `apps/web/src/api.ts` |
+| HTTP、RBAC、租户隔离、公开分享 | `apps/worker/src/index.ts`、`auth.ts`、`tenancy.ts` | `apps/web/src/api.ts` |
+| 结构化运行日志 | `packages/logging`、`apps/log-service`、`service_logs` migration | API、Capture/Agent/Report Worker、Web 日志中心 |
+| 行业问题知识库 | `apps/worker/src/knowledge-base.ts`、`packages/core/src/schema.ts` | onboarding、Web 知识库 |
 | 项目、批次、诊断、整改、漂移 | `apps/worker/src/service.ts` | API、Web |
 | 官网抓取与审计 | `apps/worker/src/crawler.ts` | onboarding、audit、diagnosis、verification |
 | Provider 配置与密钥 | `apps/worker/src/providers.ts`、`packages/core/src/secrets.ts` | Settings、Capture Worker |
 | Agent 工具与审批 | `apps/worker/src/agent.ts`、`agent-jobs.ts` | Agent Worker、Web |
-| 报告快照/PDF/分享 | `apps/worker/src/report-snapshots.ts`、`report.ts` | Report Worker、Web |
+| 报告快照/PDF/Word/分享 | `apps/worker/src/report-snapshots.ts`、`report.ts`、`docx.ts` | Report Worker、Web |
 | 归因 CSV | `apps/worker/src/attribution.ts` | Attribution view |
 | 对象存储 | `apps/worker/src/object-store.ts` | captures、snapshots、PDF |
 | 工作台 UI | `apps/web/src/App.tsx`、`styles.css` | browser |
 | 静态官网 | `landing/` | browser root path; no API/DB access |
 | 本机 CLI | `scripts/geo.ts` | setup/start/doctor/backup |
+| 本机组合 Worker | `apps/worker/src/local-workers.ts` | 仅 `GEO_LOCAL_COMBINED=true`；生产禁用 |
 | 防飘逸检查 | `scripts/check-skill-drift.mjs`、`references/drift-control.md` | 重大功能变更交付 |
 | 服务器发布 | `compose.yaml`、`docker/`、`deploy/` | installer/management command |
 
@@ -53,12 +57,12 @@ Report Worker  -> immutable snapshot -> Playwright PDF -> artifact store
 3. Capture Worker 只按冻结 Provider 契约执行；原始响应先写对象存储，再以唯一 `job_id` 插入 QueryCapture v2，最后完成 job 和批次状态。
 4. 指标从采集证据确定性计算。规则诊断可更新派生 finding；模型诊断只产生待审批 Agent draft。
 5. finding 转整改任务；发布 URL 必须重新抓取形成网站快照，再进行相同 baseline config 的 retest。
-6. 报告冻结 payload/hash 后才进入 PDF 队列；分享链接只存 token hash，支持过期与撤销。
+6. 报告叙述必须包含证据化口碑与 GEO 建议；批准后系统自动排队绑定该 run 的质量检查，质量检查批准通过后自动冻结 payload/hash 并进入 PDF/Word 队列。分享链接只存 token hash，支持过期与撤销。
 7. 归因 CSV 按 `sourceType + csv` 内容 hash 防重复，和 GEO 指标并列展示，不自动声称因果。
 
 ## Web 工作台
 
-`App.tsx` 当前包含项目总览、AI 监测、证据中心、官网审计、诊断、整改、业务归因、复测报告、平台设置、机构成员和审计日志。后三项仅管理员可见；平台设置使用本地真实 Logo 的五平台 tab，每次只显示一个 Provider 表单。移动端底部导航和平台 tab 均允许横向滚动。监测运行面板只能从真实批次状态、预期样本数和 Capture 记录计算进度与日志；报告先呈现管理摘要、核心指标和整改前后对比。
+`App.tsx` 当前包含项目总览、AI 监测、证据中心、官网审计、诊断、整改、业务归因、复测报告，以及不依赖项目选择的机构问题库、平台设置、成员、业务审计、运行日志和超管多租户管理。运行日志支持服务/级别/时间/关键字筛选、分页、CSV、刷新和保留期清理。证据回答使用安全结构化 Markdown；报告使用单一可续跑工作流展示叙述、质检、冻结和文档状态。
 
 图表、KPI 与平台卡只消费真实 API 响应；无批次时使用空状态，不能把视觉验收 fixture 放入 `apps/web/public` 或正式构建。UI 仍是单文件应用壳；新增共享业务规则时不要继续堆入组件，应放回拥有该规则的 package/worker service。
 

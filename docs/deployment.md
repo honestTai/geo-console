@@ -12,13 +12,13 @@ corepack pnpm --filter @geo/worker exec playwright install chromium
 corepack pnpm geo start
 ```
 
-服务只绑定 `127.0.0.1`。PGlite 仅用于开发测试，不用作生产数据库。Report Worker 优先使用 Playwright Chromium；macOS 开发环境在下载不可用时可使用系统 Google Chrome，也可通过 `GEO_PLAYWRIGHT_EXECUTABLE_PATH` 指定受控浏览器路径。服务器镜像始终安装 Playwright Chromium。
+服务只绑定 `127.0.0.1`；Log Service 使用 3020 和独立日志 PGlite，API 使用 3010 并在进程内组合执行三个本机队列 Worker。PGlite 仅用于开发测试，不要对同一目录启动多进程 Worker。Report Worker 优先使用 Playwright Chromium；服务器镜像始终安装 Playwright Chromium。
 
 ## 服务器 Docker
 
 低负载 Demo（同时只跑一两个任务）可使用 2 vCPU、4 GB 内存、50 GB SSD 和 2 GB Swap，并把采集并发固定为 1。持续监测或多客户并发建议 4 vCPU、8 GB 内存、80 GB SSD。无需 GPU。
 
-服务器使用 Ubuntu/Debian。域名必须解析到服务器，云安全组只开放 80/443；SSH 端口限制到管理来源。API、Worker 和 PostgreSQL 不映射主机端口。
+服务器使用 Ubuntu/Debian。域名必须解析到服务器，云安全组只开放 80/443；SSH 端口限制到管理来源。Log Service 3020、API、Worker 和 PostgreSQL 不映射主机端口。
 
 同一个 HTTPS 域名提供两个前端入口：
 
@@ -64,8 +64,8 @@ sudo bash ./geo-console-<版本>.run \
 - 从 Docker 官方 APT 仓库安装 Docker Engine、Buildx 和 Compose 插件（已有则复用）。
 - 在无 Swap 的服务器创建 `/swapfile` 2 GB；可用 `--no-swap` 关闭。
 - 创建 `/opt/geo-console/releases/<版本>` 和持久的 `/opt/geo-console/shared`。
-- 生成 owner-only 的 PostgreSQL 密码、32 字节 Base64 主密钥和管理员初始密码。
-- 顺序启动 PostgreSQL、API、Capture Worker、Agent Worker、Report Worker、Web 和 Caddy，避免首次迁移竞争。
+- 生成 owner-only 的 PostgreSQL 密码、32 字节 Base64 主密钥、系统超管初始密码和 Log Service 内部令牌。
+- 顺序启动 PostgreSQL、Log Service、API、Capture Worker、Agent Worker、Report Worker、Web 和 Caddy，避免首次迁移竞争。
 - 验证 HTTPS、服务健康和一次数据库/本地证据成对备份。
 - 验证根路径官网、`/app/` 登录入口以及两者之间的导航。
 
@@ -77,7 +77,7 @@ sudo bash ./geo-console-<版本>.run \
 sudo geo-console show-admin-password
 ```
 
-`/opt/geo-console/shared/secrets/master_key` 必须永久离线备份；丢失或随意更换会导致数据库中已加密的供应商 Key 无法读取。登录后在平台设置中保存五家供应商与 HRouter Key，并逐个测试连接。
+`/opt/geo-console/shared/secrets/master_key` 必须永久离线备份；丢失或随意更换会导致数据库中按租户加密的供应商/HRouter Key 无法读取。首次账号是系统超管。环境变量或 Secret 文件中的 Provider/HRouter Key 只为默认机构提供 bootstrap fallback；新机构必须切换到该机构后单独保存并测试密钥，绝不能隐式共享默认机构凭据。
 
 ### 开发阶段升级
 
@@ -95,6 +95,7 @@ sudo geo-console upgrade /tmp/geo-console-<新版本>.run
 sudo geo-console status
 sudo geo-console doctor
 sudo geo-console logs api
+sudo geo-console logs log-service
 sudo geo-console logs capture-worker
 sudo geo-console logs agent-worker
 sudo geo-console backup
@@ -104,7 +105,7 @@ sudo geo-console version
 
 ## S3 兼容证据存储
 
-默认 `GEO_OBJECT_STORE=local` 使用共享持久卷。生产建议私有 S3/MinIO/COS 桶，在 `/opt/geo-console/shared/.env` 配置 endpoint、region、bucket 和凭据，并启用桶版本控制、服务端加密、生命周期与备份。实例角色可用时省略 Access Key。所有 API、Capture Worker 和 Report Worker 通过同一个 Compose 配置读取完全一致的对象存储参数。
+默认 `GEO_OBJECT_STORE=local` 使用共享持久卷。生产建议私有 S3/MinIO/COS 桶。Log Service 只写 PostgreSQL `service_logs`，不访问 evidence volume 或 bucket；`log_service_token` 只通过 owner-only Docker Secret 挂载，不进入 `.env`、镜像或 bundle 明文。
 
 ## 备份、升级与回滚
 
@@ -114,4 +115,4 @@ sudo geo-console version
 sudo geo-console backup
 ```
 
-S3 模式由桶版本控制和跨区域复制保护对象，命令仍备份 PostgreSQL。升级包会记录 commit、打包时间和 release ID。迁移只向前执行；需要回滚不兼容迁移时，把升级前 dump 恢复到新建空 PostgreSQL，验证旧 release 后再切换流量，不要覆盖唯一数据库。
+S3 模式由桶版本控制和跨区域复制保护对象，命令仍备份 PostgreSQL。数据库备份包含全部租户、RBAC、问题库、Agent 审批、业务审计、运行日志和报告索引；对象备份覆盖 PDF 与 Word。恢复后需同时抽查 Log Service 健康、租户日志隔离和保留配置。

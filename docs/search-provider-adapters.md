@@ -12,6 +12,8 @@
 
 适配器返回回答正文、品牌位置、来源、Query Fan-out、来源可见性、模型、协议、搜索工具版本、适配器版本、Request ID、Token、成本、延迟、原始响应和失败原因。未开放来源或 Fan-out 时返回 `unavailable`，不得构造空值后按 0 参与指标。
 
+Provider config 与加密凭据按 `organization_id` 隔离。创建批次时只读取项目所属机构的已启用配置并冻结公开契约；Capture Worker 执行冻结契约时仍按该机构读取对应密钥。环境变量/Secret 文件仅作为 `default` 机构的 bootstrap fallback，非默认机构缺少自身加密凭据时必须返回真实鉴权配置失败，不得借用其他租户或默认机构 Key。
+
 失败状态包括 `auth_required`、`rate_limited`、`timeout`、`search_not_triggered`、`no_answer`、`model_unavailable`、`protocol_changed` 和 `failed`。Provider 失败时禁止静默切换其他模型。
 
 ## 变更要求

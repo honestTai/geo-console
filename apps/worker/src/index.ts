@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { geoPaths, migrateDatabase, openDatabase, searchProviderIds } from "@geo/core";
+import { checkLogService, LogServiceUnavailableError, StructuredLogger, safeErrorMessage } from "@geo/logging";
 import { z } from "zod";
 import { approveAgentRun, enqueueAgentDraft, enqueueTaskContentAgent, listAgentRuns, rejectAgentRun } from "./agent";
 import { getAttribution, importAttributionCsv } from "./attribution";
@@ -16,11 +18,15 @@ import {
 	listUsers,
 	login,
 	logout,
+	selectOrganization,
 } from "./auth";
 import { getHRouterConfig, listHRouterModels, saveHRouterConfig } from "./hrouter";
+import { archiveLibraryQuestion, createLibraryQuestion, listLibraryQuestions } from "./knowledge-base";
+import { startLocalWorkers } from "./local-workers";
 import { checkObjectStore, readArtifact } from "./object-store";
 import { ensureProviderConfigs, getProviderSettings, saveProviderConfig, testProviderConfig } from "./providers";
 import {
+	advanceReportWorkflow,
 	createReportShare,
 	createReportSnapshot,
 	getReportPdfStatus,
@@ -55,6 +61,8 @@ import {
 	updateTask,
 	verifyTask,
 } from "./service";
+import { applyServiceLogRetention, getServiceLogs, getServiceLogsCsv } from "./service-log-proxy";
+import { canReadArtifact, createOrganization, listOrganizations, requestResourceOrganization } from "./tenancy";
 import { json, readJson } from "./utils";
 
 const host = process.env.GEO_WORKER_HOST?.trim() || "127.0.0.1";
@@ -65,6 +73,8 @@ await ensureProviderConfigs(database);
 await ensureBootstrapAdmin(database);
 await Promise.all(Object.values(geoPaths).map((directory) => mkdir(directory, { recursive: true })));
 const objectStore = await checkObjectStore();
+const apiLogger = new StructuredLogger("api");
+const stopLocalWorkers = process.env.GEO_LOCAL_COMBINED === "true" ? await startLocalWorkers(database) : null;
 
 function routeMatch(pathname: string, expression: RegExp): string[] | null {
 	const match = pathname.match(expression);
@@ -85,11 +95,16 @@ async function serveArtifact(response: ServerResponse, artifactPath: string): Pr
 	}
 }
 
-async function handleProjectRoutes(request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
+async function handleProjectRoutes(
+	request: IncomingMessage,
+	response: ServerResponse,
+	path: string,
+	organizationId: string,
+): Promise<boolean> {
 	if (path === "/api/projects" && request.method === "GET")
-		return json(response, 200, { projects: await listProjects(database) }) ?? true;
+		return json(response, 200, { projects: await listProjects(database, organizationId) }) ?? true;
 	if (path === "/api/projects" && request.method === "POST")
-		return json(response, 201, await createProject(database, await readJson(request))) ?? true;
+		return json(response, 201, await createProject(database, await readJson(request), organizationId)) ?? true;
 	const project = routeMatch(path, /^\/api\/projects\/([^/]+)$/);
 	if (project && request.method === "GET") {
 		const value = await getProject(database, project[0]);
@@ -233,8 +248,26 @@ async function handleBatchTaskRoutes(
 	}
 	const approveAgent = routeMatch(path, /^\/api\/agent-runs\/([^/]+)\/approve$/);
 	if (approveAgent && request.method === "POST") {
-		await approveAgentRun(database, approveAgent[0], actorUserId);
-		json(response, 200, { approved: true });
+		const approved = await approveAgentRun(database, approveAgent[0], actorUserId);
+		const workflow =
+			approved.batchId && ["report_narrative", "quality_review"].includes(approved.purpose)
+				? await advanceReportWorkflow(database, approved.batchId, { createdBy: actorUserId, allowRetry: false })
+				: null;
+		json(response, 200, { approved: true, workflow });
+		return true;
+	}
+	const reportWorkflow = routeMatch(path, /^\/api\/batches\/([^/]+)\/report-workflow$/);
+	if (reportWorkflow && request.method === "POST") {
+		const body = z.object({ restart: z.boolean().default(false) }).parse(await readJson(request));
+		json(
+			response,
+			202,
+			await advanceReportWorkflow(database, reportWorkflow[0], {
+				createdBy: actorUserId,
+				allowRetry: true,
+				restart: body.restart,
+			}),
+		);
 		return true;
 	}
 	const acknowledgeAlert = routeMatch(path, /^\/api\/drift-alerts\/([^/]+)\/acknowledge$/);
@@ -345,40 +378,68 @@ async function handleSettingsRoutes(
 	request: IncomingMessage,
 	response: ServerResponse,
 	path: string,
+	organizationId: string,
 ): Promise<boolean> {
 	if (path === "/api/settings" && request.method === "GET") {
 		json(response, 200, {
-			providers: await getProviderSettings(database),
-			analysis: await getHRouterConfig(database),
+			providers: await getProviderSettings(database, organizationId),
+			analysis: await getHRouterConfig(database, organizationId),
 		});
 		return true;
 	}
 	if (path === "/api/settings/hrouter" && request.method === "PUT") {
-		await saveHRouterConfig(database, await readJson(request));
+		await saveHRouterConfig(database, await readJson(request), organizationId);
 		json(response, 200, { saved: true });
 		return true;
 	}
 	if (path === "/api/settings/hrouter/models" && request.method === "GET") {
-		json(response, 200, { models: await listHRouterModels(database) });
+		json(response, 200, { models: await listHRouterModels(database, organizationId) });
 		return true;
 	}
 	if (path === "/api/settings/hrouter/test" && request.method === "POST") {
-		const config = await getHRouterConfig(database);
-		const models = await listHRouterModels(database);
+		const config = await getHRouterConfig(database, organizationId);
+		const models = await listHRouterModels(database, organizationId);
 		json(response, 200, { connected: true, selectedModelAvailable: models.some((model) => model.id === config.model) });
 		return true;
 	}
 	const provider = routeMatch(path, /^\/api\/settings\/providers\/([^/]+)$/);
 	if (provider && request.method === "PUT") {
 		const providerId = z.enum(searchProviderIds).parse(provider[0]);
-		await saveProviderConfig(database, providerId, await readJson(request));
+		await saveProviderConfig(database, providerId, await readJson(request), organizationId);
 		json(response, 200, { saved: true });
 		return true;
 	}
 	const providerTest = routeMatch(path, /^\/api\/settings\/providers\/([^/]+)\/test$/);
 	if (providerTest && request.method === "POST") {
 		const providerId = z.enum(searchProviderIds).parse(providerTest[0]);
-		json(response, 200, await testProviderConfig(database, providerId));
+		json(response, 200, await testProviderConfig(database, providerId, organizationId));
+		return true;
+	}
+	return false;
+}
+
+async function handleKnowledgeRoutes(
+	request: IncomingMessage,
+	response: ServerResponse,
+	path: string,
+	organizationId: string,
+	actorUserId: string | null,
+): Promise<boolean> {
+	if (path === "/api/knowledge/questions" && request.method === "GET") {
+		const url = new URL(request.url ?? path, `http://${request.headers.host ?? "127.0.0.1"}`);
+		json(response, 200, {
+			questions: await listLibraryQuestions(database, organizationId, url.searchParams.get("industry")),
+		});
+		return true;
+	}
+	if (path === "/api/knowledge/questions" && request.method === "POST") {
+		json(response, 201, await createLibraryQuestion(database, organizationId, actorUserId, await readJson(request)));
+		return true;
+	}
+	const question = routeMatch(path, /^\/api\/knowledge\/questions\/([^/]+)$/);
+	if (question && request.method === "DELETE") {
+		await archiveLibraryQuestion(database, organizationId, question[0]);
+		json(response, 200, { archived: true });
 		return true;
 	}
 	return false;
@@ -386,19 +447,42 @@ async function handleSettingsRoutes(
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Authentication and public-route ordering are intentionally centralized in one request boundary.
 async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+	const startedAt = Date.now();
+	const requestedTraceId = request.headers["x-request-id"];
+	const traceId =
+		typeof requestedTraceId === "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(requestedTraceId)
+			? requestedTraceId
+			: randomUUID();
+	let requestOrganizationId: string | null = null;
+	const requestUrl = new URL(request.url ?? "/", `http://${request.headers.host ?? "127.0.0.1"}`);
+	const path = requestUrl.pathname;
+	response.setHeader("x-request-id", traceId);
+	response.once("finish", () => {
+		if (path === "/api/health" || path.startsWith("/api/service-logs")) return;
+		apiLogger.info("http.request", `${request.method ?? "GET"} ${path}`, {
+			organizationId: requestOrganizationId,
+			traceId,
+			metadata: {
+				method: request.method ?? "GET",
+				path,
+				status: response.statusCode,
+				durationMs: Date.now() - startedAt,
+			},
+		});
+	});
 	const allowedOrigin = process.env.GEO_ALLOWED_ORIGIN?.trim() || "http://127.0.0.1:3000";
 	if (request.headers.origin === allowedOrigin) {
 		response.setHeader("access-control-allow-origin", allowedOrigin);
 		response.setHeader("access-control-allow-credentials", "true");
 	}
 	response.setHeader("access-control-allow-headers", "authorization,content-type");
+	response.setHeader("access-control-expose-headers", "x-request-id");
 	response.setHeader("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
 	if (request.method === "OPTIONS") {
 		response.writeHead(204);
 		response.end();
 		return;
 	}
-	const path = new URL(request.url ?? "/", `http://${request.headers.host ?? "127.0.0.1"}`).pathname;
 	const shared = routeMatch(path, /^\/share\/([^/]+)$/);
 	if (shared && request.method === "GET") {
 		const snapshot = await getSharedReport(database, shared[0]);
@@ -408,7 +492,9 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 		return;
 	}
 	if (path === "/api/auth/login" && request.method === "POST") {
-		json(response, 200, { user: await login(database, response, await readJson(request)) });
+		const user = await login(database, response, await readJson(request));
+		requestOrganizationId = user.organizationId;
+		json(response, 200, { user });
 		return;
 	}
 	if (path === "/api/health")
@@ -418,44 +504,87 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 			analysisConfigured: (await getHRouterConfig(database)).configured,
 			captureRunner: "cloud",
 			objectStore,
+			logService: await checkLogService(),
 		});
 	if (path.startsWith("/artifacts/")) {
 		const identity = await authenticateRequest(database, request);
 		if (!identity) return json(response, 401, { error: "请先登录" });
-		await serveArtifact(response, path.slice("/artifacts/".length));
+		requestOrganizationId = identity.organizationId;
+		const artifactKey = decodeURIComponent(path.slice("/artifacts/".length));
+		if (!(await canReadArtifact(database, identity.organizationId, artifactKey, identity.isSuperAdmin)))
+			return json(response, 404, { error: "证据文件不存在" });
+		await serveArtifact(response, artifactKey);
 		return;
 	}
 	const identity = await authenticateRequest(database, request);
 	if (!identity) return json(response, 401, { error: "请先登录" });
+	requestOrganizationId = identity.organizationId;
 	if (path === "/api/auth/me" && request.method === "GET") return json(response, 200, { user: identity });
 	if (path === "/api/auth/logout" && request.method === "POST") {
 		await logout(database, request, response);
 		return json(response, 200, { loggedOut: true });
 	}
+	if (path === "/api/organizations/select" && request.method === "POST") {
+		const body = z.object({ organizationId: z.string().trim().min(1) }).parse(await readJson(request));
+		return json(response, 200, { user: await selectOrganization(database, response, identity, body.organizationId) });
+	}
 	const adminOnly =
-		path.startsWith("/api/settings") || path.startsWith("/api/users") || path.startsWith("/api/audit-logs");
+		path.startsWith("/api/settings") ||
+		path.startsWith("/api/users") ||
+		path.startsWith("/api/audit-logs") ||
+		path.startsWith("/api/service-logs") ||
+		path.startsWith("/api/organizations");
 	const requiredRole = adminOnly ? "admin" : request.method === "GET" ? "viewer" : "analyst";
 	if (!hasRole(identity, requiredRole)) return json(response, 403, { error: "当前角色无权执行此操作" });
+	if (path === "/api/organizations" && request.method === "GET") {
+		if (!identity.isSuperAdmin) return json(response, 403, { error: "只有系统超管可以查看全部机构" });
+		return json(response, 200, { organizations: await listOrganizations(database) });
+	}
+	if (path === "/api/organizations" && request.method === "POST") {
+		if (!identity.isSuperAdmin) return json(response, 403, { error: "只有系统超管可以创建机构" });
+		const value = await createOrganization(database, await readJson(request));
+		await auditRequest(database, identity, request.method, path);
+		return json(response, 201, value);
+	}
 	if (path === "/api/users" && request.method === "GET")
-		return json(response, 200, { users: await listUsers(database) });
+		return json(response, 200, { users: await listUsers(database, identity.organizationId) });
 	if (path === "/api/audit-logs" && request.method === "GET")
-		return json(response, 200, { logs: await listAuditLogs(database) });
+		return json(response, 200, { logs: await listAuditLogs(database, identity.organizationId) });
+	if (path === "/api/service-logs" && request.method === "GET")
+		return json(response, 200, await getServiceLogs(requestUrl, identity.organizationId, identity.isSuperAdmin));
+	if (path === "/api/service-logs/export.csv" && request.method === "GET") {
+		response.writeHead(200, {
+			"content-type": "text/csv; charset=utf-8",
+			"content-disposition": 'attachment; filename="geo-service-logs.csv"',
+		});
+		response.end(`\uFEFF${await getServiceLogsCsv(requestUrl, identity.organizationId, identity.isSuperAdmin)}`);
+		return;
+	}
+	if (path === "/api/service-logs/retention" && request.method === "POST") {
+		const result = await applyServiceLogRetention(identity.organizationId, await readJson(request));
+		await auditRequest(database, identity, request.method, path);
+		return json(response, 200, result);
+	}
 	if (path === "/api/users" && request.method === "POST") {
-		const value = await createUser(database, await readJson(request));
+		const value = await createUser(database, await readJson(request), identity.organizationId);
 		await auditRequest(database, identity, request.method, path);
 		return json(response, 201, value);
 	}
 	const user = routeMatch(path, /^\/api\/users\/([^/]+)$/);
 	if (user && request.method === "DELETE") {
-		await disableUser(database, user[0], identity.id);
+		await disableUser(database, user[0], identity.id, identity.organizationId);
 		await auditRequest(database, identity, request.method, path);
 		return json(response, 200, { disabled: true });
 	}
+	const resourceOrganization = await requestResourceOrganization(database, path);
+	if (resourceOrganization && !identity.isSuperAdmin && resourceOrganization !== identity.organizationId)
+		return json(response, 404, { error: "资源不存在" });
 	const handled =
-		(await handleProjectRoutes(request, response, path)) ||
+		(await handleProjectRoutes(request, response, path, identity.organizationId)) ||
 		(await handleProjectDataRoutes(request, response, path)) ||
 		(await handleBatchTaskRoutes(request, response, path, identity.id)) ||
-		(await handleSettingsRoutes(request, response, path));
+		(await handleSettingsRoutes(request, response, path, identity.organizationId)) ||
+		(await handleKnowledgeRoutes(request, response, path, identity.organizationId, identity.id));
 	if (handled) {
 		await auditRequest(database, identity, request.method ?? "GET", path);
 		return;
@@ -463,25 +592,38 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 	json(response, 404, { error: "接口不存在" });
 }
 
+function apiErrorStatus(error: unknown): number {
+	if (error instanceof z.ZodError) return 400;
+	if (error instanceof AuthenticationError) return 401;
+	if (error instanceof LogServiceUnavailableError) return 503;
+	return 500;
+}
+
 const server = createServer((request, response) => {
 	handle(request, response).catch((error) => {
-		console.error(error);
+		const traceId = String(response.getHeader("x-request-id") ?? randomUUID());
+		apiLogger.error("request.failed", safeErrorMessage(error), {
+			traceId,
+			metadata: { method: request.method ?? "GET", path: new URL(request.url ?? "/", "http://local").pathname },
+		});
 		if (!response.headersSent)
-			json(response, error instanceof z.ZodError ? 400 : error instanceof AuthenticationError ? 401 : 500, {
-				error: error instanceof Error ? error.message : "未知错误",
-			});
+			json(response, apiErrorStatus(error), { error: error instanceof Error ? error.message : "未知错误" });
 		else response.end();
 	});
 });
 
-server.listen(port, host, () => console.log(`GEO Worker: http://${host}:${port}`));
+server.listen(port, host, () => apiLogger.info("service.started", `GEO API 已启动：${host}:${port}`));
 const scheduleTimer = setInterval(() => {
-	processDueSchedules(database).catch((error) => console.error("自动监测调度失败", error));
+	processDueSchedules(database).catch((error) => apiLogger.error("schedule.failed", safeErrorMessage(error)));
 }, 60_000);
 scheduleTimer.unref();
 
 for (const signal of ["SIGINT", "SIGTERM"] as const)
 	process.on(signal, () => {
 		clearInterval(scheduleTimer);
-		server.close(() => database.close().finally(() => process.exit(0)));
+		server.close(() => {
+			void Promise.all([apiLogger.flush(), stopLocalWorkers?.()]).finally(() =>
+				database.close().finally(() => process.exit(0)),
+			);
+		});
 	});
