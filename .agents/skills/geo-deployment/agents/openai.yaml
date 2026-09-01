@@ -1,4 +1,4 @@
 interface:
-  display_name: "GEO 云端部署"
-  short_description: "部署本机与 Docker、S3 对象存储和 Caddy HTTPS 环境"
-  default_prompt: "部署、升级或回滚这个 GEO Console 实例。"
+  display_name: "GEO Console 部署"
+  short_description: "部署本机或 Linux、发布包、HTTPS、PostgreSQL 与对象存储"
+  default_prompt: "按 GEO Console 的发布和数据安全边界安装、升级或恢复目标环境。"

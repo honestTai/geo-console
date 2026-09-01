@@ -61,7 +61,7 @@ async function start(): Promise<void> {
 	launch("@geo/worker", "start:agent");
 	launch("@geo/worker", "start:report");
 	launch("@geo/web", "dev");
-	console.log("\nGEO Console: http://127.0.0.1:3000\n");
+	console.log("\nGEO Console 工作台: http://127.0.0.1:3000/app/\n");
 	const stop = () => { for (const child of processes) child.kill("SIGTERM"); };
 	process.on("SIGINT", stop); process.on("SIGTERM", stop);
 	await new Promise<void>((resolve) => {

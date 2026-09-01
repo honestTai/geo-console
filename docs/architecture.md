@@ -3,17 +3,19 @@
 ## 运行组件
 
 ```text
-浏览器 -> Caddy HTTPS -> React Web
-                    -> API :3010 -> PostgreSQL
-                                  -> S3 兼容证据存储
-                    Capture Worker -> 五家联网 API
-                    Agent Worker   -> HRouter GPT
-                    Report Worker  -> Playwright PDF
+浏览器 -> Caddy HTTPS -> /      静态官网与隔离的产品演示
+                    -> /app/  React 工作台
+                    -> /api/  API :3010 -> PostgreSQL
+                                         -> S3 兼容证据存储
+                              Capture Worker -> 五家联网 API
+                              Agent Worker   -> HRouter GPT
+                              Report Worker  -> Playwright PDF
 ```
 
 本机使用同一业务代码，数据库切换为文件持久化 PGlite，对象存储切换为用户数据目录。`pnpm geo start` 启动 API、Capture Worker、Agent Worker、Report Worker 和 Web。
 
-- `apps/web`：客户建档、监测、证据、审计、诊断、整改、归因、报告和平台管理 UI。
+- `landing`：静态官网。交互演示全部标注为演示数据，不访问业务 API、不写数据库、不作为指标或证据。
+- `apps/web`：发布在 `/app/` 的客户建档、监测、证据、官网审计、诊断、整改、归因、报告和机构管理工作台。
 - `apps/worker/src/index.ts`：机构会话、角色、项目 API、周期调度和审计日志。
 - `capture-worker.ts`：按数据库租约领取 `capture` 任务，只调用冻结配置中的供应商。
 - `agent-worker.ts`：领取 `agent_draft` 任务，实时保存受限工具轨迹，完成后进入人工审批。
@@ -24,6 +26,18 @@
 - `packages/core`：PGlite/PostgreSQL 共用迁移、Schema、租约、信封加密和批次可比性。
 
 旧 `consumer_surface` 证据仍可只读查看。新批次只创建 `llm_search_api` v2 证据；两种口径不会进入同一个冻结批次或趋势比较。每个新批次冻结端点、模型、协议、搜索策略、搜索工具和适配器版本，Capture Worker 只读取该冻结契约；缺少完整契约的历史基线不能用于新复测。
+
+## 工作台信息架构
+
+- 项目业务菜单包括项目总览、AI 监测、证据中心、官网审计、差距诊断、整改中心、业务归因和复测报告。
+- 管理员菜单将平台设置、机构成员和审计日志拆成三个独立视图；分析师与只读成员不显示这些入口。
+- 平台设置用本地真实品牌 Logo 的平台导航切换五个平台，每次只渲染当前平台表单；HRouter GPT 配置保持独立。
+- 桌面使用固定侧栏；390px 移动端使用可横向滚动的底部图标导航，避免菜单增加后压缩点击目标。
+- 总览和监测图表只渲染 API 返回的真实、可比批次数据；没有数据时显示空状态，不内置示例客户或指标。
+- AI 监测运行面板以批次状态、预期样本数和 `query_captures` 生成真实进度与采集日志；重新运行会创建实际批次，不使用前端动画伪造后台结果。
+- 复测报告先显示管理摘要、核心指标和整改前后对比，再进入证据、叙述与导出等详细内容。
+- 官网与工作台共用一个 Web 镜像但目录隔离：`/srv` 是官网，`/srv/app` 是 Vite 工作台产物。官网“进入工作台”只导航到 `/app/`。
+- 官网演示与工作台使用相同菜单顺序和浅色信息架构；官网数据仍显式标注为演示数据。演示菜单、运行操作、设置、成员与日志视图在窄屏下保持可滚动或单列操作。
 
 ## 核心流程
 

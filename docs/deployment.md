@@ -20,6 +20,13 @@ corepack pnpm geo start
 
 服务器使用 Ubuntu/Debian。域名必须解析到服务器，云安全组只开放 80/443；SSH 端口限制到管理来源。API、Worker 和 PostgreSQL 不映射主机端口。
 
+同一个 HTTPS 域名提供两个前端入口：
+
+- `https://<domain>/`：静态产品官网。
+- `https://<domain>/app/`：React 业务工作台；访问 `/app` 会重定向到带尾斜杠的地址。
+
+官网演示与业务工作台在 Web 镜像内使用不同目录。官网示意数据不访问 API 或数据库；业务工作台继续只显示真实项目数据。
+
 ### 本地生成闭源发布包
 
 发布包通过 SSH/SCP 私下传输，不依赖公开 Git 仓库，也不包含 Git 历史、`.env`、Secret、数据库、证据或备份。它包含构建服务器镜像所需的当前源码；服务器安装目录仅 root 可进入。
@@ -31,6 +38,8 @@ bash deploy/package.sh
 ```
 
 命令在 `dist/` 生成单文件 `geo-console-<版本>.run` 和对应的 SHA-256 文件。工作区干净时版本号使用 Git commit；包含未提交开发改动时会加入 `dev` 和 UTC 时间戳。
+
+打包器会把 Windows 工作树中的部署 shell 入口规范化为 LF，确保自解压安装器和 `geo-console` 管理命令可在 Linux 执行。
 
 上传到服务器：
 
@@ -58,6 +67,7 @@ sudo bash ./geo-console-<版本>.run \
 - 生成 owner-only 的 PostgreSQL 密码、32 字节 Base64 主密钥和管理员初始密码。
 - 顺序启动 PostgreSQL、API、Capture Worker、Agent Worker、Report Worker、Web 和 Caddy，避免首次迁移竞争。
 - 验证 HTTPS、服务健康和一次数据库/本地证据成对备份。
+- 验证根路径官网、`/app/` 登录入口以及两者之间的导航。
 
 默认备份目录为 `/var/backups/geo-console`，可用 `--backup-dir /安全路径` 指定。该目录仍应定期同步到另一台机器或私有对象存储。
 

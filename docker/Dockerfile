@@ -11,7 +11,8 @@ RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @geo/web build
 
 FROM caddy:2.10.2-alpine AS web
-COPY --from=build /app/apps/web/dist /srv
+COPY --from=build /app/apps/web/dist /srv/app
+COPY landing /srv
 COPY docker/caddy/Web.Caddyfile /etc/caddy/Caddyfile
 
 FROM build AS worker

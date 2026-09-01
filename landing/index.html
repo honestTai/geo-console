@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#101828">
+<title>ZZ Geo — AI 搜索可见度监测与优化平台</title>
+<meta name="description" content="ZZ Geo 监测品牌在 DeepSeek、Kimi、豆包、通义千问、元宝等 AI 回答中的可见度，提供不可篡改证据链、差距诊断、整改与同条件复测报告。">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23dcff5d'/><path d='M8 10h16v3l-9 9h9v3H8v-3l9-9H8z' fill='%23101828'/></svg>">
+</head>
+<body>
+
+<!-- ============ 导航 ============ -->
+<header class="nav" id="nav">
+  <div class="nav-inner">
+    <a class="brand" href="#top" aria-label="ZZ Geo 首页">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="30" height="30"><rect width="32" height="32" rx="9" fill="#dcff5d"/><path d="M8 10h16v3l-9 9h9v3H8v-3l9-9H8z" fill="#101828"/></svg>
+      </span>
+      <span class="brand-name">ZZ&nbsp;Geo</span>
+    </a>
+    <nav class="nav-links" id="navLinks">
+      <a href="#demo">产品演示</a>
+      <a href="#workflow">工作流程</a>
+      <a href="#platforms">平台覆盖</a>
+      <a href="#faq">常见问题</a>
+    </nav>
+    <a class="btn btn-primary btn-sm nav-cta" href="/app">进入工作台</a>
+    <button class="nav-burger" id="navBurger" aria-label="打开菜单" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</header>
+
+<!-- ============ Hero ============ -->
+<section class="hero" id="top">
+  <div class="container hero-inner">
+    <div class="hero-copy">
+      <span class="pill reveal">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        AI 搜索可见度监测与优化平台
+      </span>
+      <h1 class="hero-title" id="heroTitle"><span class="h1-line"><span>让品牌</span></span><span class="h1-line"><span>在 <em>AI 回答</em>里<span class="hero-keep">被看见</span></span></span></h1>
+      <p class="hero-sub reveal">当用户不再点开十条链接，而是直接询问 AI——你的品牌还在答案里吗？ZZ Geo 直连五大 AI 平台联网 API，真实采集回答原文，生成不可篡改证据链，诊断差距、跟进整改，并在完全相同条件下复测。</p>
+      <div class="hero-actions reveal">
+        <a class="btn btn-primary btn-lg" href="#demo">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
+          体验产品演示
+        </a>
+        <a class="btn btn-ghost btn-lg" href="#workflow">了解工作流程</a>
+      </div>
+      <dl class="hero-stats reveal">
+        <div class="stat">
+          <dt>AI 平台覆盖</dt>
+          <dd><span class="stat-num" data-count="5">0</span> 大</dd>
+        </div>
+        <div class="stat">
+          <dt>证据链</dt>
+          <dd><span class="stat-num" data-count="100">0</span>% 可复核</dd>
+        </div>
+        <div class="stat">
+          <dt>整改复测</dt>
+          <dd>同条件<span class="stat-num" data-count="0">0</span>漂移</dd>
+        </div>
+      </dl>
+    </div>
+    <div class="hero-visual reveal" aria-hidden="true">
+      <div class="hero-card glass">
+        <div class="hc-head">
+          <span class="hc-dot"></span><span class="hc-dot"></span><span class="hc-dot"></span>
+          <span class="hc-title">AI 回答 · 实时采集</span>
+        </div>
+        <div class="hc-body">
+          <p class="hc-q">“高端便携投影仪哪个牌子值得买？”</p>
+          <div class="hc-answer">
+            <div class="hc-line w90"></div>
+            <div class="hc-line w70 brand-line"></div>
+            <div class="hc-line w80"></div>
+            <div class="hc-line w45"></div>
+            <div class="hc-cite">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M10 14a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/></svg>
+              引用来源：brand-website.com/guide — 已存证
+            </div>
+          </div>
+          <div class="hc-badges">
+            <span>DeepSeek</span><span>Kimi</span><span>豆包</span><span>通义千问</span><span>元宝</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <a class="scroll-hint" href="#demo" aria-label="向下滚动">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v16m0 0l-6-6m6 6l6-6"/></svg>
+  </a>
+</section>
+
+<main>
+
+<!-- ============ 可交互产品演示 ============ -->
+<section class="section demo-section" id="demo">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="eyebrow">产品演示 · 内置后台交互体验</span>
+      <h2>不用注册，先上手试试</h2>
+      <p>下面是一个嵌入页面的高保真 ZZ Geo 工作台演示。切换左侧导航、点击「运行监测」，观察指标如何随一次完整采集被刷新。<span class="demo-tag">演示数据</span></p>
+    </div>
+
+    <div class="demo-shell reveal" id="demoShell">
+      <div class="ds-topbar">
+        <span class="hc-dot"></span><span class="hc-dot"></span><span class="hc-dot"></span>
+        <span class="ds-crumb">ZZ Geo 工作台 · 示例品牌「澄光投影」</span>
+        <span class="ds-live"><i></i>演示环境</span>
+      </div>
+      <div class="ds-body">
+        <!-- v2 侧边栏 -->
+        <aside class="ds-side">
+          <div class="ds-brand">
+            <span class="ds-brand-mark">Z</span>
+            <div class="ds-brand-text">
+              <strong>ZZ Geo</strong>
+              <span>真实 AI 可见度工作台</span>
+            </div>
+          </div>
+          <div class="ds-back">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            示例品牌「澄光投影」
+          </div>
+          <nav class="ds-nav">
+            <button class="ds-tab active" data-panel="overview">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+              项目总览
+            </button>
+            <button class="ds-tab" data-panel="monitor">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h3l2-6 4 12 2-6h7"/></svg>
+              AI监测
+            </button>
+            <button class="ds-tab" data-panel="evidence">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+              证据中心
+            </button>
+            <button class="ds-tab" data-panel="audit">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 4v5c0 4.4-3 8.4-7 9-4-.6-7-4.6-7-9V7z"/><path d="M9 12l2 2 4-5"/></svg>
+              官网审计
+            </button>
+            <button class="ds-tab" data-panel="diagnosis">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+              差距诊断
+            </button>
+            <button class="ds-tab" data-panel="remediation">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11"/></svg>
+              整改中心
+            </button>
+            <button class="ds-tab" data-panel="attribution">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M7 7.5l3.5 7M17 7.5l-3.5 7"/></svg>
+              业务归因
+            </button>
+            <button class="ds-tab" data-panel="report">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M9 13h6M9 17h6"/></svg>
+              复测报告
+            </button>
+            <button class="ds-tab" data-panel="settings">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1z"/></svg>
+              平台设置
+            </button>
+            <button class="ds-tab" data-panel="members">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg>
+              机构成员
+            </button>
+            <button class="ds-tab" data-panel="auditLogs">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/><path d="M12 7v5l3 2"/></svg>
+              审计日志
+            </button>
+          </nav>
+          <div class="ds-side-foot"><i></i>真实采集模式 · 演示数据</div>
+        </aside>
+
+        <!-- 面板区 -->
+        <div class="ds-main">
+          <header class="ds-app-topbar">
+            <div>
+              <span id="demoViewLabel">项目总览</span>
+              <strong>澄光投影</strong>
+            </div>
+            <div class="ds-app-account">
+              <span>brand-website.com</span>
+              <strong>演示管理员</strong>
+            </div>
+          </header>
+
+          <!-- 面板：总览 -->
+          <div class="ds-panel active" id="panel-overview">
+            <div class="ds-panel-head">
+              <span class="ds-eyebrow">项目总览</span>
+              <strong>澄光投影 · 可见度总览</strong>
+              <span class="ds-head-tag">演示数据</span>
+            </div>
+            <div class="ds-kpis">
+              <div class="kpi">
+                <span class="kpi-label">品牌提及率</span>
+                <span class="kpi-value"><span class="count" id="mMention">62.5</span><small>%</small></span>
+                <span class="kpi-chip" id="dMention">较基线 +4.2</span>
+              </div>
+              <div class="kpi">
+                <span class="kpi-label">首位推荐率</span>
+                <span class="kpi-value"><span class="count" id="mFirst">38.3</span><small>%</small></span>
+                <span class="kpi-chip" id="dFirst">较基线 +2.1</span>
+              </div>
+              <div class="kpi">
+                <span class="kpi-label">官网引用率</span>
+                <span class="kpi-value"><span class="count" id="mCite">45.8</span><small>%</small></span>
+                <span class="kpi-chip warn" id="dCite">较基线 −1.0</span>
+              </div>
+              <div class="kpi">
+                <span class="kpi-label">证据存证</span>
+                <span class="kpi-value"><span class="count" id="mEvidence">120</span><small>条</small></span>
+                <span class="kpi-chip flat">哈希存证 · 不可篡改</span>
+              </div>
+              <div class="kpi">
+                <span class="kpi-label">整改任务</span>
+                <span class="kpi-value"><span class="count" id="mTask">3</span><small>待审批</small></span>
+                <span class="kpi-chip" id="dTask">Pi Agent 草稿待审</span>
+              </div>
+            </div>
+            <div class="ds-card">
+              <div class="ds-card-head">
+                <strong>关键指标趋势</strong>
+                <span class="ds-legend">
+                  <i style="--c:#16a34a">品牌提及率</i>
+                  <i style="--c:#3b82f6">首位推荐率</i>
+                  <i style="--c:#f59e0b">官网引用率</i>
+                </span>
+              </div>
+              <div class="ds-chart" id="trendChart" aria-hidden="true"></div>
+            </div>
+            <div class="ds-card">
+              <div class="ds-card-head"><strong>平台覆盖（最新可比批次品牌提及率）</strong></div>
+              <div class="cov" id="covRows"></div>
+              <p class="ds-footnote">失败平台不进入品牌率分母；未开放来源的平台引用率记为不可用。以上为演示口径。</p>
+            </div>
+          </div>
+
+          <!-- 面板：AI监测 -->
+          <div class="ds-panel" id="panel-monitor">
+            <div class="ds-panel-head">
+              <span class="ds-eyebrow">AI监测</span>
+              <strong>五平台联网监测</strong>
+              <span class="ds-head-tag">演示数据</span>
+            </div>
+            <p class="ds-sub">快审每题 1 次；正式基线默认分三个时间窗口采样。失败平台不进入品牌率分母。</p>
+            <div class="ds-runbar">
+              <div class="ds-run-info">
+                <strong>监测任务</strong>
+                <span id="runStatus">上次运行：今天 09:30 · 120 条回答已采集</span>
+              </div>
+              <button class="ds-btn ds-btn-primary" id="runBtn">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
+                运行监测
+              </button>
+            </div>
+            <div class="ds-progress" id="runProgress" hidden>
+              <div class="ds-progress-track"><div class="ds-progress-fill" id="runProgressFill"></div></div>
+              <span class="ds-progress-text" id="runProgressText">正在连接 DeepSeek 联网 API…</span>
+              <div class="ds-log" id="runLog"></div>
+            </div>
+            <div class="ds-chips">
+              <span class="ds-chip sel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4 10-11"/></svg>DeepSeek 联网 API</span>
+              <span class="ds-chip sel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4 10-11"/></svg>Kimi 联网 API</span>
+              <span class="ds-chip sel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4 10-11"/></svg>豆包 · 火山方舟联网 API</span>
+              <span class="ds-chip sel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4 10-11"/></svg>通义千问 · DashScope 联网 API</span>
+              <span class="ds-chip sel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4 10-11"/></svg>元宝搜索源 + 混元合成</span>
+              <span class="ds-chip">每题 3 次</span>
+            </div>
+            <div class="ds-alert" id="driftAlert">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.6L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+              <div><strong>Kimi 联网 API 指标漂移</strong><br>brand_mention_rate 从 62.5% 降至 60.0%，关联 2 条证据。</div>
+              <button class="ds-alert-btn" id="alertDismiss">确认</button>
+            </div>
+            <div class="ds-usage">
+              <div class="usage"><strong>DeepSeek 联网 API</strong><span>30 次请求 · 54,880 Token</span><span>已知费用 $3.3264</span></div>
+              <div class="usage"><strong>Kimi 联网 API</strong><span>30 次请求 · 55,030 Token</span><span>已知费用 $4.1000</span></div>
+              <div class="usage"><strong>豆包 · 火山方舟联网 API</strong><span>30 次请求 · 55,200 Token</span><span>已知费用 $2.9856</span></div>
+              <div class="usage"><strong>通义千问 · DashScope 联网 API</strong><span>30 次请求 · 54,880 Token</span><span>已知费用 $2.7120</span></div>
+              <div class="usage"><strong>元宝搜索源 + 混元合成</strong><span>30 次请求 · 55,200 Token</span><span>供应商未返回完整费用</span></div>
+            </div>
+            <div class="ds-batches">
+              <button class="batch selected">
+                <span class="batch-name">同条件复测</span>
+                <span class="batch-time">2026-08-28 10:00</span>
+                <span class="badge complete">complete</span>
+              </button>
+              <button class="batch">
+                <span class="batch-name">正式基线</span>
+                <span class="batch-time">2026-08-18 10:00</span>
+                <span class="badge complete">complete</span>
+              </button>
+            </div>
+            <p class="ds-counts"><b>有效样本 144</b><b>失败样本 6</b><b>计划样本 150</b><b>条件 10题 × 5平台 × 3次</b></p>
+            <div class="ds-plat-grid">
+              <div class="plat">
+                <div class="plat-head"><strong>DeepSeek 联网 API</strong><span class="badge complete">30/30 有回答</span></div>
+                <div class="plat-rate"><b>65.0%</b><span>品牌提及率</span></div>
+                <div class="plat-metrics">
+                  <div class="pm"><span>首位推荐率</span><b>40.0%</b></div>
+                  <div class="pm"><span>官网引用率</span><b>48.3%</b></div>
+                  <div class="pm"><span>品牌声量份额</span><b>36.0%</b></div>
+                  <div class="pm"><span>重复一致性</span><b>72.0%</b></div>
+                  <div class="pm"><span>平均提及位置</span><b>2.3</b></div>
+                  <div class="pm"><span>回答覆盖率</span><b>100.0%</b></div>
+                </div>
+              </div>
+              <div class="plat">
+                <div class="plat-head"><strong>Kimi 联网 API</strong><span class="badge complete">28/30 有回答</span></div>
+                <div class="plat-rate"><b>60.0%</b><span>品牌提及率</span></div>
+                <div class="plat-metrics">
+                  <div class="pm"><span>首位推荐率</span><b>36.7%</b></div>
+                  <div class="pm"><span>官网引用率</span><b>45.0%</b></div>
+                  <div class="pm"><span>品牌声量份额</span><b>33.0%</b></div>
+                  <div class="pm"><span>重复一致性</span><b>68.0%</b></div>
+                  <div class="pm"><span>平均提及位置</span><b>2.9</b></div>
+                  <div class="pm"><span>回答覆盖率</span><b>93.3%</b></div>
+                </div>
+              </div>
+              <div class="plat">
+                <div class="plat-head"><strong>豆包 · 火山方舟联网 API</strong><span class="badge complete">30/30 有回答</span></div>
+                <div class="plat-rate"><b>63.3%</b><span>品牌提及率</span></div>
+                <div class="plat-metrics">
+                  <div class="pm"><span>首位推荐率</span><b>40.0%</b></div>
+                  <div class="pm"><span>官网引用率</span><b>48.3%</b></div>
+                  <div class="pm"><span>品牌声量份额</span><b>34.0%</b></div>
+                  <div class="pm"><span>重复一致性</span><b>70.0%</b></div>
+                  <div class="pm"><span>平均提及位置</span><b>2.6</b></div>
+                  <div class="pm"><span>回答覆盖率</span><b>100.0%</b></div>
+                </div>
+              </div>
+              <div class="plat">
+                <div class="plat-head"><strong>通义千问 · DashScope 联网 API</strong><span class="badge complete">27/30 有回答</span></div>
+                <div class="plat-rate"><b>56.7%</b><span>品牌提及率</span></div>
+                <div class="plat-metrics">
+                  <div class="pm"><span>首位推荐率</span><b>33.3%</b></div>
+                  <div class="pm"><span>官网引用率</span><b>41.7%</b></div>
+                  <div class="pm"><span>品牌声量份额</span><b>29.0%</b></div>
+                  <div class="pm"><span>重复一致性</span><b>63.0%</b></div>
+                  <div class="pm"><span>平均提及位置</span><b>3.4</b></div>
+                  <div class="pm"><span>回答覆盖率</span><b>90.0%</b></div>
+                </div>
+              </div>
+              <div class="plat">
+                <div class="plat-head"><strong>元宝搜索源 + 混元合成</strong><span class="badge complete">29/30 有回答</span></div>
+                <div class="plat-rate"><b>61.7%</b><span>品牌提及率</span></div>
+                <div class="plat-metrics">
+                  <div class="pm"><span>首位推荐率</span><b>36.7%</b></div>
+                  <div class="pm"><span>官网引用率</span><b>46.7%</b></div>
+                  <div class="pm"><span>品牌声量份额</span><b>32.0%</b></div>
+                  <div class="pm"><span>重复一致性</span><b>69.0%</b></div>
+                  <div class="pm"><span>平均提及位置</span><b>2.7</b></div>
+                  <div class="pm"><span>回答覆盖率</span><b>96.7%</b></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 面板：证据中心 -->
+          <div class="ds-panel" id="panel-evidence">
+            <div class="ds-panel-head">
+              <span class="ds-eyebrow">证据中心</span>
+              <strong>回答原文存证</strong>
+              <span class="ds-head-tag">演示数据</span>
+            </div>
+            <div class="ds-chips ev-filter" id="evFilter">
+              <button class="ds-chip sel" data-ev-filter="all">全部</button>
+              <button class="ds-chip" data-ev-filter="DeepSeek">DeepSeek</button>
+              <button class="ds-chip" data-ev-filter="Kimi">Kimi</button>
+              <button class="ds-chip" data-ev-filter="豆包">豆包</button>
+              <button class="ds-chip" data-ev-filter="通义千问">通义千问</button>
+              <button class="ds-chip" data-ev-filter="元宝">元宝</button>
+            </div>
+            <div class="ds-evidence-grid">
+              <button class="evidence-card selected" data-ev="0">
+                <span class="ev-platform">Kimi</span>
+                <strong>“高端便携投影仪推荐”</strong>
+                <span class="ev-meta">提及 · 引用官网 · 今天 09:31</span>
+              </button>
+              <button class="evidence-card" data-ev="1">
+                <span class="ev-platform">通义千问</span>
+                <strong>“家用投影仪哪个牌子好”</strong>
+                <span class="ev-meta">未提及 · 今天 09:33</span>
+              </button>
+              <button class="evidence-card" data-ev="2">
+                <span class="ev-platform">元宝</span>
+                <strong>“投影仪选购避坑指南”</strong>
+                <span class="ev-meta">首位推荐 · 今天 09:36</span>
+              </button>
+              <button class="evidence-card" data-ev="3">
+                <span class="ev-platform">DeepSeek</span>
+                <strong>“高端便携投影仪推荐”</strong>
+                <span class="ev-meta">提及 · 引用官网 · 今天 09:32</span>
+              </button>
+              <button class="evidence-card" data-ev="4">
+                <span class="ev-platform">豆包</span>
+                <strong>“预算五千投影仪怎么选”</strong>
+                <span class="ev-meta">首位推荐 · 今天 09:35</span>
+              </button>
+            </div>
+            <div class="evidence-detail" id="evidenceDetail">
+              <div class="ed-head">
+                <span class="ev-platform" id="edPlatform">Kimi</span>
+                <div>
+                  <strong id="edQuery">“高端便携投影仪推荐”</strong>
+                  <span class="ed-time" id="edTime">采集于 2026-09-01 09:31:07 · 联网 API 直采</span>
+                </div>
+                <span class="ed-hash" title="证据哈希，用于校验完整性">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-5"/><path d="M12 3l7 4v5c0 4.4-3 8.4-7 9-4-.6-7-4.6-7-9V7z"/></svg>
+                  <code id="edHash">a3f9…c21d</code>
+                </span>
+              </div>
+              <blockquote class="ed-quote" id="edQuote">
+                高端便携场景下，澄光投影 X2 系列兼顾亮度与体积，是常被提到的选择之一；其官网选购指南对参数解释较为完整……
+              </blockquote>
+              <div class="ed-foot">
+                <span class="ed-status" id="edStatus">结论：品牌被提及，且引用了官网页面 brand-website.com/guide</span>
+                <span class="ed-tags" id="edTags">提及 ✓ · 引用官网 ✓ · 截图 + 原文 + 哈希已存证</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 面板：差距诊断 -->
+          <div class="ds-panel" id="panel-diagnosis">
+            <div class="ds-panel-head">
+              <span class="ds-eyebrow">差距诊断</span>
+              <strong>证据定位的可整改差距</strong>
+              <span class="ds-head-tag">演示数据</span>
+            </div>
+            <ul class="gap-list">
+              <li class="gap-item">
+                <span class="gap-level high">高</span>
+                <div>
+                  <strong>通义千问在“家用投影仪”问法下完全未提及品牌</strong>
+                  <p>该问法与品牌核心品类直接相关，属于高价值流量入口。建议补充该场景下的权威内容并在官网发布。</p>
+                </div>
+                <span class="gap-suggest">整改建议：官网发布选购对比长文，覆盖该问法语义</span>
+              </li>
+              <li class="gap-item">
+                <span class="gap-level mid">中</span>
+                <div>
+                  <strong>4 个平台提及但未引用官网，回答引用第三方评测站</strong>
+                  <p>品牌被提到但流量被分走。AI 更倾向引用结构清晰、参数明确的页面。</p>
+                </div>
+                <span class="gap-suggest">整改建议：为产品参数页补充对比表格与 FAQ 结构化内容</span>
+              </li>
+              <li class="gap-item">
+                <span class="gap-level low">低</span>
+                <div>
+                  <strong>各平台对品牌定位描述口径不一致</strong>
+                  <p>通义千问将品牌描述为“入门性价比”，与官网高端定位冲突，可能误导用户决策。</p>
+                </div>
+                <span class="gap-suggest">整改建议：统一权威页面中的品牌定位表述，增加媒体一致性引用</span>
+              </li>
+            </ul>
+          </div>
+
+          <!-- 面板：整改中心 -->
+          <div class="ds-panel" id="panel-remediation">
+            <div class="ds-panel-head">
+              <span class="ds-eyebrow">整改中心</span>
+              <strong>证据驱动的待审批任务</strong>
+              <span class="ds-head-tag">演示数据</span>
+            </div>
+            <p class="ds-sub">Pi Agent 只生成草稿；每项任务都要由负责人核对证据、验收标准和发布地址后批准。</p>
+            <div class="remediation-list">
+              <article class="remediation-item">
+                <div>
+                  <span class="task-priority high">高优先级</span>
+                  <strong>补齐“家用投影仪推荐”场景的选购对比页</strong>
+                  <p>覆盖亮度、噪音和预算问法，并加入可被 AI 搜索理解的 FAQ 与参数表。</p>
+                  <small>目标：官网引用率提升 · 关联 8 条证据</small>
+                </div>
+                <span class="task-demo-status" data-task-status>待审批</span>
+                <button class="ds-btn ds-btn-secondary" data-task-action>批准草稿</button>
+              </article>
+              <article class="remediation-item">
+                <div>
+                  <span class="task-priority mid">中优先级</span>
+                  <strong>统一品牌“高端便携”定位的权威表述</strong>
+                  <p>在官网主体介绍、产品页和媒体资料中保持一致，并补充可验证的数据出处。</p>
+                  <small>目标：品牌定位冲突减少 · 关联 5 条证据</small>
+                </div>
+                <span class="task-demo-status" data-task-status>待审批</span>
+                <button class="ds-btn ds-btn-secondary" data-task-action>批准草稿</button>
+              </article>
+              <article class="remediation-item">
+                <div>
+                  <span class="task-priority low">常规</span>
+                  <strong>为实测内容补充 Product 与 FAQ 结构化数据</strong>
+                  <p>保留原页面正文，只增强实体、参数和常见问题的机器可读表达。</p>
+                  <small>目标：官网审计通过 · 关联 3 条证据</small>
+                </div>
+                <span class="task-demo-status" data-task-status>待审批</span>
+                <button class="ds-btn ds-btn-secondary" data-task-action>批准草稿</button>
+              </article>
+            </div>
+          </div>
+
+          <!-- 面板：官网审计 -->
+          <div class="ds-panel" id="panel-audit">
+            <div class="ds-panel-head">
+              <span class="ds-eyebrow">官网审计</span>
+              <strong>公开页面的 AI 可读性检查</strong>
+              <span class="ds-head-tag">演示数据</span>
+            </div>
+            <div class="audit-demo-overview ds-card">
+              <div class="audit-demo-score" aria-live="polite">
+                <b id="auditScore">86</b>
+                <span>/ 100</span>
+              </div>
+              <div>
+                <strong>可进入监测，仍有 2 项建议</strong>
+                <p id="auditTime">最近审计：今天 09:18 · 12 项检查</p>
+              </div>
+              <button class="ds-btn ds-btn-secondary" id="auditRun">重新审计</button>
+            </div>
+            <div class="audit-demo-grid">
+              <article class="audit-demo-item pass"><span>通过</span><strong>HTTPS 与公开访问</strong><p>首页可访问，证书和跳转正常。</p></article>
+              <article class="audit-demo-item pass"><span>通过</span><strong>Sitemap 与 Canonical</strong><p>发现 42 个 URL，主页面声明一致。</p></article>
+              <article class="audit-demo-item pass"><span>通过</span><strong>品牌实体一致性</strong><p>首页和产品页均匹配已确认品牌名称。</p></article>
+              <article class="audit-demo-item warning"><span>建议</span><strong>FAQ 结构化数据</strong><p>正文存在问答，但尚未声明 FAQPage。</p></article>
+              <article class="audit-demo-item warning"><span>建议</span><strong>llms.txt</strong><p>未发现该文件，不影响抓取但可补充内容索引。</p></article>
+              <article class="audit-demo-item pass"><span>通过</span><strong>AI 搜索机器人权限</strong><p>未发现已知机器人被全站阻止。</p></article>
+            </div>
+          </div>
+
+          <!-- 面板：业务归因 -->
+          <div class="ds-panel" id="panel-attribution">
+            <div class="ds-panel-head">
+              <span class="ds-eyebrow">业务归因</span>
+              <strong>业务数据与 GEO 指标并列观察</strong>
+              <span class="ds-head-tag">演示数据</span>
+            </div>
+            <p class="ds-sub">导入 GA4、GSC、表单、电话或业务台账；系统防重复计数，但不自动声称因果。</p>
+            <div class="ds-kpis attribution-demo-kpis">
+              <div class="kpi"><span class="kpi-label">自然搜索点击</span><span class="kpi-value">2,480</span><span class="kpi-chip">最近 30 天</span></div>
+              <div class="kpi"><span class="kpi-label">有效线索</span><span class="kpi-value">86</span><span class="kpi-chip">表单 + 电话</span></div>
+              <div class="kpi"><span class="kpi-label">GEO 落地页会话</span><span class="kpi-value">612</span><span class="kpi-chip">并列观察</span></div>
+            </div>
+            <div class="ds-card attribution-demo-table">
+              <div><strong>2026-08-28</strong><span>GSC · organic_clicks</span><b>184</b></div>
+              <div><strong>2026-08-28</strong><span>GA4 · sessions</span><b>392</b></div>
+              <div><strong>2026-08-28</strong><span>form · qualified_leads</span><b>12</b></div>
+            </div>
+          </div>
+
+          <!-- 面板：平台设置 -->
+          <div class="ds-panel" id="panel-settings">
+            <div class="ds-panel-head">
+              <span class="ds-eyebrow">平台设置</span>
+              <strong>平台与 GPT 设置</strong>
+              <span class="ds-head-tag">演示数据</span>
+            </div>
+            <div class="settings-demo-tabs">
+              <button class="active"><img src="assets/logos/deepseek.svg" alt="">DeepSeek</button>
+              <button><img src="assets/logos/kimi.png" alt="">Kimi</button>
+              <button><img src="assets/logos/volcengine.png" alt="">豆包</button>
+              <button><img src="assets/logos/qwen.svg" alt="">通义千问</button>
+              <button><img src="assets/logos/yuanbao.png" alt="">元宝+混元</button>
+            </div>
+            <div class="ds-card settings-demo-panel">
+              <div class="settings-demo-head">
+                <img src="assets/logos/deepseek.svg" alt="">
+                <div><strong>DeepSeek 联网 API</strong><span>已启用 · 密钥已配置</span></div>
+              </div>
+              <div class="settings-demo-fields">
+                <label>模型<strong>deepseek-v4-flash</strong></label>
+                <label>API 地址<strong>https://api.deepseek.com/v1</strong></label>
+                <label>搜索工具<strong>web_search</strong></label>
+              </div>
+            </div>
+          </div>
+
+          <!-- 面板：机构成员 -->
+          <div class="ds-panel" id="panel-members">
+            <div class="ds-panel-head">
+              <span class="ds-eyebrow">机构成员</span>
+              <strong>角色与访问状态</strong>
+              <span class="ds-head-tag">演示数据</span>
+            </div>
+            <div class="member-demo-list">
+              <article><span class="member-avatar">管</span><div><strong>系统管理员</strong><small>admin@example.com · admin</small></div><b>有效</b></article>
+              <article><span class="member-avatar">分</span><div><strong>分析师</strong><small>analyst@example.com · analyst</small></div><b>有效</b></article>
+              <article><span class="member-avatar">读</span><div><strong>客户只读</strong><small>viewer@example.com · viewer</small></div><b>有效</b></article>
+            </div>
+          </div>
+
+          <!-- 面板：审计日志 -->
+          <div class="ds-panel" id="panel-auditLogs">
+            <div class="ds-panel-head">
+              <span class="ds-eyebrow">审计日志</span>
+              <strong>写操作与审批记录</strong>
+              <span class="ds-head-tag">演示数据</span>
+            </div>
+            <div class="audit-log-demo">
+              <article><time>今天 15:42</time><strong>agent.approve</strong><span>admin@example.com · report_narrative</span></article>
+              <article><time>今天 15:31</time><strong>batch.create</strong><span>analyst@example.com · retest</span></article>
+              <article><time>今天 14:08</time><strong>settings.update</strong><span>admin@example.com · deepseek_api</span></article>
+            </div>
+          </div>
+
+          <!-- 面板：复测报告 -->
+          <div class="ds-panel" id="panel-report">
+            <div class="ds-panel-head">
+              <span class="ds-eyebrow">管理层摘要</span>
+              <strong>复测确认品牌可见度提升，引用结构仍是主要短板</strong>
+              <span class="ds-head-tag">演示数据</span>
+            </div>
+            <p class="ds-sub">在与基线完全一致的配置下，品牌提及率由 58.3% 提升至 62.5%，首位推荐率由 36.2% 提升至 38.3%，官网引用率保持 45.8%。五个平台全部完成采样，失败样本由 9 个降至 6 个。</p>
+            <div class="ds-darkstrip">
+              <div class="dm"><span>品牌提及率</span><b>62.5%</b></div>
+              <div class="dm"><span>首位推荐率</span><b>38.3%</b></div>
+              <div class="dm"><span>官网引用率</span><b>45.8%</b></div>
+              <div class="dm"><span>平均提及位置</span><b>2.8</b></div>
+              <div class="dm"><span>有效样本</span><b>144/150</b></div>
+            </div>
+            <div class="report-card ds-card">
+              <div class="report-head">
+                <div>
+                  <strong>01 整改前后对比</strong>
+                  <span>与基线使用完全相同的问法、平台与采样条件</span>
+                </div>
+                <button class="ds-btn ds-btn-secondary" id="pdfBtn">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 21h16"/></svg>
+                  导出 PDF
+                </button>
+              </div>
+              <div class="report-rows">
+                <div class="report-row">
+                  <span>品牌提及率</span>
+                  <div class="bar-pair">
+                    <div class="bar before" style="--w:58.3%"><i>整改前 58.3%</i></div>
+                    <div class="bar after" style="--w:62.5%"><i>复测 62.5%</i></div>
+                  </div>
+                </div>
+                <div class="report-row">
+                  <span>首位推荐率</span>
+                  <div class="bar-pair">
+                    <div class="bar before" style="--w:36.2%"><i>整改前 36.2%</i></div>
+                    <div class="bar after" style="--w:38.3%"><i>复测 38.3%</i></div>
+                  </div>
+                </div>
+                <div class="report-row">
+                  <span>官网引用率</span>
+                  <div class="bar-pair">
+                    <div class="bar before" style="--w:46.8%"><i>整改前 46.8%</i></div>
+                    <div class="bar after" style="--w:45.8%"><i>复测 45.8%</i></div>
+                  </div>
+                </div>
+              </div>
+              <p class="report-note">本报告由 ZZ Geo 自动生成，附完整证据链编号与哈希，支持逐条回溯复核。指标口径在基线与复测之间保持一致。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 痛点 ============ -->
+<section class="section pain-section">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="eyebrow">为什么需要 GEO</span>
+      <h2>传统 SEO 工具，看不到 AI 回答</h2>
+      <p>排名、收录、外链——这些指标都属于“搜索十条蓝色链接”的时代。当入口变成一段 AI 生成的回答，旧仪表盘集体失明。</p>
+    </div>
+    <div class="pain-grid">
+      <article class="pain-card reveal">
+        <div class="pain-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><line x1="4" y1="4" x2="20" y2="20"/></svg>
+        </div>
+        <h3>看不见的回答</h3>
+        <p>用户问 AI“哪个牌子好”时，你的品牌被提到了吗？被第几个提到？引用了谁的网页？传统工具对此一无所知。</p>
+      </article>
+      <article class="pain-card reveal">
+        <div class="pain-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        </div>
+        <h3>说不清的结论</h3>
+        <p>“感觉 AI 上没什么声量”无法推动任何决策。没有原始回答、没有时间戳、没有可复核的证据，汇报只能靠截图拼贴。</p>
+      </article>
+      <article class="pain-card reveal">
+        <div class="pain-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+        </div>
+        <h3>验不了的整改</h3>
+        <p>改了内容、发了稿件，AI 的回答真的变了吗？换个问法、换个时间再测一次，结果没法和之前比——条件都不一样。</p>
+      </article>
+      <article class="pain-card reveal">
+        <div class="pain-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 4v5c0 4.4-3 8.4-7 9-4-.6-7-4.6-7-9V7z"/><path d="M9 12l2 2 4-5"/></svg>
+        </div>
+        <h3>信不过的二手数据</h3>
+        <p>爬虫采样、模拟提问、人工抽查——每一种都有偏差。ZZ Geo 直连平台联网 API 真实采集，证据原文留档，可回溯校验。</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 工作流程 ============ -->
+<section class="section workflow-section" id="workflow">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="eyebrow">工作流程</span>
+      <h2>五步闭环，从基线到复测</h2>
+      <p>每一条指标都能回答三个问题：证据在哪、谁负责整改、整改有没有用。</p>
+    </div>
+    <ol class="steps">
+      <svg class="steps-path" viewBox="0 0 1000 68" preserveAspectRatio="none" aria-hidden="true">
+        <path class="steps-line" d="M 100 40 C 220 12, 300 60, 400 38 S 580 14, 660 38 S 840 58, 900 36" fill="none" stroke="#16a34a" stroke-opacity=".45" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      <li class="step reveal">
+        <span class="step-no">01</span>
+        <h3>建立基线</h3>
+        <p>确定监测问法、平台与采样条件，作为之后所有对比的唯一基准。</p>
+      </li>
+      <li class="step reveal">
+        <span class="step-no">02</span>
+        <h3>真实采集</h3>
+        <p>直连五大 AI 平台联网 API 提问，留存回答原文、截图与哈希。</p>
+      </li>
+      <li class="step reveal">
+        <span class="step-no">03</span>
+        <h3>证据诊断</h3>
+        <p>从证据出发定位差距：未提及、被竞品占位、引用他站、口径冲突。</p>
+      </li>
+      <li class="step reveal">
+        <span class="step-no">04</span>
+        <h3>整改发布</h3>
+        <p>按诊断建议优化官网内容与结构，动作与证据一一对应。</p>
+      </li>
+      <li class="step reveal">
+        <span class="step-no">05</span>
+        <h3>同条件复测</h3>
+        <p>用与基线完全相同的条件重新采集，指标变化真实可信，输出报告。</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<!-- ============ 数据对比 ============ -->
+<section class="section compare-section">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="eyebrow">监测价值</span>
+      <h2>同样的监测，不一样的确定性</h2>
+      <p>以下为示例口径说明：左列为无固定条件的人工抽查式监测，右列为 ZZ Geo 基线 + 同条件复测。数值为示意，不代表任何客户承诺。</p>
+    </div>
+    <div class="compare-grid reveal" id="compareChart">
+      <div class="cmp-group">
+        <h3>结果可复现率</h3>
+        <div class="cmp-bars">
+          <div class="cmp-bar">
+            <span class="cmp-val" data-count="30" data-prefix="约 ">约 30%</span>
+            <div class="cmp-track"><div class="cmp-fill old" style="--w:30%"></div></div>
+            <span class="cmp-label">人工抽查 · 条件随漂移</span>
+          </div>
+          <div class="cmp-bar">
+            <span class="cmp-val" data-count="100">100%</span>
+            <div class="cmp-track"><div class="cmp-fill new" style="--w:100%"></div></div>
+            <span class="cmp-label">ZZ Geo · 同条件复测</span>
+          </div>
+        </div>
+      </div>
+      <div class="cmp-group">
+        <h3>证据可回溯率</h3>
+        <div class="cmp-bars">
+          <div class="cmp-bar">
+            <span class="cmp-val">零散截图</span>
+            <div class="cmp-track"><div class="cmp-fill old" style="--w:20%"></div></div>
+            <span class="cmp-label">口头汇报 · 无留档</span>
+          </div>
+          <div class="cmp-bar">
+            <span class="cmp-val">逐条存证</span>
+            <div class="cmp-track"><div class="cmp-fill new" style="--w:100%"></div></div>
+            <span class="cmp-label">ZZ Geo · 原文+哈希留档</span>
+          </div>
+        </div>
+      </div>
+      <div class="cmp-group">
+        <h3>整改归因清晰度</h3>
+        <div class="cmp-bars">
+          <div class="cmp-bar">
+            <span class="cmp-val">说不清</span>
+            <div class="cmp-track"><div class="cmp-fill old" style="--w:25%"></div></div>
+            <span class="cmp-label">改了也不知道有没有用</span>
+          </div>
+          <div class="cmp-bar">
+            <span class="cmp-val">可量化</span>
+            <div class="cmp-track"><div class="cmp-fill new" style="--w:100%"></div></div>
+            <span class="cmp-label">ZZ Geo · 前后同口径对比</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 平台覆盖 ============ -->
+<section class="section platforms-section" id="platforms">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="eyebrow">平台覆盖</span>
+      <h2>直连五大 AI 平台联网 API</h2>
+      <p>不走爬虫、不做模拟，全部通过平台官方联网检索能力真实采集，证据经得起复核。</p>
+    </div>
+    <div class="marquee reveal" id="platformMarquee">
+      <div class="marquee-track">
+        <div class="platform-card">
+          <img class="pl-logo" src="assets/logos/deepseek.svg" alt="DeepSeek" width="44" height="44">
+          <h3>DeepSeek</h3>
+          <p>深度思考 + 联网检索回答直采</p>
+        </div>
+        <div class="platform-card">
+          <img class="pl-logo" src="assets/logos/kimi.png" alt="Kimi" width="44" height="44">
+          <h3>Kimi</h3>
+          <p>联网搜索回答原文留存</p>
+        </div>
+        <div class="platform-card">
+          <img class="pl-logo" src="assets/logos/volcengine.png" alt="豆包 · 火山方舟" width="44" height="44">
+          <h3>豆包 · 火山方舟</h3>
+          <p>企业级接入，回答稳定可复现</p>
+        </div>
+        <div class="platform-card">
+          <img class="pl-logo" src="assets/logos/qwen.svg" alt="通义千问" width="44" height="44">
+          <h3>通义千问</h3>
+          <p>联网版回答逐条存证</p>
+        </div>
+        <div class="platform-card">
+          <img class="pl-logo" src="assets/logos/yuanbao.png" alt="元宝" width="44" height="44">
+          <h3>元宝搜索源 + 混元合成</h3>
+          <p>以元宝搜索源结果与混元合成回答为监测口径</p>
+        </div>
+        <div class="platform-card" aria-hidden="true">
+          <img class="pl-logo" src="assets/logos/deepseek.svg" alt="" width="44" height="44">
+          <h3>DeepSeek</h3>
+          <p>深度思考 + 联网检索回答直采</p>
+        </div>
+        <div class="platform-card" aria-hidden="true">
+          <img class="pl-logo" src="assets/logos/kimi.png" alt="" width="44" height="44">
+          <h3>Kimi</h3>
+          <p>联网搜索回答原文留存</p>
+        </div>
+        <div class="platform-card" aria-hidden="true">
+          <img class="pl-logo" src="assets/logos/volcengine.png" alt="" width="44" height="44">
+          <h3>豆包 · 火山方舟</h3>
+          <p>企业级接入，回答稳定可复现</p>
+        </div>
+        <div class="platform-card" aria-hidden="true">
+          <img class="pl-logo" src="assets/logos/qwen.svg" alt="" width="44" height="44">
+          <h3>通义千问</h3>
+          <p>联网版回答逐条存证</p>
+        </div>
+        <div class="platform-card" aria-hidden="true">
+          <img class="pl-logo" src="assets/logos/yuanbao.png" alt="" width="44" height="44">
+          <h3>元宝搜索源 + 混元合成</h3>
+          <p>以元宝搜索源结果与混元合成回答为监测口径</p>
+        </div>
+      </div>
+    </div>
+    <p class="platform-note reveal">披露口径：元宝渠道按「元宝搜索源 + 混元合成」整体监测，不代表元宝 App 内全部交互场景。</p>
+  </div>
+</section>
+
+<!-- ============ FAQ ============ -->
+<section class="section faq-section" id="faq">
+  <div class="container container-narrow">
+    <div class="section-head reveal">
+      <span class="eyebrow">常见问题</span>
+      <h2>你可能想问</h2>
+    </div>
+    <div class="faq-list reveal">
+      <details class="faq-item">
+        <summary>GEO 和传统 SEO 是什么关系？<span class="faq-arrow"></span></summary>
+        <div class="faq-body"><p>互补关系。SEO 优化的是搜索结果页排名，GEO 优化的是 AI 生成的回答内容——品牌是否被提及、是否被首先推荐、AI 引用了哪个网页。两者的共同点是都需要高质量官网内容，但衡量方式和优化动作完全不同。</p></div>
+      </details>
+      <details class="faq-item">
+        <summary>监测数据是怎么采集的？真实吗？<span class="faq-arrow"></span></summary>
+        <div class="faq-body"><p>ZZ Geo 直连 DeepSeek、Kimi、豆包（火山方舟）、通义千问的联网 API，以及元宝搜索源 + 混元合成渠道进行真实提问采集。每次采集留存回答原文、截图、时间与哈希，任何一条结论都可以下钻到原始证据复核。</p></div>
+      </details>
+      <details class="faq-item">
+        <summary>什么是「同条件复测」？为什么重要？<span class="faq-arrow"></span></summary>
+        <div class="faq-body"><p>AI 回答本身有随机性，换个问法、换个时间结果就会变。同条件复测指复测时使用与基线完全相同的问法、平台和采样配置，这样整改前后的指标差异才能归因到整改动作本身，而不是采样条件变化。</p></div>
+      </details>
+      <details class="faq-item">
+        <summary>证据「不可篡改」是什么意思？<span class="faq-arrow"></span></summary>
+        <div class="faq-body"><p>每条采集证据在入库时计算内容哈希并留档，用于校验证据在保存期间是否被改动。原始证据只追加、不修改，需要修正时通过重新解析生成新的派生数据，保证证据链完整可信。</p></div>
+      </details>
+      <details class="faq-item">
+        <summary>能保证我的品牌排进 AI 回答第一吗？<span class="faq-arrow"></span></summary>
+        <div class="faq-body"><p>不能，也没有任何工具能诚实承诺这一点。AI 回答由模型自主生成。ZZ Geo 做的是把「品牌现在的可见度」测准、把「差距在哪」诊断清、把「整改有没有用」用同条件复测验证明白——决策依据交给你，结论由数据说话。</p></div>
+      </details>
+      <details class="faq-item">
+        <summary>报告可以导出或分享吗？<span class="faq-arrow"></span></summary>
+        <div class="faq-body"><p>可以。复测报告支持导出 PDF，包含指标对比、整改动作与证据链编号，可直接用于内部汇报或对齐外部合作方。</p></div>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 最终 CTA ============ -->
+<section class="section cta-section">
+  <div class="container">
+    <div class="cta-card reveal">
+      <h2>你的品牌，此刻在 AI 回答里是什么位置？</h2>
+      <p>建立第一条基线，只需要一批问法和一次采集。</p>
+      <div class="cta-actions">
+        <a class="btn btn-light btn-lg" href="/app">进入工作台</a>
+        <a class="btn btn-outline-light btn-lg" href="#demo">再看一遍演示</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="container footer-inner">
+    <div class="footer-brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="24" height="24"><rect width="32" height="32" rx="9" fill="#dcff5d"/><path d="M8 10h16v3l-9 9h9v3H8v-3l9-9H8z" fill="#101828"/></svg>
+      </span>
+      <div>
+        <strong>ZZ Geo</strong>
+        <p>AI 搜索可见度监测与优化平台</p>
+      </div>
+    </div>
+    <nav class="footer-links">
+      <a href="#demo">产品演示</a>
+      <a href="#workflow">工作流程</a>
+      <a href="#platforms">平台覆盖</a>
+      <a href="#faq">常见问题</a>
+      <a href="/app">进入工作台</a>
+    </nav>
+  </div>
+  <div class="container footer-base">
+    <span>© ZZ Geo</span>
+    <span>本页面演示数据均为示意，不构成任何排名或效果承诺。</span>
+  </div>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

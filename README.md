@@ -21,7 +21,7 @@ corepack pnpm geo setup
 corepack pnpm geo start
 ```
 
-打开 <http://127.0.0.1:3000>。本机无用户时使用仅限开发环境的管理员旁路；所有供应商与 HRouter Key 都在“平台设置”中配置，并由 macOS 钥匙串中的主密钥信封加密。生成 PDF 需要 Chromium：
+打开工作台 <http://127.0.0.1:3000/app/>。本机无用户时使用仅限开发环境的管理员旁路；所有供应商与 HRouter Key 都在“平台设置”中配置，并由 macOS 钥匙串中的主密钥信封加密。生成 PDF 需要 Chromium：
 
 ```bash
 corepack pnpm --filter @geo/worker exec playwright install chromium

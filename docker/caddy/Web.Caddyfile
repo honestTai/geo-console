@@ -1,6 +1,15 @@
 :80 {
 	root * /srv
 	encode zstd gzip
-	try_files {path} /index.html
-	file_server
+	@appExact path /app
+	redir @appExact /app/ 308
+	handle_path /app/* {
+		root * /srv/app
+		try_files {path} /index.html
+		file_server
+	}
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
 }
