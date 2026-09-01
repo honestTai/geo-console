@@ -1,0 +1,2 @@
+deploy/*.sh text eol=lf
+deploy/geo-console text eol=lf
