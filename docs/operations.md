@@ -29,7 +29,7 @@ Log Service 仅绑定本机 `127.0.0.1:3020` 或 Compose 内网 `log-service:302
 
 本机 PGlite 模式由 API 进程组合执行 Capture/Agent/Report，Log Service 使用独立 `${GEO_DATA_DIR}/log-service/database`；不要手工再启动三个 Worker 指向同一 PGlite。`pnpm geo backup` 会在停服后同时复制业务 PGlite、日志 PGlite 和 artifacts。
 
-工作台“运行日志”只对管理员开放，支持机构范围内检索、分页、CSV 与保留清理；超管可同时查看 system logs。默认自动删除 90 天前 `service_logs`。手工清理必须核对活动机构和天数，清理动作写 `audit_logs` 与 `logs.retention_pruned`，但不会删除 `query_captures`、raw、网页、报告或业务审计。
+工作台“运行日志”由 `page.service_logs` 控制，CSV 与保留清理由独立功能权限控制；超管可同时查看 system logs。查询使用游标逐页替换，不在浏览器或桌面端累积全部日志。默认自动删除 90 天前 `service_logs`。手工清理必须核对活动机构和天数，清理动作写 `audit_logs` 与 `logs.retention_pruned`，但不会删除 `query_captures`、raw、网页、报告或业务审计。
 
 排查顺序：先检查 `/health`、数据库、`log_service_token` 文件权限与 API 的 `logService.status`，再看 `docker compose logs log-service`。不要通过公开映射 3020 绕过 API RBAC。
 
@@ -53,7 +53,19 @@ Agent 请求只创建 `agent_draft` 数据库任务并立即返回。Agent Worke
 
 ## 多租户与权限
 
-普通成员只能访问其机构数据；系统超管通过活动机构 Cookie 显式切换。遇到“资源不存在”时同时核对用户 home organization、活动 organization 和资源 `organization_id`，不要通过改数据库归属来绕过。Provider/HRouter 凭据也按机构隔离；环境变量 Key 只对默认机构提供引导 fallback。
+权限排查按机构授权上限 -> `roles/role_permissions` -> `user_roles` -> `users.all_projects/user_project_access` 顺序进行。页面导航来自 `permissions`，API 来自 `permission_routes`；未登记路由默认 403。历史 `users.role` 不再决定授权，不要通过修改该字段修权限。
+
+系统只能有一个超管。超管通过活动机构 Cookie 显式切换后，项目、证据、报告和 Artifact 仍必须属于该活动机构；普通成员还要命中自己的客户范围。遇到 404 时同时核对 home organization、活动 organization、资源 `organization_id/project_id` 和用户客户范围，不要改数据库归属绕过。
+
+封禁机构会设置 `organizations.suspended_at/reason` 并撤销该机构所有非超管会话。解封不会恢复旧会话，用户必须重新登录。误封恢复时先由唯一超管解封，再验证机构授权、用户角色和客户范围；不要直接清空 session 或把普通用户提升为超管。
+
+Provider/HRouter 凭据继续按机构隔离；环境变量 Key 只对默认机构提供引导 fallback。
+
+## 桌面客户端
+
+正式产品使用 Tauri 2 客户端，浏览器暂时保留同等工作台用于调试。客户端 User-Agent 为 `ZZGeoDesktop/<version>`，页面和 API 仍使用服务端会话、动态权限和活动机构，不在客户端保存业务数据库或 Provider Key。
+
+应用内更新只接受 `tauri.conf.json` 内 GEO 公钥验证通过的 HTTPS 更新清单和签名包。更新故障先检查清单是否为有效 SemVer、目标平台/架构、下载 URL 和 `.sig` 内容，再检查客户端版本；不要关闭签名校验或复用其他产品私钥。
 
 ## 漂移与费用
 

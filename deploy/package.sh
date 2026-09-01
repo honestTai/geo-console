@@ -16,7 +16,7 @@ if [[ -n "$(git -C "$REPO_DIR" status --porcelain)" ]]; then release_id="$commit
 
 (
 	cd "$REPO_DIR"
-	git ls-files --cached --others --exclude-standard -z | COPYFILE_DISABLE=1 tar --null -T - -cf -
+	git ls-files --cached --others --exclude-standard -z -- . ':(exclude)apps/desktop/**' | COPYFILE_DISABLE=1 tar --null -T - -cf -
 ) | tar -xf - -C "$stage_dir/payload"
 
 # Windows checkouts may use CRLF. Release entrypoints run under Linux and must be LF.

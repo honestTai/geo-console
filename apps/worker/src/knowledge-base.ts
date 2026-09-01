@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Database } from "@geo/core";
 import { z } from "zod";
+import { type Paginated, type PaginationInput, paginated } from "./pagination";
 
 const questionSchema = z.object({
 	industry: z.string().trim().min(1).max(120),
@@ -23,18 +24,35 @@ export async function listLibraryQuestions(
 	database: Database,
 	organizationId: string,
 	industry?: string | null,
-): Promise<unknown[]> {
-	return (
-		await database.query(
+	input?: PaginationInput,
+): Promise<Paginated<Record<string, unknown>>> {
+	const pagination = input ?? { page: 1, pageSize: 20, offset: 0, search: null };
+	const industryValue = industry?.trim() || null;
+	const search = pagination.search ? `%${pagination.search}%` : null;
+	const total = Number(
+		(
+			await database.query<{ count: number }>(
+				`SELECT count(*)::int AS count FROM prompt_library_questions q
+				 WHERE q.organization_id=$1 AND q.archived_at IS NULL
+				 AND ($2::text IS NULL OR lower(q.industry)=lower($2))
+				 AND ($3::text IS NULL OR q.question ILIKE $3 OR q.intent ILIKE $3 OR q.topic ILIKE $3)`,
+				[organizationId, industryValue, search],
+			)
+		).rows[0]?.count ?? 0,
+	);
+	const rows = (
+		await database.query<Record<string, unknown>>(
 			`SELECT q.id,q.organization_id,q.industry,q.question,q.intent,q.topic,q.persona,q.tags,q.created_at,q.updated_at,
 			 u.email AS created_by_email
 			 FROM prompt_library_questions q LEFT JOIN users u ON u.id=q.created_by
 			 WHERE q.organization_id=$1 AND q.archived_at IS NULL
 			 AND ($2::text IS NULL OR lower(q.industry)=lower($2))
-			 ORDER BY q.industry,q.created_at`,
-			[organizationId, industry?.trim() || null],
+			 AND ($3::text IS NULL OR q.question ILIKE $3 OR q.intent ILIKE $3 OR q.topic ILIKE $3)
+			 ORDER BY q.industry,q.created_at LIMIT $4 OFFSET $5`,
+			[organizationId, industryValue, search, pagination.pageSize, pagination.offset],
 		)
 	).rows;
+	return paginated(rows, total, pagination);
 }
 
 export async function createLibraryQuestion(

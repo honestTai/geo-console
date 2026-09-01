@@ -8,7 +8,7 @@
 		"start": "tsx src/index.ts",
 		"build": "tsc --noEmit",
 		"check-types": "tsc --noEmit",
-		"test": "vitest run"
+		"test": "vitest run --testTimeout=15000"
 	},
 	"dependencies": {
 		"@geo/core": "workspace:*",

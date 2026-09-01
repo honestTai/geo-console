@@ -230,6 +230,9 @@ configure_environment() {
 		existing_email="$(env_value "$env_file" GEO_ADMIN_EMAIL)"
 		[[ "$existing_domain" == "$domain" ]] || fail "existing deployment uses domain $existing_domain"
 		[[ "$existing_email" == "$admin_email" ]] || fail "existing deployment uses administrator $existing_email"
+		if ! grep -q '^GEO_DESKTOP_RELEASES_DIR=' "$env_file"; then
+			printf '\nGEO_DESKTOP_RELEASES_DIR=%s/shared/desktop\n' "$install_dir" >>"$env_file"
+		fi
 		log "Reusing existing environment configuration"
 		return
 	fi
@@ -239,6 +242,7 @@ GEO_ADMIN_EMAIL=$admin_email
 GEO_CAPTURE_CONCURRENCY=$capture_concurrency
 GEO_BACKUP_DIR=$backup_dir
 GEO_LOG_RETENTION_DAYS=90
+GEO_DESKTOP_RELEASES_DIR=$install_dir/shared/desktop
 
 GEO_OBJECT_STORE=local
 GEO_S3_ENDPOINT=
@@ -314,6 +318,7 @@ main() {
 	ensure_docker
 	ensure_swap
 	install -m 0700 -d "$install_dir" "$install_dir/releases" "$install_dir/shared" "$backup_dir"
+	install -m 0755 -d "$install_dir/shared/desktop"
 	chmod 700 "$install_dir" "$install_dir/releases" "$install_dir/shared" "$backup_dir"
 	preflight_resources
 	configure_environment

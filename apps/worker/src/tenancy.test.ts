@@ -20,9 +20,9 @@ describe("多租户资源隔离", () => {
 				[tenant.id],
 			);
 			expect(await requestResourceOrganization(database, "/api/reports/tenant-report/pdf")).toBe(tenant.id);
-			expect(await canReadArtifact(database, "default", "reports/tenant.pdf", false)).toBe(false);
-			expect(await canReadArtifact(database, tenant.id, "reports/tenant.docx", false)).toBe(true);
-			expect(await canReadArtifact(database, "default", "reports/tenant.pdf", true)).toBe(true);
+			expect(await canReadArtifact(database, "default", "reports/tenant.pdf", true, [])).toBe(false);
+			expect(await canReadArtifact(database, tenant.id, "reports/tenant.docx", true, [])).toBe(true);
+			expect(await canReadArtifact(database, tenant.id, "reports/tenant.pdf", false, [])).toBe(false);
 		} finally {
 			await database.close();
 		}

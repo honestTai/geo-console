@@ -46,6 +46,8 @@ export type CapabilityVisibility = "available" | "partial" | "unavailable";
 export const organizations = pgTable("organizations", {
 	id: id("id"),
 	name: text("name").notNull(),
+	suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+	suspendedReason: text("suspended_reason"),
 	createdAt,
 	updatedAt,
 });
@@ -572,12 +574,123 @@ export const users = pgTable(
 		displayName: text("display_name").notNull(),
 		role: text("role").$type<OrganizationRole>().notNull(),
 		isSuperAdmin: boolean("is_super_admin").notNull().default(false),
+		allProjects: boolean("all_projects").notNull().default(true),
 		passwordHash: text("password_hash").notNull(),
 		disabledAt: timestamp("disabled_at", { withTimezone: true }),
 		createdAt,
 		updatedAt,
 	},
-	(table) => [uniqueIndex("users_organization_email_unique").on(table.organizationId, table.email)],
+	(table) => [
+		uniqueIndex("users_organization_email_unique").on(table.organizationId, table.email),
+		uniqueIndex("users_single_super_admin_unique").on(table.isSuperAdmin).where(sql`${table.isSuperAdmin} = true`),
+	],
+);
+
+export type PermissionKind = "page" | "action";
+
+export const permissions = pgTable("permissions", {
+	key: text("key").primaryKey(),
+	kind: text("kind").$type<PermissionKind>().notNull(),
+	groupLabel: text("group_label").notNull(),
+	label: text("label").notNull(),
+	navigationKey: text("navigation_key"),
+	iconKey: text("icon_key"),
+	systemOnly: boolean("system_only").notNull().default(false),
+	desktopOnly: boolean("desktop_only").notNull().default(false),
+	position: integer("position").notNull().default(0),
+});
+
+export const permissionRoutes = pgTable(
+	"permission_routes",
+	{
+		id: id("id"),
+		permissionKey: text("permission_key")
+			.notNull()
+			.references(() => permissions.key, { onDelete: "cascade" }),
+		httpMethod: text("http_method").notNull(),
+		pathPattern: text("path_pattern").notNull(),
+		position: integer("position").notNull().default(0),
+	},
+	(table) => [
+		uniqueIndex("permission_routes_policy_unique").on(table.permissionKey, table.httpMethod, table.pathPattern),
+		index("permission_routes_method_idx").on(table.httpMethod, table.position),
+	],
+);
+
+export const organizationPermissions = pgTable(
+	"organization_permissions",
+	{
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		permissionKey: text("permission_key")
+			.notNull()
+			.references(() => permissions.key, { onDelete: "cascade" }),
+		grantedBy: text("granted_by").references(() => users.id, { onDelete: "set null" }),
+		createdAt,
+	},
+	(table) => [uniqueIndex("organization_permissions_unique").on(table.organizationId, table.permissionKey)],
+);
+
+export const roles = pgTable(
+	"roles",
+	{
+		id: id("id"),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		description: text("description"),
+		isSystem: boolean("is_system").notNull().default(false),
+		createdAt,
+		updatedAt,
+	},
+	(table) => [uniqueIndex("roles_organization_name_unique").on(table.organizationId, table.name)],
+);
+
+export const rolePermissions = pgTable(
+	"role_permissions",
+	{
+		roleId: text("role_id")
+			.notNull()
+			.references(() => roles.id, { onDelete: "cascade" }),
+		permissionKey: text("permission_key")
+			.notNull()
+			.references(() => permissions.key, { onDelete: "cascade" }),
+	},
+	(table) => [uniqueIndex("role_permissions_unique").on(table.roleId, table.permissionKey)],
+);
+
+export const userRoles = pgTable(
+	"user_roles",
+	{
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		roleId: text("role_id")
+			.notNull()
+			.references(() => roles.id, { onDelete: "cascade" }),
+	},
+	(table) => [
+		uniqueIndex("user_roles_unique").on(table.userId, table.roleId),
+		index("user_roles_role_idx").on(table.roleId),
+	],
+);
+
+export const userProjectAccess = pgTable(
+	"user_project_access",
+	{
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+	},
+	(table) => [
+		uniqueIndex("user_project_access_unique").on(table.userId, table.projectId),
+		index("user_project_access_project_idx").on(table.projectId),
+	],
 );
 
 export const sessions = pgTable(

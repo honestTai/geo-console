@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Database } from "@geo/core";
 import { parse } from "csv-parse/sync";
 import { z } from "zod";
+import type { PaginationInput } from "./pagination";
 import { sha256 } from "./utils";
 
 const importSchema = z.object({
@@ -151,8 +152,12 @@ export async function importAttributionCsv(
 	return { importId, rows: records.length, events: events.length };
 }
 
-export async function getAttribution(database: Database, projectId: string): Promise<Record<string, unknown>> {
-	const [summary, events, imports] = await Promise.all([
+export async function getAttribution(
+	database: Database,
+	projectId: string,
+	input: PaginationInput,
+): Promise<Record<string, unknown>> {
+	const [summary, events, imports, eventCount, importCount] = await Promise.all([
 		database.query(
 			`SELECT source_type,metric,sum(value)::float8 AS value,min(observed_at) AS first_observed_at,
 			 max(observed_at) AS last_observed_at,count(*)::int AS observations
@@ -160,13 +165,37 @@ export async function getAttribution(database: Database, projectId: string): Pro
 			[projectId],
 		),
 		database.query(
-			"SELECT id,source_type,metric,value,observed_at,landing_url,external_id,channel FROM attribution_events WHERE project_id=$1 ORDER BY observed_at DESC,created_at DESC LIMIT 200",
-			[projectId],
+			`SELECT id,source_type,metric,value,observed_at,landing_url,external_id,channel
+				 FROM attribution_events WHERE project_id=$1 ORDER BY observed_at DESC,created_at DESC LIMIT $2 OFFSET $3`,
+			[projectId, input.pageSize, input.offset],
 		),
 		database.query(
-			"SELECT id,source_type,file_name,row_count,content_hash,imported_at FROM attribution_imports WHERE project_id=$1 ORDER BY imported_at DESC LIMIT 50",
-			[projectId],
+			`SELECT id,source_type,file_name,row_count,content_hash,imported_at FROM attribution_imports
+				 WHERE project_id=$1 ORDER BY imported_at DESC LIMIT $2 OFFSET $3`,
+			[projectId, input.pageSize, input.offset],
 		),
+		database.query<{ count: number }>("SELECT count(*)::int AS count FROM attribution_events WHERE project_id=$1", [
+			projectId,
+		]),
+		database.query<{ count: number }>("SELECT count(*)::int AS count FROM attribution_imports WHERE project_id=$1", [
+			projectId,
+		]),
 	]);
-	return { summary: summary.rows, events: events.rows, imports: imports.rows };
+	return {
+		summary: summary.rows,
+		events: events.rows,
+		imports: imports.rows,
+		eventsPagination: {
+			page: input.page,
+			pageSize: input.pageSize,
+			total: Number(eventCount.rows[0]?.count ?? 0),
+			totalPages: Math.max(1, Math.ceil(Number(eventCount.rows[0]?.count ?? 0) / input.pageSize)),
+		},
+		importsPagination: {
+			page: input.page,
+			pageSize: input.pageSize,
+			total: Number(importCount.rows[0]?.count ?? 0),
+			totalPages: Math.max(1, Math.ceil(Number(importCount.rows[0]?.count ?? 0) / input.pageSize)),
+		},
+	};
 }

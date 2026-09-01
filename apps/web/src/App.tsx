@@ -9,6 +9,7 @@ import {
 	IconChartLine,
 	IconCheck,
 	IconChevronDown,
+	IconChevronLeft,
 	IconChevronRight,
 	IconClipboardCheck,
 	IconDatabase,
@@ -19,6 +20,7 @@ import {
 	IconHistory,
 	IconKey,
 	IconLoader2,
+	IconLockAccess,
 	IconPlus,
 	IconRefresh,
 	IconReportAnalytics,
@@ -30,7 +32,16 @@ import {
 	IconUsers,
 	IconWorldSearch,
 } from "@tabler/icons-react";
-import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import {
+	createContext,
+	type FormEvent,
+	type ReactNode,
+	useCallback,
+	useContext,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
 import { ApiError, api, patch, post, put } from "./api";
 
 type ProviderId = "deepseek_api" | "kimi_api" | "doubao_api" | "qwen_api" | "yuanbao_hunyuan";
@@ -75,6 +86,21 @@ type UserIdentity = {
 	organizationName: string;
 	isSuperAdmin: boolean;
 	localBypass: boolean;
+	organizationSuspended: boolean;
+	roles: Array<{ id: string; name: string }>;
+	permissions: string[];
+	allProjects: boolean;
+	projectIds: string[];
+};
+
+type Paginated<T> = { items: T[]; page: number; pageSize: number; total: number; totalPages: number };
+type NavigationItem = {
+	key: string;
+	group_label: string;
+	label: string;
+	navigation_key: View;
+	icon_key: string;
+	position: number;
 };
 
 type ProjectSummary = {
@@ -332,6 +358,8 @@ type AttributionPayload = {
 		row_count: number;
 		imported_at: string;
 	}>;
+	eventsPagination: Omit<Paginated<never>, "items">;
+	importsPagination: Omit<Paginated<never>, "items">;
 };
 type AgentRun = {
 	id: string;
@@ -457,6 +485,7 @@ type View =
 	| "members"
 	| "auditLogs"
 	| "serviceLogs"
+	| "rbac"
 	| "organizations";
 
 const views: Array<{ id: View; label: string; icon: typeof IconActivity }> = [
@@ -473,9 +502,54 @@ const views: Array<{ id: View; label: string; icon: typeof IconActivity }> = [
 	{ id: "members", label: "机构成员", icon: IconUsers },
 	{ id: "auditLogs", label: "审计日志", icon: IconHistory },
 	{ id: "serviceLogs", label: "运行日志", icon: IconActivity },
+	{ id: "rbac", label: "权限配置", icon: IconLockAccess },
 	{ id: "organizations", label: "多租户管理", icon: IconBuildingCommunity },
 ];
-const managementViews: View[] = ["knowledge", "settings", "members", "auditLogs", "serviceLogs", "organizations"];
+const navigationIcons: Record<string, typeof IconActivity> = {
+	activity: IconActivity,
+	book: IconBook2,
+	building: IconBuilding,
+	checklist: IconClipboardCheck,
+	database: IconDatabase,
+	history: IconHistory,
+	lock: IconLockAccess,
+	organizations: IconBuildingCommunity,
+	report: IconReportAnalytics,
+	route: IconRoute,
+	search: IconSearch,
+	settings: IconSettings,
+	shield: IconShieldCheck,
+	users: IconUsers,
+};
+const managementViews: View[] = [
+	"knowledge",
+	"settings",
+	"members",
+	"auditLogs",
+	"serviceLogs",
+	"rbac",
+	"organizations",
+];
+const projectPagePermissions = [
+	"page.overview",
+	"page.monitor",
+	"page.evidence",
+	"page.audit",
+	"page.diagnosis",
+	"page.remediation",
+	"page.attribution",
+	"page.report",
+];
+
+const AccessContext = createContext<UserIdentity | null>(null);
+
+function hasPermission(identity: UserIdentity | null, permission: string): boolean {
+	return Boolean(identity?.isSuperAdmin || identity?.permissions.includes(permission));
+}
+
+function usePermission(permission: string): boolean {
+	return hasPermission(useContext(AccessContext), permission);
+}
 
 const percentage = (value: number | null | undefined) => (value == null ? "-" : `${(value * 100).toFixed(1)}%`);
 const date = (value: string | null | undefined) =>
@@ -501,17 +575,74 @@ function Button({
 	icon,
 	variant = "primary",
 	busy,
+	permission,
 	...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
 	icon?: ReactNode;
 	variant?: "primary" | "secondary" | "ghost" | "danger";
 	busy?: boolean;
+	permission?: string;
 }) {
+	const identity = useContext(AccessContext);
+	if (permission && !hasPermission(identity, permission)) return null;
+	const className = ["button", variant, props.className].filter(Boolean).join(" ");
 	return (
-		<button type={props.type ?? "button"} className={`button ${variant}`} {...props} disabled={busy || props.disabled}>
+		<button {...props} type={props.type ?? "button"} className={className} disabled={busy || props.disabled}>
 			{busy ? <IconLoader2 className="spin" size={17} /> : icon}
 			{children}
 		</button>
+	);
+}
+
+function Pagination({
+	page,
+	pageSize,
+	total,
+	totalPages,
+	onPage,
+	onPageSize,
+}: {
+	page: number;
+	pageSize: number;
+	total: number;
+	totalPages: number;
+	onPage(page: number): void;
+	onPageSize?(pageSize: number): void;
+}) {
+	if (total === 0) return null;
+	return (
+		<nav className="pagination" aria-label="分页">
+			<span>
+				第 {page} / {totalPages} 页，共 {total} 条
+			</span>
+			{onPageSize && (
+				<select aria-label="每页条数" value={pageSize} onChange={(event) => onPageSize(Number(event.target.value))}>
+					{[10, 20, 50].map((size) => (
+						<option value={size} key={size}>
+							每页 {size} 条
+						</option>
+					))}
+				</select>
+			)}
+			<Button
+				className="icon-button"
+				variant="secondary"
+				icon={<IconChevronLeft size={16} />}
+				aria-label="上一页"
+				title="上一页"
+				disabled={page <= 1}
+				onClick={() => onPage(page - 1)}
+			/>
+			<Button
+				className="icon-button"
+				variant="secondary"
+				icon={<IconChevronRight size={16} />}
+				aria-label="下一页"
+				title="下一页"
+				disabled={page >= totalPages}
+				onClick={() => onPage(page + 1)}
+			/>
+		</nav>
 	);
 }
 
@@ -554,23 +685,66 @@ function Notice({ message, type = "info" }: { message: string; type?: "info" | "
 export function App() {
 	const [user, setUser] = useState<UserIdentity | null>(null);
 	const [authReady, setAuthReady] = useState(false);
+	const [navigation, setNavigation] = useState<NavigationItem[]>([]);
 	const [projects, setProjects] = useState<ProjectSummary[]>([]);
+	const [projectPagination, setProjectPagination] = useState<Paginated<ProjectSummary>>({
+		items: [],
+		page: 1,
+		pageSize: 10,
+		total: 0,
+		totalPages: 1,
+	});
+	const [projectSearch, setProjectSearch] = useState("");
 	const [projectId, setProjectId] = useState<string | null>(null);
 	const [project, setProject] = useState<Project | null>(null);
 	const [view, setView] = useState<View>("overview");
 	const [creating, setCreating] = useState(false);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const availableViews = useMemo(
+		() =>
+			navigation
+				.map((item) => {
+					const registered = views.find((viewItem) => viewItem.id === item.navigation_key);
+					return registered
+						? { ...registered, label: item.label, icon: navigationIcons[item.icon_key] ?? registered.icon }
+						: null;
+				})
+				.filter((item): item is (typeof views)[number] => Boolean(item)),
+		[navigation],
+	);
 
 	const loadProjects = useCallback(async () => {
 		if (!user) return;
+		const canReadProjects =
+			user.isSuperAdmin || projectPagePermissions.some((permission) => user.permissions.includes(permission));
+		if (!canReadProjects) {
+			setProjects([]);
+			setLoading(false);
+			return;
+		}
 		try {
-			const result = await api<{ projects: ProjectSummary[] }>("/api/projects");
-			setProjects(result.projects);
+			const params = new URLSearchParams({
+				page: String(projectPagination.page),
+				pageSize: String(projectPagination.pageSize),
+			});
+			if (projectSearch.trim()) params.set("search", projectSearch.trim());
+			const result = await api<Paginated<ProjectSummary>>(`/api/projects?${params}`);
+			setProjects(result.items);
+			setProjectPagination(result);
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : "项目加载失败");
 		} finally {
 			setLoading(false);
+		}
+	}, [projectPagination.page, projectPagination.pageSize, projectSearch, user]);
+	const loadNavigation = useCallback(async () => {
+		if (!user) return;
+		try {
+			const result = await api<{ items: NavigationItem[] }>("/api/rbac/navigation");
+			setNavigation(result.items);
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : "导航权限加载失败");
 		}
 	}, [user]);
 	const loadProject = useCallback(async () => {
@@ -591,11 +765,18 @@ export function App() {
 			.finally(() => setAuthReady(true));
 	}, []);
 	useEffect(() => {
+		void loadNavigation();
+	}, [loadNavigation]);
+	useEffect(() => {
 		void loadProjects();
 	}, [loadProjects]);
 	useEffect(() => {
 		void loadProject();
 	}, [loadProject]);
+	useEffect(() => {
+		if (availableViews.length && !availableViews.some((item) => item.id === view))
+			setView(availableViews[0]?.id ?? "overview");
+	}, [availableViews, view]);
 
 	if (!authReady || (user && loading))
 		return (
@@ -618,6 +799,7 @@ export function App() {
 	async function logoutUser() {
 		await post("/api/auth/logout");
 		setUser(null);
+		setNavigation([]);
 		setProjects([]);
 		setProjectId(null);
 		setProject(null);
@@ -625,76 +807,85 @@ export function App() {
 	}
 	function applyIdentity(identity: UserIdentity) {
 		setUser(identity);
+		setNavigation([]);
 		setProjects([]);
 		setProjectId(null);
 		setProject(null);
 		setView("overview");
+		setProjectPagination((current) => ({ ...current, page: 1, total: 0, totalPages: 1, items: [] }));
 		setLoading(true);
 	}
-	const isAdmin = user.role === "admin" || user.isSuperAdmin;
 	if (!projectId && managementViews.includes(view))
 		return (
-			<ManagementWorkspace
-				view={view}
-				user={user}
-				onBack={() => setView("overview")}
-				onSelectView={setView}
-				onLogout={logoutUser}
-				onIdentityChange={applyIdentity}
-			/>
+			<AccessContext.Provider value={user}>
+				<ManagementWorkspace
+					view={view}
+					user={user}
+					navigation={availableViews}
+					onBack={() => setView(availableViews.find((item) => !managementViews.includes(item.id))?.id ?? "overview")}
+					onSelectView={setView}
+					onLogout={logoutUser}
+					onIdentityChange={applyIdentity}
+				/>
+			</AccessContext.Provider>
 		);
 	if (!projectId)
 		return (
-			<ProjectHome
-				account={<AccountControl user={user} onLogout={logoutUser} onIdentityChange={applyIdentity} />}
-				projects={projects}
-				onOpen={(id) => {
-					setView("overview");
-					setProjectId(id);
-				}}
-				onManage={setView}
-				isAdmin={isAdmin}
-				onCreate={() => setCreating(true)}
-				creating={creating}
-				onClose={() => setCreating(false)}
-				onCreated={(id) => {
-					setCreating(false);
-					setProjectId(id);
-					void loadProjects();
-				}}
-				error={error}
-			/>
+			<AccessContext.Provider value={user}>
+				<ProjectHome
+					account={<AccountControl user={user} onLogout={logoutUser} />}
+					projects={projects}
+					navigation={availableViews}
+					pagination={projectPagination}
+					search={projectSearch}
+					onSearch={(value) => {
+						setProjectSearch(value);
+						setProjectPagination((current) => ({ ...current, page: 1 }));
+					}}
+					onPage={(page) => setProjectPagination((current) => ({ ...current, page }))}
+					onPageSize={(pageSize) => setProjectPagination((current) => ({ ...current, page: 1, pageSize }))}
+					onOpen={(id) => {
+						setView(availableViews.find((item) => !managementViews.includes(item.id))?.id ?? "overview");
+						setProjectId(id);
+					}}
+					onManage={setView}
+					onCreate={() => setCreating(true)}
+					creating={creating}
+					onClose={() => setCreating(false)}
+					onCreated={(id) => {
+						setCreating(false);
+						setProjectId(id);
+						void loadProjects();
+					}}
+					error={error}
+				/>
+			</AccessContext.Provider>
 		);
 
 	return (
-		<div className="shell">
-			<aside className="sidebar">
-				<div className="brand">
-					<span className="brand-mark">Z</span>
-					<div>
-						<strong>ZZ Geo</strong>
-						<small>真实 AI 可见度工作台</small>
+		<AccessContext.Provider value={user}>
+			<div className="shell">
+				<aside className="sidebar">
+					<div className="brand">
+						<span className="brand-mark">Z</span>
+						<div>
+							<strong>ZZ Geo</strong>
+							<small>真实 AI 可见度工作台</small>
+						</div>
 					</div>
-				</div>
-				<button
-					type="button"
-					className="project-switch"
-					onClick={() => {
-						setProjectId(null);
-						setProject(null);
-					}}
-				>
-					<IconArrowLeft size={16} />
-					<span>{project?.name ?? "客户项目"}</span>
-				</button>
-				<nav>
-					{views
-						.filter(
-							(item) =>
-								(!["settings", "members", "auditLogs", "serviceLogs"].includes(item.id) || isAdmin) &&
-								(item.id !== "organizations" || user.isSuperAdmin),
-						)
-						.map((item) => (
+					<button
+						type="button"
+						className="project-switch"
+						onClick={() => {
+							setProjectId(null);
+							setProject(null);
+						}}
+					>
+						<IconArrowLeft size={16} />
+						<span>{project?.name ?? "客户项目"}</span>
+					</button>
+					<nav>
+						{availableViews.map((item) => (
 							<button
 								type="button"
 								key={item.id}
@@ -707,64 +898,65 @@ export function App() {
 								<span>{item.label}</span>
 							</button>
 						))}
-				</nav>
-				<div className="sidebar-foot">
-					<span className="live-dot" />
-					真实采集模式
-				</div>
-			</aside>
-			<main className="workspace">
-				<header className="topbar">
-					<div>
-						<span className="eyebrow">{views.find((item) => item.id === view)?.label}</span>
-						<h1>{project?.name ?? "加载项目"}</h1>
+					</nav>
+					<div className="sidebar-foot">
+						<span className="live-dot" />
+						真实采集模式
 					</div>
-					<div className="topbar-actions">
-						<div className="domain">
-							<IconGlobe size={16} />
-							{project?.domain ?? ""}
+				</aside>
+				<main className="workspace">
+					<header className="topbar">
+						<div>
+							<span className="eyebrow">{availableViews.find((item) => item.id === view)?.label}</span>
+							<h1>{project?.name ?? "加载项目"}</h1>
 						</div>
-						<AccountControl user={user} onLogout={logoutUser} onIdentityChange={applyIdentity} />
-					</div>
-				</header>
-				{error && <Notice type="error" message={error} />}
-				{!project ? (
-					<div className="center">
-						<IconLoader2 className="spin" />
-					</div>
-				) : project.status !== "active" &&
-					!["settings", "members", "auditLogs", "serviceLogs", "knowledge", "organizations"].includes(view) ? (
-					<Onboarding
-						project={project}
-						refresh={async () => {
-							await loadProject();
-							await loadProjects();
-						}}
-					/>
-				) : (
-					<>
-						{view === "overview" && <Overview project={project} refresh={loadProject} />}
-						{view === "monitor" && <Monitoring project={project} refresh={loadProject} />}
-						{view === "evidence" && <Evidence project={project} />}
-						{view === "audit" && <WebsiteAudit project={project} refresh={loadProject} />}
-						{view === "diagnosis" && <Diagnosis project={project} refresh={loadProject} />}
-						{view === "remediation" && <Remediation project={project} refresh={loadProject} />}
-						{view === "attribution" && <Attribution project={project} />}
-						{view === "report" && <Report project={project} />}
-						{view === "knowledge" && (
-							<KnowledgeBase project={project} canWrite={user.role !== "viewer" || user.isSuperAdmin} />
-						)}
-						{view === "settings" && isAdmin && <Settings />}
-						{view === "members" && isAdmin && <Members localBypass={user.localBypass} />}
-						{view === "auditLogs" && isAdmin && <AuditLogs />}
-						{view === "serviceLogs" && isAdmin && <ServiceLogs />}
-						{view === "organizations" && user.isSuperAdmin && (
-							<OrganizationManagement user={user} onIdentityChange={applyIdentity} />
-						)}
-					</>
-				)}
-			</main>
-		</div>
+						<div className="topbar-actions">
+							<div className="domain">
+								<IconGlobe size={16} />
+								{project?.domain ?? ""}
+							</div>
+							<AccountControl user={user} onLogout={logoutUser} />
+						</div>
+					</header>
+					{error && <Notice type="error" message={error} />}
+					{!project ? (
+						<div className="center">
+							<IconLoader2 className="spin" />
+						</div>
+					) : project.status !== "active" && !managementViews.includes(view) ? (
+						<Onboarding
+							project={project}
+							refresh={async () => {
+								await loadProject();
+								await loadProjects();
+							}}
+						/>
+					) : (
+						<>
+							{view === "overview" && <Overview project={project} refresh={loadProject} />}
+							{view === "monitor" && <Monitoring project={project} refresh={loadProject} />}
+							{view === "evidence" && <Evidence project={project} />}
+							{view === "audit" && <WebsiteAudit project={project} refresh={loadProject} />}
+							{view === "diagnosis" && <Diagnosis project={project} refresh={loadProject} />}
+							{view === "remediation" && <Remediation project={project} refresh={loadProject} />}
+							{view === "attribution" && <Attribution project={project} />}
+							{view === "report" && <Report project={project} />}
+							{view === "knowledge" && (
+								<KnowledgeBase project={project} canWrite={hasPermission(user, "knowledge.manage")} />
+							)}
+							{view === "settings" && <Settings />}
+							{view === "members" && <Members localBypass={user.localBypass} />}
+							{view === "auditLogs" && <AuditLogs />}
+							{view === "serviceLogs" && <ServiceLogs />}
+							{view === "rbac" && <RbacManagement user={user} />}
+							{view === "organizations" && user.isSuperAdmin && (
+								<OrganizationManagement user={user} onIdentityChange={applyIdentity} />
+							)}
+						</>
+					)}
+				</main>
+			</div>
+		</AccessContext.Provider>
 	);
 }
 
@@ -848,49 +1040,22 @@ type OrganizationSummary = {
 	project_count: number;
 	user_count: number;
 	created_at: string;
+	suspended_at: string | null;
+	suspended_reason: string | null;
 };
 
-function AccountControl({
-	user,
-	onLogout,
-	onIdentityChange,
-}: {
-	user: UserIdentity;
-	onLogout(): Promise<void>;
-	onIdentityChange(user: UserIdentity): void;
-}) {
-	const [organizations, setOrganizations] = useState<OrganizationSummary[]>([]);
-	useEffect(() => {
-		if (!user.isSuperAdmin) return;
-		void api<{ organizations: OrganizationSummary[] }>("/api/organizations")
-			.then((result) => setOrganizations(result.organizations))
-			.catch(() => setOrganizations([]));
-	}, [user.isSuperAdmin]);
-	async function switchOrganization(organizationId: string) {
-		const result = await post<{ user: UserIdentity }>("/api/organizations/select", { organizationId });
-		onIdentityChange(result.user);
-	}
+function AccountControl({ user, onLogout }: { user: UserIdentity; onLogout(): Promise<void> }) {
 	return (
 		<div className="account-control">
 			<div>
 				<b>{user.displayName}</b>
 				<small>
-					{user.isSuperAdmin ? "系统超管" : user.role} · {user.organizationName}
+					{user.isSuperAdmin ? "系统超管" : user.roles.map((role) => role.name).join("、") || "未分配角色"} ·{" "}
+					{user.organizationName}
 				</small>
 			</div>
-			{user.isSuperAdmin && organizations.length > 0 && (
-				<select
-					aria-label="活动机构"
-					value={user.organizationId}
-					onChange={(event) => void switchOrganization(event.target.value)}
-				>
-					{organizations.map((organization) => (
-						<option value={organization.id} key={organization.id}>
-							{organization.name}
-						</option>
-					))}
-				</select>
-			)}
+			{user.organizationSuspended && <span className="status warning">已封禁</span>}
+			<DesktopUpdateButton />
 			<Button variant="secondary" onClick={() => void onLogout()}>
 				退出
 			</Button>
@@ -898,12 +1063,50 @@ function AccountControl({
 	);
 }
 
+function DesktopUpdateButton() {
+	const isDesktop = navigator.userAgent.includes("ZZGeoDesktop/");
+	const [busy, setBusy] = useState(false);
+	const [status, setStatus] = useState("检查更新");
+	if (!isDesktop) return null;
+	async function update() {
+		setBusy(true);
+		try {
+			const [{ check }, { relaunch }] = await Promise.all([
+				import("@tauri-apps/plugin-updater"),
+				import("@tauri-apps/plugin-process"),
+			]);
+			const next = await check({ timeout: 30_000 });
+			if (!next) {
+				setStatus("已是最新版本");
+				return;
+			}
+			setStatus(`正在更新至 ${next.version}`);
+			await next.downloadAndInstall();
+			await relaunch();
+		} catch (reason) {
+			setStatus(reason instanceof Error ? "更新检查失败" : "无法更新");
+		} finally {
+			setBusy(false);
+		}
+	}
+	return (
+		<Button variant="secondary" busy={busy} icon={<IconRefresh size={15} />} onClick={() => void update()}>
+			{status}
+		</Button>
+	);
+}
+
 function ProjectHome({
 	account,
 	projects,
+	navigation,
+	pagination,
+	search,
+	onSearch,
+	onPage,
+	onPageSize,
 	onOpen,
 	onManage,
-	isAdmin,
 	onCreate,
 	creating,
 	onClose,
@@ -912,15 +1115,21 @@ function ProjectHome({
 }: {
 	account: ReactNode;
 	projects: ProjectSummary[];
+	navigation: Array<{ id: View; label: string }>;
+	pagination: Paginated<ProjectSummary>;
+	search: string;
+	onSearch(value: string): void;
+	onPage(page: number): void;
+	onPageSize(pageSize: number): void;
 	onOpen(id: string): void;
 	onManage(view: View): void;
-	isAdmin: boolean;
 	onCreate(): void;
 	creating: boolean;
 	onClose(): void;
 	onCreated(id: string): void;
 	error: string | null;
 }) {
+	const managementEntry = navigation.find((item) => managementViews.includes(item.id));
 	return (
 		<main className="project-home">
 			<header>
@@ -932,15 +1141,12 @@ function ProjectHome({
 					</div>
 				</div>
 				<div className="home-actions">
-					<Button variant="secondary" icon={<IconBook2 size={17} />} onClick={() => onManage("knowledge")}>
-						问题知识库
-					</Button>
-					{isAdmin && (
-						<Button variant="secondary" icon={<IconSettings size={17} />} onClick={() => onManage("settings")}>
+					{managementEntry && (
+						<Button variant="secondary" icon={<IconSettings size={17} />} onClick={() => onManage(managementEntry.id)}>
 							机构管理
 						</Button>
 					)}
-					<Button icon={<IconPlus size={17} />} onClick={onCreate}>
+					<Button permission="project.create" icon={<IconPlus size={17} />} onClick={onCreate}>
 						新建客户
 					</Button>
 					{account}
@@ -950,6 +1156,10 @@ function ProjectHome({
 				<span className="eyebrow">客户项目</span>
 				<h1>从一个真实客户开始</h1>
 				<p>建档、真实采集、证据诊断、整改和同条件复测都保存在同一个项目中。</p>
+				<label className="project-search">
+					<IconSearch size={16} />
+					<input value={search} onChange={(event) => onSearch(event.target.value)} placeholder="筛选当前机构下的客户" />
+				</label>
 			</section>
 			{error && <Notice type="error" message={error} />}
 			{projects.length === 0 ? (
@@ -957,7 +1167,7 @@ function ProjectHome({
 					title="还没有客户项目"
 					detail="输入客户与官网，系统将先读取真实网站，再生成待人工确认的竞品和购买问题。"
 					action={
-						<Button icon={<IconPlus size={17} />} onClick={onCreate}>
+						<Button permission="project.create" icon={<IconPlus size={17} />} onClick={onCreate}>
 							新建第一个客户
 						</Button>
 					}
@@ -990,6 +1200,7 @@ function ProjectHome({
 					))}
 				</div>
 			)}
+			<Pagination {...pagination} onPage={onPage} onPageSize={onPageSize} />
 			{creating && <CreateProject onClose={onClose} onCreated={onCreated} />}
 		</main>
 	);
@@ -998,6 +1209,7 @@ function ProjectHome({
 function ManagementWorkspace({
 	view,
 	user,
+	navigation,
 	onBack,
 	onSelectView,
 	onLogout,
@@ -1005,18 +1217,13 @@ function ManagementWorkspace({
 }: {
 	view: View;
 	user: UserIdentity;
+	navigation: Array<{ id: View; label: string; icon: typeof IconActivity }>;
 	onBack(): void;
 	onSelectView(view: View): void;
 	onLogout(): Promise<void>;
 	onIdentityChange(user: UserIdentity): void;
 }) {
-	const isAdmin = user.role === "admin" || user.isSuperAdmin;
-	const available = views.filter(
-		(item) =>
-			managementViews.includes(item.id) &&
-			(!["settings", "members", "auditLogs", "serviceLogs"].includes(item.id) || isAdmin) &&
-			(item.id !== "organizations" || user.isSuperAdmin),
-	);
+	const available = navigation.filter((item) => managementViews.includes(item.id));
 	return (
 		<div className="management-shell">
 			<header>
@@ -1031,7 +1238,7 @@ function ManagementWorkspace({
 					<Button variant="secondary" icon={<IconArrowLeft size={16} />} onClick={onBack}>
 						客户项目
 					</Button>
-					<AccountControl user={user} onLogout={onLogout} onIdentityChange={onIdentityChange} />
+					<AccountControl user={user} onLogout={onLogout} />
 				</div>
 			</header>
 			<nav className="management-nav" aria-label="机构管理">
@@ -1049,12 +1256,13 @@ function ManagementWorkspace({
 			</nav>
 			<main className="management-workspace">
 				{view === "knowledge" && (
-					<KnowledgeBase initialIndustry={null} canWrite={user.role !== "viewer" || user.isSuperAdmin} />
+					<KnowledgeBase initialIndustry={null} canWrite={hasPermission(user, "knowledge.manage")} />
 				)}
-				{view === "settings" && isAdmin && <Settings />}
-				{view === "members" && isAdmin && <Members localBypass={user.localBypass} />}
-				{view === "auditLogs" && isAdmin && <AuditLogs />}
-				{view === "serviceLogs" && isAdmin && <ServiceLogs />}
+				{view === "settings" && <Settings />}
+				{view === "members" && <Members localBypass={user.localBypass} />}
+				{view === "auditLogs" && <AuditLogs />}
+				{view === "serviceLogs" && <ServiceLogs />}
+				{view === "rbac" && <RbacManagement user={user} />}
 				{view === "organizations" && user.isSuperAdmin && (
 					<OrganizationManagement user={user} onIdentityChange={onIdentityChange} />
 				)}
@@ -1213,10 +1421,15 @@ function Onboarding({ project, refresh }: { project: Project; refresh(): Promise
 					</p>
 					{error && <Notice type="error" message={error} />}
 					<div className="actions">
-						<Button busy={busy} icon={<IconSearch size={17} />} onClick={analyze}>
+						<Button permission="project.onboard" busy={busy} icon={<IconSearch size={17} />} onClick={analyze}>
 							{busy ? "正在抓取和分析" : "开始官网分析"}
 						</Button>
-						<Button variant="secondary" icon={<IconClipboardCheck size={17} />} onClick={() => setManualReview(true)}>
+						<Button
+							permission="project.onboard"
+							variant="secondary"
+							icon={<IconClipboardCheck size={17} />}
+							onClick={() => setManualReview(true)}
+						>
 							手工配置监测范围
 						</Button>
 					</div>
@@ -1246,7 +1459,7 @@ function Onboarding({ project, refresh }: { project: Project; refresh(): Promise
 							: "删除不真实的竞品，修改问题后再确认。确认前不会创建采集任务。"}
 					</p>
 				</div>
-				<Button busy={busy} icon={<IconCheck size={17} />} onClick={confirm}>
+				<Button permission="project.onboard" busy={busy} icon={<IconCheck size={17} />} onClick={confirm}>
 					确认并启用项目
 				</Button>
 			</div>
@@ -1537,7 +1750,12 @@ function Overview({ project, refresh }: { project: Project; refresh(): Promise<v
 					<span className="eyebrow">项目总览</span>
 					<h2>{project.name} · 可见度总览</h2>
 				</div>
-				<Button variant="secondary" icon={<IconSettings size={16} />} onClick={() => setEditingScope(true)}>
+				<Button
+					permission="project.onboard"
+					variant="secondary"
+					icon={<IconSettings size={16} />}
+					onClick={() => setEditingScope(true)}
+				>
 					编辑监测范围
 				</Button>
 			</div>
@@ -1608,6 +1826,7 @@ function ScopeEditor({ project, onClose, refresh }: { project: Project; onClose(
 							<p>域名用于识别引用来源，别名用于回答中的实体匹配。</p>
 						</div>
 						<Button
+							permission="project.onboard"
 							variant="secondary"
 							icon={<IconPlus size={16} />}
 							onClick={() => setCompetitors([...competitors, { name: "", domain: "", aliases: [] }])}
@@ -1762,7 +1981,7 @@ function ScopeEditor({ project, onClose, refresh }: { project: Project; onClose(
 					<Button variant="secondary" onClick={onClose}>
 						取消
 					</Button>
-					<Button busy={busy} icon={<IconCheck size={17} />} onClick={save}>
+					<Button permission="project.onboard" busy={busy} icon={<IconCheck size={17} />} onClick={save}>
 						保存新范围版本
 					</Button>
 				</div>
@@ -1855,7 +2074,13 @@ function RunActivityPanel({
 				{active ? (
 					<span className="status running">运行中</span>
 				) : (
-					<Button variant="secondary" busy={busy} icon={<IconRefresh size={16} />} onClick={() => void onRerun()}>
+					<Button
+						permission="monitor.run"
+						variant="secondary"
+						busy={busy}
+						icon={<IconRefresh size={16} />}
+						onClick={() => void onRerun()}
+					>
 						再次运行监测
 					</Button>
 				)}
@@ -1878,11 +2103,20 @@ function RunActivityPanel({
 
 function Monitoring({ project, refresh }: { project: Project; refresh(): Promise<void> }) {
 	const [selected, setSelected] = useState(project.batches[0]?.id ?? null);
+	const [batchPage, setBatchPage] = useState(1);
+	const visibleBatches = project.batches.slice((batchPage - 1) * 10, batchPage * 10);
 	const [batch, setBatch] = useState<Batch | null>(null);
 	const [trends, setTrends] = useState<TrendResponse | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [alerts, setAlerts] = useState<DriftAlert[]>([]);
+	const [alertsPage, setAlertsPage] = useState<Paginated<DriftAlert>>({
+		items: [],
+		page: 1,
+		pageSize: 10,
+		total: 0,
+		totalPages: 1,
+	});
+	const alerts = alertsPage.items;
 	const [costs, setCosts] = useState<CostGroup[]>([]);
 	const [runPlatforms, setRunPlatforms] = useState<ProviderId[]>(providerIds);
 	const [runRepeats, setRunRepeats] = useState(3);
@@ -1898,9 +2132,11 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 	}, [selected]);
 	useEffect(() => {
 		void load();
-		api<{ alerts: DriftAlert[] }>(`/api/projects/${project.id}/drift-alerts`)
-			.then((result) => setAlerts(result.alerts))
-			.catch(() => setAlerts([]));
+		api<Paginated<DriftAlert>>(
+			`/api/projects/${project.id}/drift-alerts?page=${alertsPage.page}&pageSize=${alertsPage.pageSize}`,
+		)
+			.then(setAlertsPage)
+			.catch(() => setAlertsPage((current) => ({ ...current, items: [] })));
 		api<{ groups: CostGroup[] }>(`/api/projects/${project.id}/costs`)
 			.then((result) => setCosts(result.groups))
 			.catch(() => setCosts([]));
@@ -1911,7 +2147,7 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 		const pollingMs = ["queued", "running"].includes(batch?.status ?? selectedBatch?.status ?? "") ? 3_000 : 8_000;
 		const timer = window.setInterval(() => void load(), pollingMs);
 		return () => window.clearInterval(timer);
-	}, [batch?.status, load, project.id, selected, selectedBatch?.status]);
+	}, [alertsPage.page, alertsPage.pageSize, batch?.status, load, project.id, selected, selectedBatch?.status]);
 	async function saveSchedule() {
 		setBusy(true);
 		setError(null);
@@ -1992,6 +2228,7 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 					</div>
 					<div className="run-actions">
 						<Button
+							permission="monitor.run"
 							className="run-retest"
 							variant="secondary"
 							busy={busy}
@@ -2002,6 +2239,7 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 							按此条件复测
 						</Button>
 						<Button
+							permission="monitor.run"
 							className="run-audit"
 							variant="secondary"
 							busy={busy}
@@ -2011,6 +2249,7 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 							运行售前快审
 						</Button>
 						<Button
+							permission="monitor.run"
 							className="run-baseline"
 							busy={busy}
 							disabled={!runPlatforms.length}
@@ -2049,14 +2288,16 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 							</span>
 						</div>
 						<Button
+							permission="monitor.run"
 							variant="ghost"
 							onClick={() =>
 								post(`/api/drift-alerts/${alert.id}/acknowledge`).then(() =>
-									setAlerts((current) =>
-										current.map((item) =>
+									setAlertsPage((current) => ({
+										...current,
+										items: current.items.map((item) =>
 											item.id === alert.id ? { ...item, acknowledged_at: new Date().toISOString() } : item,
 										),
-									),
+									})),
 								)
 							}
 						>
@@ -2079,6 +2320,7 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 							</small>
 						</div>
 					))}
+					<Pagination {...alertsPage} onPage={(page) => setAlertsPage((current) => ({ ...current, page }))} />
 				</div>
 			)}
 			<div className="schedule-band">
@@ -2136,7 +2378,13 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 							</label>
 						))}
 					</div>
-					<Button variant="secondary" busy={busy} disabled={!schedulePlatforms.length} onClick={saveSchedule}>
+					<Button
+						permission="monitor.schedule"
+						variant="secondary"
+						busy={busy}
+						disabled={!schedulePlatforms.length}
+						onClick={saveSchedule}
+					>
 						保存计划
 					</Button>
 				</div>
@@ -2146,7 +2394,7 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 			) : (
 				<>
 					<div className="batch-strip">
-						{project.batches.map((item) => (
+						{visibleBatches.map((item) => (
 							<button
 								type="button"
 								className={selected === item.id ? "active" : ""}
@@ -2163,6 +2411,13 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 							</button>
 						))}
 					</div>
+					<Pagination
+						page={batchPage}
+						pageSize={10}
+						total={project.batches.length}
+						totalPages={Math.max(1, Math.ceil(project.batches.length / 10))}
+						onPage={setBatchPage}
+					/>
 					{batch && <BatchMetrics batch={batch} />}
 					{trends && <TrendChart trends={trends} />}
 				</>
@@ -2613,8 +2868,11 @@ function Evidence({ project }: { project: Project }) {
 		() => batch?.captures.filter((item) => platform === "all" || item.engine === platform) ?? [],
 		[batch, platform],
 	);
+	const [capturePage, setCapturePage] = useState(1);
+	const visibleCaptures = captures.slice((capturePage - 1) * 10, capturePage * 10);
 	const [activeCaptureId, setActiveCaptureId] = useState<string | null>(null);
-	const activeCapture = captures.find((item) => item.captureId === activeCaptureId) ?? captures[0] ?? null;
+	const activeCapture =
+		visibleCaptures.find((item) => item.captureId === activeCaptureId) ?? visibleCaptures[0] ?? null;
 	function exportCsv() {
 		const headers = [
 			"证据ID",
@@ -2671,7 +2929,15 @@ function Evidence({ project }: { project: Project }) {
 					<p className="muted">原始回答与 API 响应写入后不可修改；派生指标可以按新规则重算。</p>
 				</div>
 				<div className="filters">
-					<BatchPicker project={project} selected={selected} setSelected={setSelected} />
+					<BatchPicker
+						project={project}
+						selected={selected}
+						setSelected={(id) => {
+							setSelected(id);
+							setCapturePage(1);
+							setActiveCaptureId(null);
+						}}
+					/>
 					<Button variant="secondary" icon={<IconDownload size={16} />} disabled={!captures.length} onClick={exportCsv}>
 						导出证据 CSV
 					</Button>
@@ -2681,7 +2947,11 @@ function Evidence({ project }: { project: Project }) {
 				<button
 					type="button"
 					className={platform === "all" ? "filter-chip sel" : "filter-chip"}
-					onClick={() => setPlatform("all")}
+					onClick={() => {
+						setPlatform("all");
+						setCapturePage(1);
+						setActiveCaptureId(null);
+					}}
 				>
 					全部
 				</button>
@@ -2690,7 +2960,11 @@ function Evidence({ project }: { project: Project }) {
 						type="button"
 						className={platform === id ? "filter-chip sel" : "filter-chip"}
 						key={id}
-						onClick={() => setPlatform(id)}
+						onClick={() => {
+							setPlatform(id);
+							setCapturePage(1);
+							setActiveCaptureId(null);
+						}}
 					>
 						{providerLabel(id)}
 					</button>
@@ -2701,7 +2975,7 @@ function Evidence({ project }: { project: Project }) {
 			) : (
 				<>
 					<div className="evidence-grid">
-						{captures.map((capture) => (
+						{visibleCaptures.map((capture) => (
 							<button
 								type="button"
 								className={`evidence-card ${activeCapture?.captureId === capture.captureId ? "selected" : ""}`}
@@ -2717,6 +2991,16 @@ function Evidence({ project }: { project: Project }) {
 							</button>
 						))}
 					</div>
+					<Pagination
+						page={capturePage}
+						pageSize={10}
+						total={captures.length}
+						totalPages={Math.max(1, Math.ceil(captures.length / 10))}
+						onPage={(page) => {
+							setCapturePage(page);
+							setActiveCaptureId(null);
+						}}
+					/>
 					{activeCapture && <EvidenceDetail capture={activeCapture} />}
 				</>
 			)}
@@ -2960,7 +3244,7 @@ function WebsiteAudit({ project, refresh }: { project: Project; refresh(): Promi
 					<h2>公开页面的 AI 可读性检查</h2>
 					<p className="muted">检查 AI 与搜索系统能否稳定读取官网，以及页面是否提供可理解、可引用的实体和事实结构。</p>
 				</div>
-				<Button busy={busy} icon={<IconShieldCheck size={17} />} onClick={run}>
+				<Button permission="audit.run" busy={busy} icon={<IconShieldCheck size={17} />} onClick={run}>
 					{audit ? "重新审计" : "开始真实审计"}
 				</Button>
 			</div>
@@ -3056,14 +3340,31 @@ function Diagnosis({ project, refresh }: { project: Project; refresh(): Promise<
 	const [selected, setSelected] = useState(project.batches[0]?.id ?? null);
 	const [busy, setBusy] = useState<"rules" | "model" | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
+	const [agentRunsPage, setAgentRunsPage] = useState<Paginated<AgentRun>>({
+		items: [],
+		page: 1,
+		pageSize: 10,
+		total: 0,
+		totalPages: 1,
+	});
+	const agentRuns = agentRunsPage.items;
+	const [findingPage, setFindingPage] = useState(1);
 	const findings = project.findings.filter((item) => item.batch_id === selected);
-	const loadAgentRuns = useCallback(async () => {
-		const result = await api<{ runs: AgentRun[] }>(`/api/projects/${project.id}/agent-runs`);
-		setAgentRuns(result.runs.filter((run) => run.batch_id === selected && run.purpose === "diagnosis"));
-	}, [project.id, selected]);
+	const visibleFindings = findings.slice((findingPage - 1) * 10, findingPage * 10);
+	const loadAgentRuns = useCallback(
+		async (page = agentRunsPage.page) => {
+			const params = new URLSearchParams({
+				page: String(page),
+				pageSize: String(agentRunsPage.pageSize),
+				purposes: "diagnosis",
+			});
+			if (selected) params.set("batchId", selected);
+			setAgentRunsPage(await api<Paginated<AgentRun>>(`/api/projects/${project.id}/agent-runs?${params}`));
+		},
+		[agentRunsPage.page, agentRunsPage.pageSize, project.id, selected],
+	);
 	useEffect(() => {
-		void loadAgentRuns().catch(() => setAgentRuns([]));
+		void loadAgentRuns().catch(() => setAgentRunsPage((current) => ({ ...current, items: [] })));
 	}, [loadAgentRuns]);
 	useAgentRunPolling(agentRuns, loadAgentRuns);
 	async function run(enhanceWithModel = false) {
@@ -3094,10 +3395,15 @@ function Diagnosis({ project, refresh }: { project: Project; refresh(): Promise<
 				</div>
 				<div className="actions">
 					<BatchPicker project={project} selected={selected} setSelected={setSelected} />
-					<Button variant="secondary" busy={busy === "model"} onClick={() => run(true)}>
+					<Button permission="agent.run" variant="secondary" busy={busy === "model"} onClick={() => run(true)}>
 						Pi Agent 诊断草稿
 					</Button>
-					<Button busy={busy === "rules"} icon={<IconSearch size={17} />} onClick={() => run()}>
+					<Button
+						permission="diagnosis.run"
+						busy={busy === "rules"}
+						icon={<IconSearch size={17} />}
+						onClick={() => run()}
+					>
 						生成证据诊断
 					</Button>
 				</div>
@@ -3118,7 +3424,11 @@ function Diagnosis({ project, refresh }: { project: Project; refresh(): Promise<
 					</div>
 					{run.status === "awaiting_approval" && (
 						<div className="actions">
-							<Button variant="secondary" onClick={() => post(`/api/agent-runs/${run.id}/reject`).then(loadAgentRuns)}>
+							<Button
+								permission="agent.approve"
+								variant="secondary"
+								onClick={() => post(`/api/agent-runs/${run.id}/reject`).then(() => loadAgentRuns())}
+							>
 								拒绝
 							</Button>
 							<Button
@@ -3135,6 +3445,7 @@ function Diagnosis({ project, refresh }: { project: Project; refresh(): Promise<
 					)}
 				</article>
 			))}
+			<Pagination {...agentRunsPage} onPage={(page) => void loadAgentRuns(page)} />
 			{findings.length === 0 ? (
 				<Empty
 					title="这个批次还没有诊断"
@@ -3142,7 +3453,7 @@ function Diagnosis({ project, refresh }: { project: Project; refresh(): Promise<
 				/>
 			) : (
 				<ul className="gap-list">
-					{findings.map((finding) => (
+					{visibleFindings.map((finding) => (
 						<li className="gap-item" key={finding.id}>
 							<span className="gap-level gap-confidence">
 								{Math.round(finding.confidence * 100)}
@@ -3162,6 +3473,13 @@ function Diagnosis({ project, refresh }: { project: Project; refresh(): Promise<
 					))}
 				</ul>
 			)}
+			<Pagination
+				page={findingPage}
+				pageSize={10}
+				total={findings.length}
+				totalPages={Math.max(1, Math.ceil(findings.length / 10))}
+				onPage={setFindingPage}
+			/>
 		</section>
 	);
 }
@@ -3169,14 +3487,30 @@ function Diagnosis({ project, refresh }: { project: Project; refresh(): Promise<
 function Remediation({ project, refresh }: { project: Project; refresh(): Promise<void> }) {
 	const [busy, setBusy] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
+	const [agentRunsPage, setAgentRunsPage] = useState<Paginated<AgentRun>>({
+		items: [],
+		page: 1,
+		pageSize: 10,
+		total: 0,
+		totalPages: 1,
+	});
+	const agentRuns = agentRunsPage.items;
+	const [taskPage, setTaskPage] = useState(1);
+	const visibleTasks = project.tasks.slice((taskPage - 1) * 10, taskPage * 10);
 	const latestBatch = project.batches[0]?.id;
-	const loadAgentRuns = useCallback(async () => {
-		const result = await api<{ runs: AgentRun[] }>(`/api/projects/${project.id}/agent-runs`);
-		setAgentRuns(result.runs.filter((run) => ["remediation", "content_brief"].includes(run.purpose)));
-	}, [project.id]);
+	const loadAgentRuns = useCallback(
+		async (page = agentRunsPage.page) => {
+			const params = new URLSearchParams({
+				page: String(page),
+				pageSize: String(agentRunsPage.pageSize),
+				purposes: "remediation,content_brief",
+			});
+			setAgentRunsPage(await api<Paginated<AgentRun>>(`/api/projects/${project.id}/agent-runs?${params}`));
+		},
+		[agentRunsPage.page, agentRunsPage.pageSize, project.id],
+	);
 	useEffect(() => {
-		void loadAgentRuns().catch(() => setAgentRuns([]));
+		void loadAgentRuns().catch(() => setAgentRunsPage((current) => ({ ...current, items: [] })));
 	}, [loadAgentRuns]);
 	useAgentRunPolling(agentRuns, loadAgentRuns);
 	async function call(id: string, action: () => Promise<unknown>) {
@@ -3205,6 +3539,7 @@ function Remediation({ project, refresh }: { project: Project; refresh(): Promis
 				</div>
 				<div className="actions">
 					<Button
+						permission="agent.run"
 						variant="secondary"
 						disabled={!latestBatch}
 						busy={busy === "agent-plan"}
@@ -3216,6 +3551,7 @@ function Remediation({ project, refresh }: { project: Project; refresh(): Promis
 						Pi Agent 规划草稿
 					</Button>
 					<Button
+						permission="remediation.manage"
 						disabled={!latestBatch}
 						busy={busy === "create"}
 						icon={<IconPlus size={17} />}
@@ -3242,12 +3578,14 @@ function Remediation({ project, refresh }: { project: Project; refresh(): Promis
 						{run.status === "awaiting_approval" && (
 							<div className="actions">
 								<Button
+									permission="agent.approve"
 									variant="secondary"
-									onClick={() => post(`/api/agent-runs/${run.id}/reject`).then(loadAgentRuns)}
+									onClick={() => post(`/api/agent-runs/${run.id}/reject`).then(() => loadAgentRuns())}
 								>
 									拒绝
 								</Button>
 								<Button
+									permission="agent.approve"
 									onClick={() =>
 										post(`/api/agent-runs/${run.id}/approve`).then(async () => {
 											await loadAgentRuns();
@@ -3261,15 +3599,23 @@ function Remediation({ project, refresh }: { project: Project; refresh(): Promis
 						)}
 					</article>
 				))}
+			<Pagination {...agentRunsPage} onPage={(page) => void loadAgentRuns(page)} />
 			{project.tasks.length === 0 ? (
 				<Empty title="还没有整改任务" detail="先完成诊断，再把有证据的结论转换为可跟踪任务。" />
 			) : (
 				<div className="remediation-list">
-					{project.tasks.map((task) => (
+					{visibleTasks.map((task) => (
 						<TaskItem key={task.id} task={task} busy={busy === task.id} act={(action) => call(task.id, action)} />
 					))}
 				</div>
 			)}
+			<Pagination
+				page={taskPage}
+				pageSize={10}
+				total={project.tasks.length}
+				totalPages={Math.max(1, Math.ceil(project.tasks.length / 10))}
+				onPage={setTaskPage}
+			/>
 		</section>
 	);
 }
@@ -3293,6 +3639,7 @@ function TaskItem({ task, busy, act }: { task: Task; busy: boolean; act(action: 
 	const [owner, setOwner] = useState(task.owner ?? "");
 	const [dueDate, setDueDate] = useState(task.due_date ? task.due_date.slice(0, 10) : "");
 	const priority = taskPriorityMeta(task.priority);
+	const canManage = usePermission("remediation.manage");
 	return (
 		<article className="task remediation-item">
 			<div className="remediation-main">
@@ -3310,6 +3657,7 @@ function TaskItem({ task, busy, act }: { task: Task; busy: boolean; act(action: 
 				<select
 					aria-label="任务状态"
 					value={task.status}
+					disabled={!canManage}
 					onChange={(event) => act(() => patch(`/api/tasks/${task.id}`, { status: event.target.value }))}
 				>
 					<option value="todo">待处理</option>
@@ -3319,6 +3667,7 @@ function TaskItem({ task, busy, act }: { task: Task; busy: boolean; act(action: 
 					<option value="done">已完成</option>
 				</select>
 				<Button
+					permission="remediation.manage"
 					variant="ghost"
 					icon={<IconTrash size={17} />}
 					aria-label="删除整改任务"
@@ -3343,13 +3692,24 @@ function TaskItem({ task, busy, act }: { task: Task; busy: boolean; act(action: 
 			<div className="task-owner">
 				<label>
 					负责人
-					<input value={owner} onChange={(event) => setOwner(event.target.value)} placeholder="负责人" />
+					<input
+						disabled={!canManage}
+						value={owner}
+						onChange={(event) => setOwner(event.target.value)}
+						placeholder="负责人"
+					/>
 				</label>
 				<label>
 					截止时间
-					<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
+					<input
+						disabled={!canManage}
+						type="date"
+						value={dueDate}
+						onChange={(event) => setDueDate(event.target.value)}
+					/>
 				</label>
 				<Button
+					permission="remediation.manage"
 					variant="secondary"
 					onClick={() =>
 						act(() =>
@@ -3364,7 +3724,12 @@ function TaskItem({ task, busy, act }: { task: Task; busy: boolean; act(action: 
 				</Button>
 			</div>
 			<div className="task-actions">
-				<Button variant="secondary" busy={busy} onClick={() => act(() => post(`/api/tasks/${task.id}/content`))}>
+				<Button
+					permission="agent.run"
+					variant="secondary"
+					busy={busy}
+					onClick={() => act(() => post(`/api/tasks/${task.id}/content`))}
+				>
 					<IconFileText size={16} />
 					Pi Agent 生成待审批内容
 				</Button>
@@ -3372,10 +3737,12 @@ function TaskItem({ task, busy, act }: { task: Task; busy: boolean; act(action: 
 					<input
 						type="url"
 						value={url}
+						disabled={!canManage}
 						onChange={(event) => setUrl(event.target.value)}
 						placeholder="https://真实发布地址"
 					/>
 					<Button
+						permission="remediation.manage"
 						variant="secondary"
 						onClick={() =>
 							act(async () => {
@@ -3431,9 +3798,13 @@ function Attribution({ project }: { project: Project }) {
 	const [file, setFile] = useState<File | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const load = useCallback(async () => {
-		setData(await api<AttributionPayload>(`/api/projects/${project.id}/attribution`));
-	}, [project.id]);
+	const [page, setPage] = useState(1);
+	const load = useCallback(
+		async (targetPage = page) => {
+			setData(await api<AttributionPayload>(`/api/projects/${project.id}/attribution?page=${targetPage}&pageSize=20`));
+		},
+		[page, project.id],
+	);
 	useEffect(() => {
 		void load().catch((reason) => setError(reason instanceof Error ? reason.message : "归因数据加载失败"));
 	}, [load]);
@@ -3486,7 +3857,7 @@ function Attribution({ project }: { project: Project }) {
 						CSV 文件
 						<input type="file" accept=".csv,text/csv" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
 					</label>
-					<Button busy={busy} disabled={!file} onClick={importCsv}>
+					<Button permission="attribution.import" busy={busy} disabled={!file} onClick={importCsv}>
 						导入并校验
 					</Button>
 				</div>
@@ -3546,6 +3917,13 @@ function Attribution({ project }: { project: Project }) {
 							))}
 						</aside>
 					</div>
+					<Pagination
+						{...data.eventsPagination}
+						onPage={(targetPage) => {
+							setPage(targetPage);
+							void load(targetPage);
+						}}
+					/>
 				</>
 			)}
 		</section>
@@ -3782,10 +4160,10 @@ function ReportAgentRun({
 			</div>
 			{run.status === "awaiting_approval" && (
 				<div className="agent-run-actions">
-					<Button variant="ghost" onClick={() => void onReject()}>
+					<Button permission="agent.approve" variant="ghost" onClick={() => void onReject()}>
 						拒绝
 					</Button>
-					<Button icon={<IconCheck size={16} />} onClick={() => void onApprove()}>
+					<Button permission="agent.approve" icon={<IconCheck size={16} />} onClick={() => void onApprove()}>
 						批准
 					</Button>
 				</div>
@@ -3801,32 +4179,67 @@ function Report({ project }: { project: Project }) {
 	const [baselineBatch, setBaselineBatch] = useState<Batch | null>(null);
 	const [report, setReport] = useState<ReportPayload | null>(null);
 	const [reportError, setReportError] = useState<string | null>(null);
-	const [snapshots, setSnapshots] = useState<ReportSnapshot[]>([]);
-	const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
+	const [snapshotsPage, setSnapshotsPage] = useState<Paginated<ReportSnapshot>>({
+		items: [],
+		page: 1,
+		pageSize: 10,
+		total: 0,
+		totalPages: 1,
+	});
+	const snapshots = snapshotsPage.items;
+	const [agentRunsPage, setAgentRunsPage] = useState<Paginated<AgentRun>>({
+		items: [],
+		page: 1,
+		pageSize: 10,
+		total: 0,
+		totalPages: 1,
+	});
+	const agentRuns = agentRunsPage.items;
 	const [reportBusy, setReportBusy] = useState<string | null>(null);
 	const [workflowState, setWorkflowState] = useState<ReportWorkflowState | null>(null);
 	const [shareUrl, setShareUrl] = useState<string | null>(null);
-	const [shares, setShares] = useState<ReportShare[]>([]);
+	const [sharesPage, setSharesPage] = useState<Paginated<ReportShare>>({
+		items: [],
+		page: 1,
+		pageSize: 10,
+		total: 0,
+		totalPages: 1,
+	});
+	const shares = sharesPage.items;
 	const latestSnapshotId = snapshots.find((item) => item.batch_id === selected)?.id ?? null;
-	const loadSnapshots = useCallback(async () => {
-		const result = await api<{ reports: ReportSnapshot[] }>(`/api/projects/${project.id}/reports`);
-		setSnapshots(result.reports);
-	}, [project.id]);
-	const loadAgentRuns = useCallback(async () => {
-		const result = await api<{ runs: AgentRun[] }>(`/api/projects/${project.id}/agent-runs`);
-		setAgentRuns(
-			result.runs.filter(
-				(run) => run.batch_id === selected && ["report_narrative", "quality_review"].includes(run.purpose),
-			),
-		);
-	}, [project.id, selected]);
-	const loadShares = useCallback(async (reportId: string) => {
-		const result = await api<{ shares: ReportShare[] }>(`/api/reports/${reportId}/shares`);
-		setShares(result.shares);
-	}, []);
+	const loadSnapshots = useCallback(
+		async (page = snapshotsPage.page) => {
+			const params = new URLSearchParams({ page: String(page), pageSize: String(snapshotsPage.pageSize) });
+			if (selected) params.set("batchId", selected);
+			setSnapshotsPage(await api<Paginated<ReportSnapshot>>(`/api/projects/${project.id}/reports?${params}`));
+		},
+		[project.id, selected, snapshotsPage.page, snapshotsPage.pageSize],
+	);
+	const loadAgentRuns = useCallback(
+		async (page = agentRunsPage.page) => {
+			const params = new URLSearchParams({
+				page: String(page),
+				pageSize: String(agentRunsPage.pageSize),
+				purposes: "report_narrative,quality_review",
+			});
+			if (selected) params.set("batchId", selected);
+			setAgentRunsPage(await api<Paginated<AgentRun>>(`/api/projects/${project.id}/agent-runs?${params}`));
+		},
+		[agentRunsPage.page, agentRunsPage.pageSize, project.id, selected],
+	);
+	const loadShares = useCallback(
+		async (reportId: string, page = sharesPage.page) => {
+			setSharesPage(
+				await api<Paginated<ReportShare>>(
+					`/api/reports/${reportId}/shares?page=${page}&pageSize=${sharesPage.pageSize}`,
+				),
+			);
+		},
+		[sharesPage.page, sharesPage.pageSize],
+	);
 	useEffect(() => {
-		void loadSnapshots().catch(() => setSnapshots([]));
-		void loadAgentRuns().catch(() => setAgentRuns([]));
+		void loadSnapshots().catch(() => setSnapshotsPage((current) => ({ ...current, items: [] })));
+		void loadAgentRuns().catch(() => setAgentRunsPage((current) => ({ ...current, items: [] })));
 	}, [loadSnapshots, loadAgentRuns]);
 	const hasActiveAgentRuns = agentRuns.some((run) => run.status === "queued" || run.status === "running");
 	useEffect(() => {
@@ -3850,10 +4263,10 @@ function Report({ project }: { project: Project }) {
 	useEffect(() => {
 		setShareUrl(null);
 		if (!latestSnapshotId) {
-			setShares([]);
+			setSharesPage((current) => ({ ...current, items: [] }));
 			return;
 		}
-		void loadShares(latestSnapshotId).catch(() => setShares([]));
+		void loadShares(latestSnapshotId).catch(() => setSharesPage((current) => ({ ...current, items: [] })));
 	}, [latestSnapshotId, loadShares]);
 	useEffect(() => {
 		if (!selected) return;
@@ -3978,6 +4391,7 @@ function Report({ project }: { project: Project }) {
 						<span>Agent 报告工作流</span>
 						<div>
 							<Button
+								permission="report.generate"
 								icon={<IconFileText size={17} />}
 								busy={reportBusy === "workflow" || workflowState === "documents_queued" || hasActiveAgentRuns}
 								disabled={
@@ -3993,6 +4407,7 @@ function Report({ project }: { project: Project }) {
 						<span>交付</span>
 						<div>
 							<Button
+								permission="report.share"
 								variant="secondary"
 								icon={<IconRoute size={17} />}
 								busy={reportBusy === "share"}
@@ -4022,6 +4437,7 @@ function Report({ project }: { project: Project }) {
 					baselineBatch={baselineBatch}
 					pdfAction={
 						<Button
+							permission="report.generate"
 							icon={<IconDownload size={17} />}
 							busy={reportBusy === "pdf"}
 							disabled={!latestSnapshot}
@@ -4067,6 +4483,7 @@ function Report({ project }: { project: Project }) {
 				) : (
 					<p className="agent-activity-empty">当前批次暂无 Agent 任务。</p>
 				)}
+				<Pagination {...agentRunsPage} onPage={(page) => void loadAgentRuns(page)} />
 			</section>
 			{approvedNarrative && (
 				<section className="approved-agent-report">
@@ -4139,6 +4556,7 @@ function Report({ project }: { project: Project }) {
 				) : (
 					<p className="report-assets-empty">当前批次尚未冻结报告版本。</p>
 				)}
+				<Pagination {...snapshotsPage} onPage={(page) => void loadSnapshots(page)} />
 				{shares.length > 0 && latestSnapshot && (
 					<div className="share-list">
 						{shares.map((share) => {
@@ -4154,6 +4572,7 @@ function Report({ project }: { project: Project }) {
 									</div>
 									{active && (
 										<Button
+											permission="report.share"
 											variant="ghost"
 											onClick={() =>
 												api(`/api/report-shares/${share.id}`, { method: "DELETE" }).then(() =>
@@ -4169,6 +4588,7 @@ function Report({ project }: { project: Project }) {
 						})}
 					</div>
 				)}
+				{latestSnapshot && <Pagination {...sharesPage} onPage={(page) => void loadShares(latestSnapshot.id, page)} />}
 			</section>
 			{batch && analysis ? (
 				<>
@@ -4638,6 +5058,7 @@ function ProviderPanel({
 				</span>
 				<div className="actions">
 					<Button
+						permission="settings.manage"
 						variant="secondary"
 						busy={busy === `${provider.providerId}-test`}
 						onClick={() =>
@@ -4649,6 +5070,7 @@ function ProviderPanel({
 						测试连接
 					</Button>
 					<Button
+						permission="settings.manage"
 						busy={busy === `${provider.providerId}-save`}
 						onClick={() =>
 							runAction(`${provider.providerId}-save`, () =>
@@ -4788,6 +5210,7 @@ function Settings() {
 					</label>
 					<div className="actions">
 						<Button
+							permission="settings.manage"
 							busy={busy === "hrouter-save"}
 							disabled={!analysis.model}
 							onClick={() =>
@@ -4803,6 +5226,7 @@ function Settings() {
 							保存 GPT 配置
 						</Button>
 						<Button
+							permission="settings.manage"
 							variant="secondary"
 							busy={busy === "hrouter-models"}
 							onClick={() =>
@@ -4815,6 +5239,7 @@ function Settings() {
 							读取可用 GPT
 						</Button>
 						<Button
+							permission="settings.manage"
 							variant="secondary"
 							busy={busy === "hrouter-test"}
 							onClick={() => action("hrouter-test", () => post("/api/settings/hrouter/test"))}
@@ -4959,6 +5384,7 @@ function ServiceLogs() {
 	const [logs, setLogs] = useState<ServiceLogRow[]>([]);
 	const [counts, setCounts] = useState<Record<ServiceLogLevel, number>>({ debug: 0, info: 0, warn: 0, error: 0 });
 	const [nextCursor, setNextCursor] = useState<string | null>(null);
+	const [cursorHistory, setCursorHistory] = useState<string[]>([]);
 	const [loadingLogs, setLoadingLogs] = useState(false);
 	const [autoRefresh, setAutoRefresh] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -4966,15 +5392,17 @@ function ServiceLogs() {
 	const [retentionDays, setRetentionDays] = useState(90);
 	const [retentionConfirmed, setRetentionConfirmed] = useState(false);
 	const [retentionBusy, setRetentionBusy] = useState(false);
+	const canExport = usePermission("logs.export");
+	const canRetention = usePermission("logs.retention");
 
 	const load = useCallback(
-		async (append = false, cursor: string | null = null) => {
+		async (cursor: string | null = null) => {
 			setLoadingLogs(true);
 			setError(null);
 			try {
-				const params = serviceLogParams(filters, append ? cursor : null);
+				const params = serviceLogParams(filters, cursor);
 				const result = await api<ServiceLogResponse>(`/api/service-logs?${params}`);
-				setLogs((current) => (append ? [...current, ...result.logs] : result.logs));
+				setLogs(result.logs);
 				setCounts(result.counts);
 				setNextCursor(result.nextCursor);
 			} catch (reason) {
@@ -4986,7 +5414,8 @@ function ServiceLogs() {
 		[filters],
 	);
 	useEffect(() => {
-		void load(false);
+		setCursorHistory([]);
+		void load(null);
 	}, [load]);
 	useEffect(() => {
 		void api<{ logService?: Record<string, unknown> }>("/api/health")
@@ -4995,7 +5424,10 @@ function ServiceLogs() {
 	}, []);
 	useEffect(() => {
 		if (!autoRefresh) return;
-		const timer = window.setInterval(() => void load(false), 10_000);
+		const timer = window.setInterval(() => {
+			setCursorHistory([]);
+			void load(null);
+		}, 10_000);
 		return () => window.clearInterval(timer);
 	}, [autoRefresh, load]);
 	const exportParams = serviceLogParams(filters);
@@ -5006,7 +5438,8 @@ function ServiceLogs() {
 		try {
 			const result = await post<{ deleted: number }>("/api/service-logs/retention", { olderThanDays: retentionDays });
 			setRetentionConfirmed(false);
-			await load(false);
+			setCursorHistory([]);
+			await load(null);
 			setError(`已清理 ${result.deleted} 条过期运行日志`);
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : "日志清理失败");
@@ -5033,15 +5466,20 @@ function ServiceLogs() {
 						<input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} />
 						自动刷新
 					</label>
-					<a className="button secondary" href={`/api/service-logs/export.csv?${exportParams}`}>
-						<IconDownload size={16} />
-						CSV
-					</a>
+					{canExport && (
+						<a className="button secondary" href={`/api/service-logs/export.csv?${exportParams}`}>
+							<IconDownload size={16} />
+							CSV
+						</a>
+					)}
 					<Button
 						variant="secondary"
 						icon={<IconRefresh size={16} />}
 						busy={loadingLogs}
-						onClick={() => void load(false)}
+						onClick={() => {
+							setCursorHistory([]);
+							void load(null);
+						}}
 					>
 						刷新
 					</Button>
@@ -5162,40 +5600,62 @@ function ServiceLogs() {
 					<Empty title="当前筛选没有日志" detail="调整时间、服务、级别或关键字后重新筛选。" />
 				)}
 			</div>
-			{nextCursor && (
-				<Button variant="secondary" busy={loadingLogs} onClick={() => void load(true, nextCursor)}>
-					加载更多
-				</Button>
-			)}
-			<section className="service-log-retention">
-				<div>
-					<h3>日志保留操作</h3>
-					<p>仅清理当前机构的运行日志；业务审计和证据不受影响。</p>
-				</div>
-				<select value={retentionDays} onChange={(event) => setRetentionDays(Number(event.target.value))}>
-					<option value={30}>30 天前</option>
-					<option value={90}>90 天前</option>
-					<option value={180}>180 天前</option>
-					<option value={365}>365 天前</option>
-				</select>
-				<label className="toggle-label compact-toggle">
-					<input
-						type="checkbox"
-						checked={retentionConfirmed}
-						onChange={(event) => setRetentionConfirmed(event.target.checked)}
-					/>
-					确认清理
-				</label>
+			<nav className="pagination" aria-label="运行日志分页">
+				<span>第 {cursorHistory.length + 1} 页</span>
 				<Button
-					variant="danger"
-					icon={<IconTrash size={16} />}
-					busy={retentionBusy}
-					disabled={!retentionConfirmed}
-					onClick={() => void prune()}
+					variant="secondary"
+					disabled={!cursorHistory.length || loadingLogs}
+					onClick={() => {
+						const history = cursorHistory.slice(0, -1);
+						setCursorHistory(history);
+						void load(history.at(-1) ?? null);
+					}}
 				>
-					清理过期日志
+					上一页
 				</Button>
-			</section>
+				<Button
+					variant="secondary"
+					disabled={!nextCursor || loadingLogs}
+					onClick={() => {
+						if (!nextCursor) return;
+						setCursorHistory([...cursorHistory, nextCursor]);
+						void load(nextCursor);
+					}}
+				>
+					下一页
+				</Button>
+			</nav>
+			{canRetention && (
+				<section className="service-log-retention">
+					<div>
+						<h3>日志保留操作</h3>
+						<p>仅清理当前机构的运行日志；业务审计和证据不受影响。</p>
+					</div>
+					<select value={retentionDays} onChange={(event) => setRetentionDays(Number(event.target.value))}>
+						<option value={30}>30 天前</option>
+						<option value={90}>90 天前</option>
+						<option value={180}>180 天前</option>
+						<option value={365}>365 天前</option>
+					</select>
+					<label className="toggle-label compact-toggle">
+						<input
+							type="checkbox"
+							checked={retentionConfirmed}
+							onChange={(event) => setRetentionConfirmed(event.target.checked)}
+						/>
+						确认清理
+					</label>
+					<Button
+						variant="danger"
+						icon={<IconTrash size={16} />}
+						busy={retentionBusy}
+						disabled={!retentionConfirmed}
+						onClick={() => void prune()}
+					>
+						清理过期日志
+					</Button>
+				</section>
+			)}
 		</section>
 	);
 }
@@ -5232,15 +5692,23 @@ function KnowledgeBase({
 	canWrite: boolean;
 }) {
 	const [industry, setIndustry] = useState(project?.industry ?? initialIndustry ?? "");
-	const [questions, setQuestions] = useState<LibraryQuestion[]>([]);
+	const [questionsPage, setQuestionsPage] = useState<Paginated<LibraryQuestion>>({
+		items: [],
+		page: 1,
+		pageSize: 10,
+		total: 0,
+		totalPages: 1,
+	});
+	const questions = questionsPage.items;
 	const [form, setForm] = useState({ question: "", intent: "购买决策", topic: "", persona: "", tags: "" });
 	const [error, setError] = useState<string | null>(null);
 	const load = useCallback(
-		() =>
-			api<{ questions: LibraryQuestion[] }>(
-				`/api/knowledge/questions${industry ? `?industry=${encodeURIComponent(industry)}` : ""}`,
-			).then((result) => setQuestions(result.questions)),
-		[industry],
+		(page = questionsPage.page) => {
+			const params = new URLSearchParams({ page: String(page), pageSize: String(questionsPage.pageSize) });
+			if (industry) params.set("industry", industry);
+			return api<Paginated<LibraryQuestion>>(`/api/knowledge/questions?${params}`).then(setQuestionsPage);
+		},
+		[industry, questionsPage.page, questionsPage.pageSize],
 	);
 	useEffect(() => {
 		void load().catch((reason) => setError(reason instanceof Error ? reason.message : "问题库加载失败"));
@@ -5332,10 +5800,11 @@ function KnowledgeBase({
 								</small>
 							</div>
 							<Button
+								permission="knowledge.manage"
 								variant="ghost"
 								icon={<IconTrash size={15} />}
 								disabled={!canWrite}
-								onClick={() => api(`/api/knowledge/questions/${question.id}`, { method: "DELETE" }).then(load)}
+								onClick={() => api(`/api/knowledge/questions/${question.id}`, { method: "DELETE" }).then(() => load())}
 							>
 								归档
 							</Button>
@@ -5344,6 +5813,418 @@ function KnowledgeBase({
 				</div>
 			) : (
 				<Empty title="该行业还没有问题" detail="添加首个问题后，后续同行业客户建档时会自动复用。" />
+			)}
+			<Pagination
+				{...questionsPage}
+				onPage={(page) => void load(page)}
+				onPageSize={(pageSize) => setQuestionsPage((current) => ({ ...current, page: 1, pageSize }))}
+			/>
+		</section>
+	);
+}
+
+type PermissionRecord = {
+	key: string;
+	kind: "page" | "action";
+	group_label: string;
+	label: string;
+	system_only: boolean;
+	desktop_only: boolean;
+	position: number;
+};
+
+type RoleRecord = {
+	id: string;
+	name: string;
+	description: string | null;
+	is_system: boolean;
+	user_count: number;
+	permission_keys: string[];
+};
+
+function PermissionChecklist({
+	permissions,
+	selected,
+	onChange,
+}: {
+	permissions: PermissionRecord[];
+	selected: string[];
+	onChange(keys: string[]): void;
+}) {
+	const groups = useMemo(() => {
+		const values = new Map<string, PermissionRecord[]>();
+		for (const permission of permissions) {
+			const group = values.get(permission.group_label) ?? [];
+			group.push(permission);
+			values.set(permission.group_label, group);
+		}
+		return [...values.entries()];
+	}, [permissions]);
+	return (
+		<div className="permission-groups">
+			{groups.map(([group, items]) => (
+				<fieldset key={group}>
+					<legend>{group}</legend>
+					{items.map((permission) => (
+						<label key={permission.key}>
+							<input
+								type="checkbox"
+								checked={selected.includes(permission.key)}
+								onChange={(event) =>
+									onChange(
+										event.target.checked
+											? [...new Set([...selected, permission.key])]
+											: selected.filter((key) => key !== permission.key),
+									)
+								}
+							/>
+							<span>
+								<b>{permission.label}</b>
+								<small>{permission.kind === "page" ? "页面" : "功能"}</small>
+							</span>
+						</label>
+					))}
+				</fieldset>
+			))}
+		</div>
+	);
+}
+
+function RbacManagement({ user }: { user: UserIdentity }) {
+	const [tab, setTab] = useState<"organization" | "roles" | "users">("organization");
+	const [permissions, setPermissions] = useState<PermissionRecord[]>([]);
+	const [organizationKeys, setOrganizationKeys] = useState<string[]>([]);
+	const [rolesPage, setRolesPage] = useState<Paginated<RoleRecord>>({
+		items: [],
+		page: 1,
+		pageSize: 10,
+		total: 0,
+		totalPages: 1,
+	});
+	const [usersPage, setUsersPage] = useState<Paginated<ManagedUser>>({
+		items: [],
+		page: 1,
+		pageSize: 10,
+		total: 0,
+		totalPages: 1,
+	});
+	const [projectsPage, setProjectsPage] = useState<Paginated<ProjectSummary>>({
+		items: [],
+		page: 1,
+		pageSize: 10,
+		total: 0,
+		totalPages: 1,
+	});
+	const [roleDraft, setRoleDraft] = useState<{
+		id: string | null;
+		name: string;
+		description: string;
+		permissionKeys: string[];
+	}>({
+		id: null,
+		name: "",
+		description: "",
+		permissionKeys: [],
+	});
+	const [selectedUser, setSelectedUser] = useState<ManagedUser | null>(null);
+	const [userRoleIds, setUserRoleIds] = useState<string[]>([]);
+	const [allProjects, setAllProjects] = useState(true);
+	const [projectIds, setProjectIds] = useState<string[]>([]);
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	const loadCatalog = useCallback(async () => {
+		const result = await api<{ permissions: PermissionRecord[]; organizationPermissionKeys: string[] }>(
+			"/api/rbac/catalog",
+		);
+		setPermissions(result.permissions);
+		setOrganizationKeys(result.organizationPermissionKeys);
+	}, []);
+	const loadRoles = useCallback(
+		async (page = rolesPage.page) => {
+			const result = await api<Paginated<RoleRecord>>(`/api/rbac/roles?page=${page}&pageSize=${rolesPage.pageSize}`);
+			setRolesPage(result);
+		},
+		[rolesPage.page, rolesPage.pageSize],
+	);
+	const loadUsers = useCallback(
+		async (page = usersPage.page) => {
+			const result = await api<Paginated<ManagedUser>>(`/api/users?page=${page}&pageSize=${usersPage.pageSize}`);
+			setUsersPage(result);
+		},
+		[usersPage.page, usersPage.pageSize],
+	);
+	const loadProjectsForScope = useCallback(
+		async (page = projectsPage.page) => {
+			const result = await api<Paginated<ProjectSummary>>(
+				`/api/projects?page=${page}&pageSize=${projectsPage.pageSize}`,
+			);
+			setProjectsPage(result);
+		},
+		[projectsPage.page, projectsPage.pageSize],
+	);
+	const reload = useCallback(async () => {
+		setError(null);
+		try {
+			await Promise.all([loadCatalog(), loadRoles(), loadUsers(), loadProjectsForScope()]);
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : "权限配置加载失败");
+		}
+	}, [loadCatalog, loadProjectsForScope, loadRoles, loadUsers]);
+	useEffect(() => {
+		void reload();
+	}, [reload]);
+	const rolePermissions = permissions.filter(
+		(permission) => !permission.system_only && organizationKeys.includes(permission.key),
+	);
+
+	async function saveOrganizationPermissions() {
+		setBusy(true);
+		setError(null);
+		try {
+			await put(`/api/organizations/${user.organizationId}/permissions`, { permissionKeys: organizationKeys });
+			await reload();
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : "机构授权保存失败");
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	async function saveRole() {
+		setBusy(true);
+		setError(null);
+		try {
+			const payload = {
+				name: roleDraft.name,
+				description: roleDraft.description || null,
+				permissionKeys: roleDraft.permissionKeys,
+			};
+			if (roleDraft.id) await put(`/api/rbac/roles/${roleDraft.id}`, payload);
+			else await post("/api/rbac/roles", payload);
+			setRoleDraft({ id: null, name: "", description: "", permissionKeys: [] });
+			await loadRoles(1);
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : "角色保存失败");
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	function editUserAccess(member: ManagedUser) {
+		setSelectedUser(member);
+		setUserRoleIds(member.roles.map((role) => role.id));
+		setAllProjects(member.all_projects);
+		setProjectIds(member.project_ids);
+	}
+
+	async function saveUserAccess() {
+		if (!selectedUser) return;
+		setBusy(true);
+		setError(null);
+		try {
+			await put(`/api/users/${selectedUser.id}/access`, { roleIds: userRoleIds, allProjects, projectIds });
+			await loadUsers();
+			setSelectedUser(null);
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : "用户授权保存失败");
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	return (
+		<section className="rbac-management">
+			<div className="overview-head">
+				<div>
+					<span className="eyebrow">动态 RBAC</span>
+					<h2>机构、角色、用户与客户范围</h2>
+					<p className="muted">最终权限 = 机构授权上限 ∩ 用户全部角色的权限并集，并继续受客户范围限制。</p>
+				</div>
+			</div>
+			{error && <Notice type="error" message={error} />}
+			<div className="segmented-tabs" role="tablist" aria-label="权限配置层级">
+				{(
+					[
+						["organization", "机构授权"],
+						["roles", "角色权限"],
+						["users", "用户与客户范围"],
+					] as const
+				).map(([value, label]) => (
+					<button
+						type="button"
+						role="tab"
+						aria-selected={tab === value}
+						className={tab === value ? "active" : ""}
+						onClick={() => setTab(value)}
+						key={value}
+					>
+						{label}
+					</button>
+				))}
+			</div>
+			{tab === "organization" && (
+				<div className="rbac-section">
+					<header>
+						<div>
+							<h3>{user.organizationName}</h3>
+							<p>超管决定该机构最多可使用的页面和功能；角色不能越过这里的上限。</p>
+						</div>
+						<Button busy={busy} onClick={() => void saveOrganizationPermissions()}>
+							保存机构授权
+						</Button>
+					</header>
+					<PermissionChecklist
+						permissions={permissions.filter((permission) => !permission.system_only)}
+						selected={organizationKeys}
+						onChange={setOrganizationKeys}
+					/>
+				</div>
+			)}
+			{tab === "roles" && (
+				<div className="rbac-split">
+					<section className="rbac-list">
+						<header>
+							<h3>机构角色</h3>
+							<Button
+								variant="secondary"
+								icon={<IconPlus size={16} />}
+								onClick={() => setRoleDraft({ id: null, name: "", description: "", permissionKeys: [] })}
+							>
+								新建角色
+							</Button>
+						</header>
+						{rolesPage.items.map((role) => (
+							<article key={role.id} className={roleDraft.id === role.id ? "active" : ""}>
+								<button
+									type="button"
+									onClick={() =>
+										setRoleDraft({
+											id: role.id,
+											name: role.name,
+											description: role.description ?? "",
+											permissionKeys: role.permission_keys,
+										})
+									}
+								>
+									<b>{role.name}</b>
+									<small>
+										{role.user_count} 位用户 · {role.permission_keys.length} 项权限
+									</small>
+								</button>
+								{!role.is_system && (
+									<Button
+										variant="ghost"
+										icon={<IconTrash size={15} />}
+										onClick={() => api(`/api/rbac/roles/${role.id}`, { method: "DELETE" }).then(() => loadRoles())}
+									>
+										删除
+									</Button>
+								)}
+							</article>
+						))}
+						<Pagination {...rolesPage} onPage={(page) => void loadRoles(page)} />
+					</section>
+					<section className="role-editor">
+						<h3>{roleDraft.id ? "编辑角色" : "新建角色"}</h3>
+						<input
+							value={roleDraft.name}
+							onChange={(event) => setRoleDraft({ ...roleDraft, name: event.target.value })}
+							placeholder="角色名称"
+						/>
+						<textarea
+							value={roleDraft.description}
+							onChange={(event) => setRoleDraft({ ...roleDraft, description: event.target.value })}
+							placeholder="角色说明"
+							rows={3}
+						/>
+						<PermissionChecklist
+							permissions={rolePermissions}
+							selected={roleDraft.permissionKeys}
+							onChange={(permissionKeys) => setRoleDraft({ ...roleDraft, permissionKeys })}
+						/>
+						<Button busy={busy} disabled={!roleDraft.name.trim()} onClick={() => void saveRole()}>
+							保存角色
+						</Button>
+					</section>
+				</div>
+			)}
+			{tab === "users" && (
+				<div className="rbac-split">
+					<section className="rbac-list">
+						<h3>机构用户</h3>
+						{usersPage.items.map((member) => (
+							<article key={member.id} className={selectedUser?.id === member.id ? "active" : ""}>
+								<button type="button" disabled={member.is_super_admin} onClick={() => editUserAccess(member)}>
+									<b>{member.display_name}</b>
+									<small>{member.roles.map((role) => role.name).join("、") || "未分配角色"}</small>
+								</button>
+							</article>
+						))}
+						<Pagination {...usersPage} onPage={(page) => void loadUsers(page)} />
+					</section>
+					<section className="role-editor">
+						<h3>{selectedUser ? `${selectedUser.display_name} 的访问范围` : "选择一个用户"}</h3>
+						{selectedUser && (
+							<>
+								<fieldset className="role-assignment">
+									<legend>分配角色（可多选）</legend>
+									{rolesPage.items.map((role) => (
+										<label key={role.id}>
+											<input
+												type="checkbox"
+												checked={userRoleIds.includes(role.id)}
+												onChange={(event) =>
+													setUserRoleIds(
+														event.target.checked
+															? [...new Set([...userRoleIds, role.id])]
+															: userRoleIds.filter((id) => id !== role.id),
+													)
+												}
+											/>
+											{role.name}
+										</label>
+									))}
+								</fieldset>
+								<label className="toggle-label">
+									<input
+										type="checkbox"
+										checked={allProjects}
+										onChange={(event) => setAllProjects(event.target.checked)}
+									/>
+									可访问机构下全部客户
+								</label>
+								{!allProjects && (
+									<div className="project-scope-list">
+										{projectsPage.items.map((project) => (
+											<label key={project.id}>
+												<input
+													type="checkbox"
+													checked={projectIds.includes(project.id)}
+													onChange={(event) =>
+														setProjectIds(
+															event.target.checked
+																? [...new Set([...projectIds, project.id])]
+																: projectIds.filter((id) => id !== project.id),
+														)
+													}
+												/>
+												<span>
+													<b>{project.name}</b>
+													<small>{project.domain}</small>
+												</span>
+											</label>
+										))}
+										<Pagination {...projectsPage} onPage={(page) => void loadProjectsForScope(page)} />
+									</div>
+								)}
+								<Button busy={busy} onClick={() => void saveUserAccess()}>
+									保存用户授权
+								</Button>
+							</>
+						)}
+					</section>
+				</div>
 			)}
 		</section>
 	);
@@ -5356,18 +6237,28 @@ function OrganizationManagement({
 	user: UserIdentity;
 	onIdentityChange(user: UserIdentity): void;
 }) {
-	const [organizations, setOrganizations] = useState<OrganizationSummary[]>([]);
+	const [organizations, setOrganizations] = useState<Paginated<OrganizationSummary>>({
+		items: [],
+		page: 1,
+		pageSize: 10,
+		total: 0,
+		totalPages: 1,
+	});
 	const [name, setName] = useState("");
+	const [search, setSearch] = useState("");
+	const [suspending, setSuspending] = useState<OrganizationSummary | null>(null);
+	const [suspensionReason, setSuspensionReason] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const load = useCallback(
-		() =>
-			api<{ organizations: OrganizationSummary[] }>("/api/organizations").then((result) =>
-				setOrganizations(result.organizations),
-			),
-		[],
+		(page = organizations.page) => {
+			const params = new URLSearchParams({ page: String(page), pageSize: String(organizations.pageSize) });
+			if (search.trim()) params.set("search", search.trim());
+			return api<Paginated<OrganizationSummary>>(`/api/organizations?${params}`).then(setOrganizations);
+		},
+		[organizations.page, organizations.pageSize, search],
 	);
 	useEffect(() => {
-		void load().catch(() => setOrganizations([]));
+		void load().catch(() => setOrganizations((current) => ({ ...current, items: [] })));
 	}, [load]);
 	async function create() {
 		setError(null);
@@ -5383,6 +6274,21 @@ function OrganizationManagement({
 		const result = await post<{ user: UserIdentity }>("/api/organizations/select", { organizationId });
 		onIdentityChange(result.user);
 	}
+	async function updateStatus(
+		organization: OrganizationSummary,
+		status: "active" | "suspended",
+		reason: string | null = null,
+	) {
+		setError(null);
+		try {
+			await put(`/api/organizations/${organization.id}/status`, { status, reason });
+			setSuspending(null);
+			setSuspensionReason("");
+			await load();
+		} catch (reasonValue) {
+			setError(reasonValue instanceof Error ? reasonValue.message : "机构状态更新失败");
+		}
+	}
 	return (
 		<section className="organization-management">
 			<div className="overview-head">
@@ -5392,6 +6298,7 @@ function OrganizationManagement({
 					<p className="muted">每个机构拥有独立的项目、证据、模型凭据、问题库、报告、成员和审计日志。</p>
 				</div>
 				<div className="organization-create">
+					<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索机构名称或 ID" />
 					<input value={name} onChange={(event) => setName(event.target.value)} placeholder="新机构名称" />
 					<Button icon={<IconPlus size={16} />} disabled={!name.trim()} onClick={create}>
 						创建机构
@@ -5400,7 +6307,7 @@ function OrganizationManagement({
 			</div>
 			{error && <Notice type="error" message={error} />}
 			<div className="organization-list">
-				{organizations.map((organization) => (
+				{organizations.items.map((organization) => (
 					<article className={organization.id === user.organizationId ? "active" : ""} key={organization.id}>
 						<div>
 							<h3>{organization.name}</h3>
@@ -5408,33 +6315,85 @@ function OrganizationManagement({
 							<p>
 								{organization.project_count} 个项目 · {organization.user_count} 位有效成员
 							</p>
+							{organization.suspended_at && (
+								<small className="organization-suspended">
+									已封禁：{organization.suspended_reason || "未填写原因"}
+								</small>
+							)}
 						</div>
-						<Button
-							variant="secondary"
-							disabled={organization.id === user.organizationId}
-							onClick={() => void select(organization.id)}
-						>
-							进入机构
-						</Button>
+						<div className="actions">
+							<Button
+								variant="secondary"
+								disabled={organization.id === user.organizationId}
+								onClick={() => void select(organization.id)}
+							>
+								进入机构
+							</Button>
+							{organization.suspended_at ? (
+								<Button variant="secondary" onClick={() => void updateStatus(organization, "active")}>
+									解封
+								</Button>
+							) : (
+								<Button variant="danger" onClick={() => setSuspending(organization)}>
+									封禁
+								</Button>
+							)}
+						</div>
 					</article>
 				))}
 			</div>
+			<Pagination {...organizations} onPage={(page) => void load(page)} />
+			{suspending && (
+				<div className="modal-backdrop" role="presentation">
+					<section className="modal compact-modal" role="dialog" aria-modal="true" aria-label="封禁机构">
+						<h3>封禁 {suspending.name}</h3>
+						<p>封禁会立即撤销该机构普通用户的会话，超管仍可进入处理。</p>
+						<textarea
+							value={suspensionReason}
+							onChange={(event) => setSuspensionReason(event.target.value)}
+							rows={4}
+							placeholder="填写封禁原因"
+						/>
+						<div className="form-actions">
+							<Button variant="secondary" onClick={() => setSuspending(null)}>
+								取消
+							</Button>
+							<Button
+								variant="danger"
+								disabled={!suspensionReason.trim()}
+								onClick={() => void updateStatus(suspending, "suspended", suspensionReason)}
+							>
+								确认封禁
+							</Button>
+						</div>
+					</section>
+				</div>
+			)}
 		</section>
 	);
 }
 
 function AuditLogPanel() {
-	const [logs, setLogs] = useState<AuditLogRow[]>([]);
+	const [logs, setLogs] = useState<Paginated<AuditLogRow>>({
+		items: [],
+		page: 1,
+		pageSize: 20,
+		total: 0,
+		totalPages: 1,
+	});
+	const load = useCallback(
+		(page = logs.page) =>
+			api<Paginated<AuditLogRow>>(`/api/audit-logs?page=${page}&pageSize=${logs.pageSize}`).then(setLogs),
+		[logs.page, logs.pageSize],
+	);
 	useEffect(() => {
-		void api<{ logs: AuditLogRow[] }>("/api/audit-logs")
-			.then((result) => setLogs(result.logs))
-			.catch(() => setLogs([]));
-	}, []);
+		void load().catch(() => setLogs((current) => ({ ...current, items: [] })));
+	}, [load]);
 	return (
 		<div className="audit-log-panel">
-			<p>保留最近 200 条成员写操作、审批和设置变更。</p>
+			<p>按页查看成员写操作、审批和设置变更。</p>
 			<div className="audit-log-list">
-				{logs.slice(0, 50).map((log) => (
+				{logs.items.map((log) => (
 					<article key={log.id}>
 						<time>{date(log.created_at)}</time>
 						<b>{log.action}</b>
@@ -5446,6 +6405,11 @@ function AuditLogPanel() {
 					</article>
 				))}
 			</div>
+			<Pagination
+				{...logs}
+				onPage={(page) => void load(page)}
+				onPageSize={(pageSize) => setLogs((current) => ({ ...current, page: 1, pageSize }))}
+			/>
 		</div>
 	);
 }
@@ -5455,25 +6419,44 @@ type ManagedUser = {
 	email: string;
 	display_name: string;
 	role: string;
+	is_super_admin: boolean;
 	disabled_at: string | null;
 	created_at: string;
+	all_projects: boolean;
+	roles: Array<{ id: string; name: string }>;
+	permission_keys: string[];
+	project_ids: string[];
 };
 function UserManagement() {
-	const [users, setUsers] = useState<ManagedUser[]>([]);
-	const [form, setForm] = useState({ email: "", displayName: "", role: "analyst", password: "" });
+	const [users, setUsers] = useState<Paginated<ManagedUser>>({
+		items: [],
+		page: 1,
+		pageSize: 10,
+		total: 0,
+		totalPages: 1,
+	});
+	const [roles, setRoles] = useState<RoleRecord[]>([]);
+	const [form, setForm] = useState({ email: "", displayName: "", roleId: "", password: "" });
 	const [error, setError] = useState<string | null>(null);
 	const load = useCallback(
-		() => api<{ users: ManagedUser[] }>("/api/users").then((result) => setUsers(result.users)),
-		[],
+		(page = users.page) =>
+			api<Paginated<ManagedUser>>(`/api/users?page=${page}&pageSize=${users.pageSize}`).then(setUsers),
+		[users.page, users.pageSize],
 	);
 	useEffect(() => {
-		void load().catch(() => setUsers([]));
+		void load().catch(() => setUsers((current) => ({ ...current, items: [] })));
+		void api<Paginated<RoleRecord>>("/api/rbac/roles?page=1&pageSize=100")
+			.then((result) => {
+				setRoles(result.items);
+				setForm((current) => ({ ...current, roleId: current.roleId || result.items[0]?.id || "" }));
+			})
+			.catch(() => setRoles([]));
 	}, [load]);
 	async function create() {
 		setError(null);
 		try {
-			await post("/api/users", form);
-			setForm({ email: "", displayName: "", role: "analyst", password: "" });
+			await post("/api/users", { ...form, roleIds: form.roleId ? [form.roleId] : [] });
+			setForm({ email: "", displayName: "", roleId: roles[0]?.id ?? "", password: "" });
 			await load();
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : "成员创建失败");
@@ -5494,10 +6477,12 @@ function UserManagement() {
 					value={form.displayName}
 					onChange={(event) => setForm({ ...form, displayName: event.target.value })}
 				/>
-				<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}>
-					<option value="admin">管理员</option>
-					<option value="analyst">分析师</option>
-					<option value="viewer">只读</option>
+				<select value={form.roleId} onChange={(event) => setForm({ ...form, roleId: event.target.value })}>
+					{roles.map((role) => (
+						<option value={role.id} key={role.id}>
+							{role.name}
+						</option>
+					))}
 				</select>
 				<input
 					type="password"
@@ -5505,12 +6490,16 @@ function UserManagement() {
 					value={form.password}
 					onChange={(event) => setForm({ ...form, password: event.target.value })}
 				/>
-				<Button disabled={!form.email || !form.displayName || form.password.length < 12} onClick={create}>
+				<Button
+					permission="members.manage"
+					disabled={!form.email || !form.displayName || !form.roleId || form.password.length < 12}
+					onClick={create}
+				>
 					添加成员
 				</Button>
 			</div>
 			<div className="user-list">
-				{users.map((user) => (
+				{users.items.map((user) => (
 					<article key={user.id}>
 						<span className="member-avatar" aria-hidden="true">
 							{user.display_name.slice(0, 1)}
@@ -5518,7 +6507,7 @@ function UserManagement() {
 						<div>
 							<b>{user.display_name}</b>
 							<small>
-								{user.email} · {user.role}
+								{user.email} · {user.roles.map((role) => role.name).join("、") || "未分配角色"}
 							</small>
 						</div>
 						<div className="user-row-side">
@@ -5526,9 +6515,10 @@ function UserManagement() {
 								{user.disabled_at ? "已停用" : "有效"}
 							</b>
 							<Button
+								permission="members.manage"
 								variant="ghost"
 								disabled={Boolean(user.disabled_at)}
-								onClick={() => api(`/api/users/${user.id}`, { method: "DELETE" }).then(load)}
+								onClick={() => api(`/api/users/${user.id}`, { method: "DELETE" }).then(() => load())}
 							>
 								停用
 							</Button>
@@ -5536,6 +6526,11 @@ function UserManagement() {
 					</article>
 				))}
 			</div>
+			<Pagination
+				{...users}
+				onPage={(page) => void load(page)}
+				onPageSize={(pageSize) => setUsers((current) => ({ ...current, page: 1, pageSize }))}
+			/>
 		</div>
 	);
 }

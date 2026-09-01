@@ -259,6 +259,238 @@
 		flex-wrap: wrap;
 	}
 }
+
+/* Dynamic RBAC and pagination */
+.project-search {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: min(420px, 100%);
+	margin-top: 18px;
+	padding: 0 11px;
+	border: 1px solid var(--line-strong);
+	border-radius: 8px;
+	background: var(--surface);
+	color: var(--ink-3);
+}
+.project-search input {
+	width: 100%;
+	border: 0 !important;
+	box-shadow: none !important;
+	background: transparent;
+}
+.pagination {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+	min-height: 40px;
+	margin-top: 12px;
+}
+.pagination > span {
+	margin-right: auto;
+	color: var(--ink-3);
+	font-size: 12px;
+}
+.pagination select {
+	min-height: 36px;
+	font-size: 12px;
+}
+.button.icon-button {
+	width: 36px;
+	min-width: 36px;
+	padding: 0;
+}
+.rbac-management,
+.rbac-section,
+.role-editor,
+.rbac-list {
+	display: grid;
+	gap: 14px;
+}
+.segmented-tabs {
+	display: inline-grid;
+	grid-template-columns: repeat(3, minmax(130px, 1fr));
+	justify-self: start;
+	padding: 3px;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background: var(--surface-2);
+}
+.segmented-tabs button {
+	min-height: 34px;
+	padding: 0 13px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--ink-3);
+	font-size: 13px;
+	font-weight: 650;
+}
+.segmented-tabs button.active {
+	background: var(--surface);
+	color: var(--ink);
+	box-shadow: var(--shadow-1);
+}
+.rbac-section > header,
+.rbac-list > header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+}
+.rbac-section h3,
+.rbac-section p,
+.rbac-list h3,
+.role-editor h3 {
+	margin: 0;
+}
+.rbac-section p {
+	margin-top: 4px;
+	color: var(--ink-3);
+}
+.rbac-split {
+	display: grid;
+	grid-template-columns: minmax(270px, 0.72fr) minmax(440px, 1.28fr);
+	gap: 18px;
+	align-items: start;
+}
+.rbac-list {
+	min-width: 0;
+}
+.rbac-list article {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background: var(--surface);
+}
+.rbac-list article.active {
+	border-color: var(--brand-line);
+	background: var(--brand-soft);
+}
+.rbac-list article > button:not(.button) {
+	display: grid;
+	gap: 3px;
+	flex: 1;
+	min-width: 0;
+	padding: 11px 13px;
+	border: 0;
+	background: transparent;
+	color: var(--ink);
+	text-align: left;
+}
+.rbac-list article > button:not(.button) small {
+	overflow: hidden;
+	color: var(--ink-3);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.role-editor {
+	padding-left: 18px;
+	border-left: 1px solid var(--line);
+}
+.permission-groups {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 10px;
+}
+.permission-groups fieldset,
+.role-assignment {
+	display: grid;
+	gap: 7px;
+	min-width: 0;
+	margin: 0;
+	padding: 12px;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+}
+.permission-groups legend,
+.role-assignment legend {
+	padding: 0 5px;
+	color: var(--ink-2);
+	font-size: 12px;
+	font-weight: 700;
+}
+.permission-groups label,
+.role-assignment label,
+.project-scope-list label {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	min-width: 0;
+	padding: 7px 8px;
+	border-radius: 6px;
+	color: var(--ink-2);
+}
+.permission-groups label:hover,
+.role-assignment label:hover,
+.project-scope-list label:hover {
+	background: var(--surface-2);
+}
+.permission-groups label span,
+.project-scope-list label span {
+	display: grid;
+	gap: 2px;
+}
+.permission-groups small,
+.project-scope-list small {
+	color: var(--ink-4);
+	font-size: 11px;
+}
+.project-scope-list {
+	display: grid;
+	gap: 4px;
+	max-height: 380px;
+	overflow: auto;
+	padding: 8px;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+}
+.organization-suspended {
+	display: block;
+	margin-top: 5px;
+	color: var(--danger-strong);
+}
+.compact-modal {
+	width: min(500px, calc(100vw - 28px));
+}
+.compact-modal textarea {
+	width: 100%;
+}
+
+@media (max-width: 900px) {
+	.rbac-split,
+	.permission-groups {
+		grid-template-columns: 1fr;
+	}
+	.role-editor {
+		padding-top: 16px;
+		padding-left: 0;
+		border-top: 1px solid var(--line);
+		border-left: 0;
+	}
+}
+
+@media (max-width: 600px) {
+	.segmented-tabs {
+		grid-template-columns: 1fr;
+		width: 100%;
+	}
+	.pagination {
+		align-items: stretch;
+		flex-wrap: wrap;
+	}
+	.pagination > span {
+		width: 100%;
+	}
+	.pagination .button,
+	.pagination select {
+		flex: 1;
+	}
+}
 * {
 	box-sizing: border-box;
 }

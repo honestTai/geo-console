@@ -127,6 +127,8 @@ services:
       dockerfile: docker/Dockerfile
       target: web
     restart: unless-stopped
+    volumes:
+      - ${GEO_DESKTOP_RELEASES_DIR:-./dist/desktop}:/srv/desktop:ro
 
   caddy:
     image: caddy:2.10.2-alpine
