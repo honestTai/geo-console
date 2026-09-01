@@ -1,3 +1,4 @@
+export * from "./access";
 export * from "./comparability";
 export * from "./database";
 export * from "./paths";

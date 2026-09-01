@@ -21,6 +21,8 @@ Agent Worker   -> HRouter/Pi Agent -> pending structured draft -> human approval
 Report Worker  -> immutable snapshot -> Playwright PDF -> artifact store
 ```
 
+Tauri 2 桌面客户端加载同一个工作台 URL，是所有角色的正式客户端；浏览器保留同步调试。页面导航和 API 策略从数据库资源目录动态解析，桌面壳只负责窗口、用户代理和签名更新。
+
 本机 `corepack pnpm geo start` 启动独立 Log Service、包含三个队列执行器的组合 API 进程和 Vite Web，避免多进程 PGlite 目录争用；Log Service 使用独立本机 PGlite。服务器 PostgreSQL Compose 将 Log/API/三个 Worker/Web/Caddy 分开，只有 Caddy 暴露 80/443。
 
 ## 所有者地图
@@ -34,6 +36,7 @@ Report Worker  -> immutable snapshot -> Playwright PDF -> artifact store
 | 五平台协议 | `packages/search-providers/src/*.ts` | `apps/worker/src/providers.ts` |
 | 指标分母与汇总 | `packages/metrics/src/visibility.ts` | batch/report UI |
 | HTTP、RBAC、租户隔离、公开分享 | `apps/worker/src/index.ts`、`auth.ts`、`tenancy.ts` | `apps/web/src/api.ts` |
+| 动态权限目录与分页 | `apps/worker/src/rbac.ts`、`pagination.ts`、`permissions/permission_routes/roles` migration | API、Web/Tauri 导航与列表 |
 | 结构化运行日志 | `packages/logging`、`apps/log-service`、`service_logs` migration | API、Capture/Agent/Report Worker、Web 日志中心 |
 | 行业问题知识库 | `apps/worker/src/knowledge-base.ts`、`packages/core/src/schema.ts` | onboarding、Web 知识库 |
 | 项目、批次、诊断、整改、漂移 | `apps/worker/src/service.ts` | API、Web |
@@ -44,6 +47,7 @@ Report Worker  -> immutable snapshot -> Playwright PDF -> artifact store
 | 归因 CSV | `apps/worker/src/attribution.ts` | Attribution view |
 | 对象存储 | `apps/worker/src/object-store.ts` | captures、snapshots、PDF |
 | 工作台 UI | `apps/web/src/App.tsx`、`styles.css` | browser |
+| 桌面客户端与签名更新 | `apps/desktop/src-tauri`、`apps/web` 更新入口 | macOS/Windows/Linux 用户 |
 | 静态官网 | `landing/` | browser root path; no API/DB access |
 | 本机 CLI | `scripts/geo.ts` | setup/start/doctor/backup |
 | 本机组合 Worker | `apps/worker/src/local-workers.ts` | 仅 `GEO_LOCAL_COMBINED=true`；生产禁用 |
@@ -62,10 +66,10 @@ Report Worker  -> immutable snapshot -> Playwright PDF -> artifact store
 
 ## Web 工作台
 
-`App.tsx` 当前包含项目总览、AI 监测、证据中心、官网审计、诊断、整改、业务归因、复测报告，以及不依赖项目选择的机构问题库、平台设置、成员、业务审计、运行日志和超管多租户管理。运行日志支持服务/级别/时间/关键字筛选、分页、CSV、刷新和保留期清理。证据回答使用安全结构化 Markdown；报告使用单一可续跑工作流展示叙述、质检、冻结和文档状态。
+`App.tsx` 的组件注册表只负责把服务端 `navigation_key` 映射到真实组件；标签、顺序和可见性来自 `/api/rbac/navigation`。工作台包含业务页面、机构管理、超管机构状态和分层 RBAC 编辑器。运营列表统一分页，运行日志使用不累积全部结果的游标翻页。证据回答使用安全结构化 Markdown；报告使用单一可续跑工作流展示叙述、质检、冻结和文档状态。
 
 图表、KPI 与平台卡只消费真实 API 响应；无批次时使用空状态，不能把视觉验收 fixture 放入 `apps/web/public` 或正式构建。UI 仍是单文件应用壳；新增共享业务规则时不要继续堆入组件，应放回拥有该规则的 package/worker service。
 
 `landing/` 是独立静态官网，部署在根路径；`apps/web` 使用 Vite base `/app/`。官网演示同步工作台菜单顺序和浅色布局，并为菜单、运行操作、设置、成员和日志提供窄屏交互；示意数据必须显式标注，不能请求业务 API、写数据库或被工作台导入。
 
-API 使用 same-origin Cookie。公开面只有登录、健康检查和带 token 的报告分享；Artifact 需要登录。Settings、用户和审计日志要求 admin，其他写操作要求 analyst，读操作要求 viewer。
+API 使用 same-origin Cookie。公开面只有登录、健康检查和带 token 的报告分享；Artifact 需要登录。运行时不按固定角色判断：`permission_routes` 匹配 HTTP 方法和路径模板，用户有效权限来自机构上限与多角色并集，项目和 Artifact 再校验客户范围；未登记路由默认拒绝。

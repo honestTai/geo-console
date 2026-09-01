@@ -27,9 +27,46 @@ corepack pnpm geo start
 
 官网演示与业务工作台在 Web 镜像内使用不同目录。官网示意数据不访问 API 或数据库；业务工作台继续只显示真实项目数据。
 
+## 桌面客户端
+
+`apps/desktop` 是面向全部用户的 Tauri 2 客户端。正式版加载 `https://geo.example.com/app/`，开发版加载本机 `/app/`；浏览器暂时保留同步功能用于调试。桌面壳不内置数据库、证据或 Provider Key，所有权限和数据仍来自服务器。
+
+开发运行：
+
+```bash
+corepack pnpm desktop
+```
+
+首次发布机已使用 Tauri CLI 生成独立密钥：私钥默认位于 `~/.tauri/zz-geo.key` 且必须保持 `0600`，公钥写入 `apps/desktop/src-tauri/tauri.conf.json`。私钥不得进入 Git、`.run` bundle、服务器源码或交付说明。构建签名更新包：
+
+```bash
+export TAURI_SIGNING_PRIVATE_KEY="$HOME/.tauri/zz-geo.key"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+corepack pnpm desktop:build
+```
+
+macOS/Windows/Linux 更新产物及 `.sig` 由 Tauri 生成。发布时生成有效的 `latest.json`，上传到配置的 HTTPS 地址 `https://www.honesttai.com/desktop/latest.json`，并确保所有已声明平台条目都有 URL 和签名。丢失私钥会导致已安装客户端无法接受后续更新，必须离线备份。
+
+单平台桌面产物应先整理为版本化名称并生成清单；多平台发布在各平台构建完成后合并 `platforms`，不能填写空签名：
+
+```bash
+corepack pnpm desktop:stage -- \
+  --version 0.2.0 \
+  --target darwin-aarch64 \
+  --bundle "apps/desktop/src-tauri/target/release/bundle/macos/ZZ Geo.app.tar.gz" \
+  --signature-file apps/desktop/src-tauri/target/release/bundle/macos/ZZ\ Geo.app.tar.gz.sig
+```
+
+将清单和清单引用的版本化更新包上传到服务器后原子发布；资产先就位，`latest.json` 最后切换，旧清单保留为 `latest.previous.json`：
+
+```bash
+sudo geo-console desktop-publish /tmp/latest.json /tmp/zz-geo-0.2.0-darwin-aarch64.app.tar.gz
+curl -fsS https://www.honesttai.com/desktop/latest.json
+```
+
 ### 本地生成闭源发布包
 
-发布包通过 SSH/SCP 私下传输，不依赖公开 Git 仓库，也不包含 Git 历史、`.env`、Secret、数据库、证据或备份。它包含构建服务器镜像所需的当前源码；服务器安装目录仅 root 可进入。
+发布包通过 SSH/SCP 私下传输，不依赖公开 Git 仓库，也不包含 Git 历史、`.env`、Secret、数据库、证据、备份或 `apps/desktop`。它只包含构建服务器镜像所需的当前源码；桌面客户端走独立签名发布，服务器安装目录仅 root 可进入。
 
 在开发机仓库中执行：
 
@@ -67,7 +104,7 @@ sudo bash ./geo-console-<版本>.run \
 - 生成 owner-only 的 PostgreSQL 密码、32 字节 Base64 主密钥、系统超管初始密码和 Log Service 内部令牌。
 - 顺序启动 PostgreSQL、Log Service、API、Capture Worker、Agent Worker、Report Worker、Web 和 Caddy，避免首次迁移竞争。
 - 验证 HTTPS、服务健康和一次数据库/本地证据成对备份。
-- 验证根路径官网、`/app/` 登录入口以及两者之间的导航。
+- 验证根路径官网、`/app/` 同步调试入口以及桌面客户端登录与动态导航。
 
 默认备份目录为 `/var/backups/geo-console`，可用 `--backup-dir /安全路径` 指定。该目录仍应定期同步到另一台机器或私有对象存储。
 
@@ -77,7 +114,7 @@ sudo bash ./geo-console-<版本>.run \
 sudo geo-console show-admin-password
 ```
 
-`/opt/geo-console/shared/secrets/master_key` 必须永久离线备份；丢失或随意更换会导致数据库中按租户加密的供应商/HRouter Key 无法读取。首次账号是系统超管。环境变量或 Secret 文件中的 Provider/HRouter Key 只为默认机构提供 bootstrap fallback；新机构必须切换到该机构后单独保存并测试密钥，绝不能隐式共享默认机构凭据。
+`/opt/geo-console/shared/secrets/master_key` 必须永久离线备份；丢失或随意更换会导致数据库中按租户加密的供应商/HRouter Key 无法读取。首次账号是数据库中唯一系统超管；后续机构和角色不能创建第二个超管。环境变量或 Secret 文件中的 Provider/HRouter Key 只为默认机构提供 bootstrap fallback；新机构必须切换到该机构后单独保存并测试密钥，绝不能隐式共享默认机构凭据。
 
 ### 开发阶段升级
 

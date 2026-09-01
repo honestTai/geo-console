@@ -17,7 +17,7 @@ describe("真实归因 CSV", () => {
 			};
 			const imported = await importAttributionCsv(database, "project", input);
 			expect(imported.events).toBe(2);
-			const result = await getAttribution(database, "project");
+			const result = await getAttribution(database, "project", { page: 1, pageSize: 20, offset: 0, search: null });
 			expect(result.summary).toHaveLength(2);
 			await expect(importAttributionCsv(database, "project", input)).rejects.toThrow("已经导入过");
 		} finally {

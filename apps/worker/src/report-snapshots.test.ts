@@ -156,7 +156,9 @@ describe("不可变报告快照", () => {
 				});
 				expect(await queueScheduledReportSnapshots(database)).toBe(0);
 				expect(await queueScheduledReportSnapshots(database)).toBe(0);
-				const created = (await listReportSnapshots(database, "project"))[0] as { id: string };
+				const created = (
+					await listReportSnapshots(database, "project", { page: 1, pageSize: 20, offset: 0, search: null })
+				).items[0] as { id: string };
 				const snapshot = await getReportSnapshot(database, created.id);
 				expect(snapshot?.payload_hash).toMatch(/^[a-f0-9]{64}$/);
 				expect(renderReportHtml(snapshot ?? {})).toContain("API 回答不等同于对应消费端 App");
@@ -177,12 +179,15 @@ describe("不可变报告快照", () => {
 
 				const share = await createReportShare(database, created.id, 30);
 				expect((await getSharedReport(database, share.token))?.id).toBe(created.id);
-				expect(await listReportShares(database, created.id)).toHaveLength(1);
+				expect(
+					(await listReportShares(database, created.id, { page: 1, pageSize: 20, offset: 0, search: null })).items,
+				).toHaveLength(1);
 				await revokeReportShare(database, share.id);
 				expect(await getSharedReport(database, share.token)).toBeNull();
-				expect((await listReportShares(database, created.id)) as Array<{ revoked_at: string | null }>).toEqual([
-					expect.objectContaining({ revoked_at: expect.anything() }),
-				]);
+				expect(
+					(await listReportShares(database, created.id, { page: 1, pageSize: 20, offset: 0, search: null }))
+						.items as Array<{ revoked_at: string | null }>,
+				).toEqual([expect.objectContaining({ revoked_at: expect.anything() })]);
 			} finally {
 				await database.close();
 			}

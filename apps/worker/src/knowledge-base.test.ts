@@ -19,15 +19,15 @@ describe("机构行业问题知识库", () => {
 				question: "其他租户的问题是什么？",
 				intent: "调研",
 			});
-			expect(await listLibraryQuestions(database, "default", "企业服务")).toEqual([
+			expect((await listLibraryQuestions(database, "default", "企业服务")).items).toEqual([
 				expect.objectContaining({ id: current.id, question: "适合成长型企业的服务商有哪些？" }),
 			]);
-			const otherQuestions = (await listLibraryQuestions(database, "other")) as Array<{ id: string }>;
+			const otherQuestions = (await listLibraryQuestions(database, "other")).items as Array<{ id: string }>;
 			await expect(archiveLibraryQuestion(database, "default", otherQuestions[0]?.id ?? "missing")).rejects.toThrow(
 				"不存在",
 			);
 			await archiveLibraryQuestion(database, "default", current.id);
-			expect(await listLibraryQuestions(database, "default", "企业服务")).toEqual([]);
+			expect((await listLibraryQuestions(database, "default", "企业服务")).items).toEqual([]);
 			const archived = await database.query<{ archived_at: string | null }>(
 				"SELECT archived_at FROM prompt_library_questions WHERE id=$1",
 				[current.id],

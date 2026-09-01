@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { migrateDatabase, openMemoryDatabase } from "@geo/core";
 import { describe, expect, it } from "vitest";
-import { authenticateRequest, createUser, disableUser, ensureBootstrapAdmin, hasRole, listUsers, login } from "./auth";
+import { authenticateRequest, createUser, disableUser, ensureBootstrapAdmin, listUsers, login } from "./auth";
 
 describe("机构身份与角色", () => {
 	it("初始化管理员、创建成员并撤销成员会话", async () => {
@@ -20,25 +20,28 @@ describe("机构身份与角色", () => {
 					cookie = session?.split(";")[0] ?? "";
 				},
 			} as unknown as ServerResponse;
-			const admin = await login(database, response, {
+			const loginResult = await login(database, response, {
 				email: "admin@example.com",
 				password: "a-strong-admin-password",
 			});
 			const identity = await authenticateRequest(database, { headers: { cookie } } as IncomingMessage);
+			const admin = loginResult.user;
 			expect(identity?.email).toBe(admin.email);
 			expect(identity?.isSuperAdmin).toBe(true);
 			expect(identity?.organizationId).toBe("default");
-			expect(identity && hasRole(identity, "admin")).toBe(true);
+			expect(identity?.permissions).toContain("organization.manage");
 			const analyst = await createUser(database, {
 				email: "analyst@example.com",
 				displayName: "分析师",
 				role: "analyst",
 				password: "a-strong-analyst-password",
 			});
-			expect(await listUsers(database)).toHaveLength(2);
+			expect(
+				(await listUsers(database, "default", { page: 1, pageSize: 20, offset: 0, search: null })).items,
+			).toHaveLength(2);
 			await disableUser(database, analyst.id, admin.id);
 			expect(
-				((await listUsers(database)) as Array<{ id: string; disabled_at: string | null }>).find(
+				(await listUsers(database, "default", { page: 1, pageSize: 20, offset: 0, search: null })).items.find(
 					(user) => user.id === analyst.id,
 				)?.disabled_at,
 			).not.toBeNull();

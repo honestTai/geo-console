@@ -11,10 +11,15 @@ export class ApiError extends Error {
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
 	let response: Response;
 	try {
+		const desktopClient = navigator.userAgent.includes("ZZGeoDesktop/");
 		response = await fetch(path, {
 			...options,
 			credentials: "same-origin",
-			headers: { "content-type": "application/json", ...options.headers },
+			headers: {
+				"content-type": "application/json",
+				...(desktopClient ? { "x-geo-client": "desktop" } : {}),
+				...options.headers,
+			},
 		});
 	} catch {
 		throw new ApiError("无法连接服务器，请检查网络后重试", 0);

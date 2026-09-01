@@ -1,6 +1,6 @@
 ---
 name: geo-deployment
-description: Install, deploy, upgrade, or roll back GEO Console locally or on Linux with the private release bundle, Docker Compose, PostgreSQL, Caddy HTTPS, local/S3 evidence storage, standalone structured Log Service, and separate API/Capture/Agent/Report services. Use for environment and release work; not for feature development or ordinary incident response.
+description: Install, deploy, upgrade, or roll back GEO Console locally or on Linux, and build its signed Tauri desktop client updates, with the private release bundle, Docker Compose, PostgreSQL, Caddy HTTPS, local/S3 evidence storage, standalone structured Log Service, and separate API/Capture/Agent/Report services. Use for environment and release work; not for feature development or ordinary incident response.
 ---
 
 # GEO Console Deployment
@@ -55,6 +55,7 @@ corepack pnpm geo start
 
 - 本地打包前检查 `git status`。工作区不干净会生成带 `dev-<UTC>` 的 release ID，并把未忽略的未跟踪文件一起打包。
 - 当前 `deploy/package.sh` 会打包仓库内的 `.agents/skills`，所以包含本文件中的 demo 凭据。将生成的 bundle 与仓库本身视为敏感资产；不得发送到 demo 管理范围之外。
+- 桌面客户端使用独立 Tauri 签名链。私钥只能在发布机 owner-only 文件或受控 CI Secret 中，绝不能打入服务器 `.run`、Git 或 `latest.json`；客户端只保存公钥。
 - bundle 不应包含 `.env`、`secrets/`、数据库、证据或备份；脚本会拒绝顶层 `.env` 和 `secrets`，仍要检查产物清单和 SHA-256。
 - 首次安装会创建 Secret、可选 2 GB Swap，按 PostgreSQL -> Log Service -> API -> Workers -> Web/Caddy 顺序启动，并创建首份数据库/本地 evidence 成对备份。
 - 升级会在切换前自动备份旧 release 的 PostgreSQL 与本地 evidence，然后停止应用、切换 `current`、运行向前 migration 并启动新版本。

@@ -15,3 +15,5 @@ test-results/
 *.log
 output/
 .tmp-webbridge/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/

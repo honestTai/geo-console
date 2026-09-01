@@ -16,6 +16,7 @@ const allowed = new Set([
 	"MPL-2.0",
 	"(MIT OR Apache-2.0)",
 	"MIT OR Apache-2.0",
+	"Apache-2.0 OR MIT",
 	"(MIT OR CC0-1.0)",
 	"(MIT AND Zlib)",
 	"MIT AND ISC",

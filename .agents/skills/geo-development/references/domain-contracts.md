@@ -55,7 +55,8 @@ Provider 的实时默认值以 `apps/worker/src/providers.ts` 为准：
 - 报告快照 v2 保存 Agent 叙述/质量 run、payload 和 hash；PDF/Word 只能补充各自 artifact key，不能重写冻结 payload。Report Worker 只做确定性二进制排版，不产生新业务判断。
 - 分享 token 只在创建时返回明文，数据库保存 SHA-256；读取必须未过期且未撤销。
 - Provider/HRouter Key 由 AES-256-GCM 信封加密，AAD 包含 organization 与 credential key。主密钥丢失会使数据库凭据不可恢复。
-- 用户归属一个 organization；所有项目资源、Agent、报告、成员、配置和 artifact 下载都校验机构归属。普通角色为 admin/analyst/viewer；系统超管使用独立 `is_super_admin` 权限并可选择活动机构。
+- 用户归属一个 organization；有效授权为机构权限上限与用户多角色权限并集的交集，数据范围再限制为机构下全部客户或明确指定客户。页面和 API 策略来自数据库资源目录，未登记 API 默认拒绝。历史 admin/analyst/viewer 只用于迁移默认角色，不参与运行时判断。
+- 数据库最多存在一个 `is_super_admin=true` 用户。超管始终拥有全部页面和功能，但业务资源仍按当前活动机构过滤；超管可封禁机构，封禁立即撤销该机构非超管会话并阻止后续登录。
 - Provider/HRouter 配置、加密凭据和问题知识库按 organization 隔离。环境变量凭据只为 `default` 机构提供 bootstrap fallback，不能泄漏给其他租户。
 
 ## 行业问题知识库

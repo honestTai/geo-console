@@ -2,7 +2,9 @@ FROM node:24.16.0-bookworm-slim AS build
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.json biome.json ./
-COPY apps ./apps
+COPY apps/web ./apps/web
+COPY apps/worker ./apps/worker
+COPY apps/log-service ./apps/log-service
 COPY packages/core ./packages/core
 COPY packages/evidence ./packages/evidence
 COPY packages/metrics ./packages/metrics

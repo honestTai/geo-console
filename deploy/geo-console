@@ -46,6 +46,7 @@ Commands:
   logs [service]         Follow logs for all services or one service
   backup                 Back up PostgreSQL and local evidence together
   upgrade BUNDLE         Install an uploaded .run release bundle
+  desktop-publish MANIFEST ASSET...  Publish signed desktop update files atomically
   restart                Restart application services in migration-safe order
   show-admin-password    Print the bootstrap administrator password
   version                Show the deployed Git revision
@@ -183,12 +184,50 @@ doctor() {
 	local backup_dir
 	backup_dir="$(env_value GEO_BACKUP_DIR)"
 	find "$backup_dir" -maxdepth 1 -type f \( -name 'geo-*.dump' -o -name 'evidence-*.tgz' \) -print | sort | tail -n 4
+	local desktop_dir
+	desktop_dir="$(env_value GEO_DESKTOP_RELEASES_DIR)"
+	if [[ -n "$desktop_dir" && -f "$desktop_dir/latest.json" ]]; then
+		local domain
+		domain="$(env_value GEO_DOMAIN)"
+		curl --connect-timeout 5 --max-time 10 -fsS "https://$domain/desktop/latest.json" >/dev/null
+		log "Desktop update manifest is reachable"
+	fi
 }
 
 upgrade_bundle() {
 	local bundle="${1:-}"
 	[[ -n "$bundle" && -f "$bundle" ]] || fail "usage: geo-console upgrade /path/to/geo-console-<version>.run"
 	GEO_INSTALL_ROOT="$INSTALL_ROOT" bash "$bundle" --install-dir "$INSTALL_ROOT"
+}
+
+publish_desktop_update() {
+	local manifest="${1:-}"
+	shift || true
+	[[ -n "$manifest" && -f "$manifest" && -s "$manifest" ]] || fail "usage: geo-console desktop-publish latest.json UPDATE_ASSET [ASSET...]"
+	(($# > 0)) || fail "at least one signed desktop update asset is required"
+	local desktop_dir="$INSTALL_ROOT/shared/desktop"
+	install -m 0755 -d "$desktop_dir"
+	local stage_dir
+	stage_dir="$(mktemp -d "$desktop_dir/.publish.XXXXXX")"
+	for asset in "$@"; do
+		[[ -f "$asset" && -s "$asset" && ! -L "$asset" ]] || fail "desktop update asset is missing, empty, or a symlink: $asset"
+		local asset_name
+		asset_name="$(basename "$asset")"
+		[[ "$asset_name" =~ ^[A-Za-z0-9._+@()-]+$ ]] || fail "unsafe desktop asset name: $asset_name"
+		if [[ -e "$desktop_dir/$asset_name" ]]; then
+			cmp -s "$asset" "$desktop_dir/$asset_name" || fail "desktop asset already exists with different content: $asset_name"
+			continue
+		fi
+		install -m 0644 "$asset" "$stage_dir/$asset_name"
+	done
+	install -m 0644 "$manifest" "$stage_dir/latest.json"
+	grep -q '"version"' "$stage_dir/latest.json" || fail "desktop manifest has no version"
+	grep -q '"signature"' "$stage_dir/latest.json" || fail "desktop manifest has no signature"
+	if [[ -f "$desktop_dir/latest.json" ]]; then cp -p "$desktop_dir/latest.json" "$desktop_dir/latest.previous.json"; fi
+	find "$stage_dir" -maxdepth 1 -type f ! -name latest.json -exec mv -f -- {} "$desktop_dir/" \;
+	mv -f -- "$stage_dir/latest.json" "$desktop_dir/latest.json"
+	rmdir "$stage_dir"
+	log "Desktop update published: $desktop_dir/latest.json"
 }
 
 main() {
@@ -227,9 +266,12 @@ main() {
 		backup)
 			run_backup
 			;;
-		upgrade)
-			upgrade_bundle "${1:-}"
-			;;
+			upgrade)
+				upgrade_bundle "${1:-}"
+				;;
+			desktop-publish)
+				publish_desktop_update "$@"
+				;;
 		restart)
 			stop_application_services
 			start_stack false

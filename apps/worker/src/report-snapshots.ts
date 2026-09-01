@@ -8,6 +8,7 @@ import { z } from "zod";
 import { enqueueAgentDraft } from "./agent";
 import { renderReportDocx } from "./docx";
 import { artifactExists, putArtifact } from "./object-store";
+import { type Paginated, type PaginationInput, paginated } from "./pagination";
 import { providerDefinitions } from "./providers";
 import { getBatch, getBatchReport } from "./service";
 import { parseJsonColumn, sha256, stableJson } from "./utils";
@@ -294,14 +295,29 @@ export async function createReportSnapshot(
 	return { id };
 }
 
-export async function listReportSnapshots(database: Database, projectId: string): Promise<unknown[]> {
-	return (
-		await database.query(
+export async function listReportSnapshots(
+	database: Database,
+	projectId: string,
+	input: PaginationInput,
+	batchId: string | null = null,
+): Promise<Paginated<Record<string, unknown>>> {
+	const total = Number(
+		(
+			await database.query<{ count: number }>(
+				"SELECT count(*)::int AS count FROM report_snapshots WHERE project_id=$1 AND ($2::text IS NULL OR batch_id=$2)",
+				[projectId, batchId],
+			)
+		).rows[0]?.count ?? 0,
+	);
+	const rows = (
+		await database.query<Record<string, unknown>>(
 			`SELECT id,project_id,batch_id,compare_to_batch_id,report_type,schema_version,title,payload_hash,
-				 pdf_artifact_key,word_artifact_key,created_at FROM report_snapshots WHERE project_id=$1 ORDER BY created_at DESC`,
-			[projectId],
+				 pdf_artifact_key,word_artifact_key,created_at FROM report_snapshots WHERE project_id=$1
+				 AND ($2::text IS NULL OR batch_id=$2) ORDER BY created_at DESC LIMIT $3 OFFSET $4`,
+			[projectId, batchId, input.pageSize, input.offset],
 		)
 	).rows;
+	return paginated(rows, total, input);
 }
 
 export async function getReportSnapshot(database: Database, reportId: string): Promise<Record<string, unknown> | null> {
@@ -609,15 +625,27 @@ export async function createReportShare(
 	return { id, token, expiresAt };
 }
 
-export async function listReportShares(database: Database, reportId: string): Promise<unknown[]> {
-	return (
-		await database.query(
+export async function listReportShares(
+	database: Database,
+	reportId: string,
+	input: PaginationInput,
+): Promise<Paginated<Record<string, unknown>>> {
+	const total = Number(
+		(
+			await database.query<{ count: number }>("SELECT count(*)::int AS count FROM report_shares WHERE report_id=$1", [
+				reportId,
+			])
+		).rows[0]?.count ?? 0,
+	);
+	const rows = (
+		await database.query<Record<string, unknown>>(
 			`SELECT s.id,s.report_id,s.expires_at,s.revoked_at,s.created_at,u.email AS created_by_email
 			 FROM report_shares s LEFT JOIN users u ON u.id=s.created_by
-			 WHERE s.report_id=$1 ORDER BY s.created_at DESC`,
-			[reportId],
+			 WHERE s.report_id=$1 ORDER BY s.created_at DESC LIMIT $2 OFFSET $3`,
+			[reportId, input.pageSize, input.offset],
 		)
 	).rows;
+	return paginated(rows, total, input);
 }
 
 export async function revokeReportShare(database: Database, shareId: string): Promise<void> {

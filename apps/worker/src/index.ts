@@ -13,7 +13,7 @@ import {
 	createUser,
 	disableUser,
 	ensureBootstrapAdmin,
-	hasRole,
+	type Identity,
 	listAuditLogs,
 	listUsers,
 	login,
@@ -24,7 +24,20 @@ import { getHRouterConfig, listHRouterModels, saveHRouterConfig } from "./hroute
 import { archiveLibraryQuestion, createLibraryQuestion, listLibraryQuestions } from "./knowledge-base";
 import { startLocalWorkers } from "./local-workers";
 import { checkObjectStore, readArtifact } from "./object-store";
+import { parsePagination } from "./pagination";
 import { ensureProviderConfigs, getProviderSettings, saveProviderConfig, testProviderConfig } from "./providers";
+import {
+	AccessDeniedError,
+	authorizeDynamicRequest,
+	createRole,
+	deleteRole,
+	getDynamicNavigation,
+	getRbacCatalog,
+	listRoles,
+	updateOrganizationPermissions,
+	updateRole,
+	updateUserAccess,
+} from "./rbac";
 import {
 	advanceReportWorkflow,
 	createReportShare,
@@ -62,7 +75,14 @@ import {
 	verifyTask,
 } from "./service";
 import { applyServiceLogRetention, getServiceLogs, getServiceLogsCsv } from "./service-log-proxy";
-import { canReadArtifact, createOrganization, listOrganizations, requestResourceOrganization } from "./tenancy";
+import {
+	canAccessProject,
+	canReadArtifact,
+	createOrganization,
+	listOrganizations,
+	requestResourceScope,
+	setOrganizationStatus,
+} from "./tenancy";
 import { json, readJson } from "./utils";
 
 const host = process.env.GEO_WORKER_HOST?.trim() || "127.0.0.1";
@@ -95,20 +115,36 @@ async function serveArtifact(response: ServerResponse, artifactPath: string): Pr
 	}
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This auditable dispatcher keeps project ownership and pagination at one HTTP boundary.
 async function handleProjectRoutes(
 	request: IncomingMessage,
 	response: ServerResponse,
 	path: string,
-	organizationId: string,
+	identity: Identity,
 ): Promise<boolean> {
-	if (path === "/api/projects" && request.method === "GET")
-		return json(response, 200, { projects: await listProjects(database, organizationId) }) ?? true;
+	if (path === "/api/projects" && request.method === "GET") {
+		const url = new URL(request.url ?? path, `http://${request.headers.host ?? "127.0.0.1"}`);
+		json(
+			response,
+			200,
+			await listProjects(database, identity.organizationId, parsePagination(url), {
+				allProjects: identity.allProjects,
+				projectIds: identity.projectIds,
+			}),
+		);
+		return true;
+	}
 	if (path === "/api/projects" && request.method === "POST")
-		return json(response, 201, await createProject(database, await readJson(request), organizationId)) ?? true;
+		return json(response, 201, await createProject(database, await readJson(request), identity.organizationId)) ?? true;
 	const project = routeMatch(path, /^\/api\/projects\/([^/]+)$/);
 	if (project && request.method === "GET") {
 		const value = await getProject(database, project[0]);
-		value ? json(response, 200, value) : json(response, 404, { error: "客户项目不存在" });
+		if (value) {
+			if (!identity.permissions.includes("page.remediation")) value.tasks = [];
+			if (!identity.permissions.includes("page.diagnosis")) value.findings = [];
+			if (!identity.permissions.includes("page.audit")) value.websiteAudits = [];
+			json(response, 200, value);
+		} else json(response, 404, { error: "客户项目不存在" });
 		return true;
 	}
 	const analyze = routeMatch(path, /^\/api\/projects\/([^/]+)\/analyze$/);
@@ -141,6 +177,7 @@ async function handleProjectRoutes(
 	return false;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Project data endpoints intentionally remain explicit for dynamic route-policy matching.
 async function handleProjectDataRoutes(
 	request: IncomingMessage,
 	response: ServerResponse,
@@ -164,7 +201,8 @@ async function handleProjectDataRoutes(
 	}
 	const attribution = routeMatch(path, /^\/api\/projects\/([^/]+)\/attribution$/);
 	if (attribution && request.method === "GET") {
-		json(response, 200, await getAttribution(database, attribution[0]));
+		const url = new URL(request.url ?? path, `http://${request.headers.host ?? "127.0.0.1"}`);
+		json(response, 200, await getAttribution(database, attribution[0], parsePagination(url)));
 		return true;
 	}
 	const attributionImport = routeMatch(path, /^\/api\/projects\/([^/]+)\/attribution\/import$/);
@@ -174,17 +212,31 @@ async function handleProjectDataRoutes(
 	}
 	const agentRuns = routeMatch(path, /^\/api\/projects\/([^/]+)\/agent-runs$/);
 	if (agentRuns && request.method === "GET") {
-		json(response, 200, { runs: await listAgentRuns(database, agentRuns[0]) });
+		const url = new URL(request.url ?? path, `http://${request.headers.host ?? "127.0.0.1"}`);
+		json(
+			response,
+			200,
+			await listAgentRuns(database, agentRuns[0], parsePagination(url), {
+				batchId: url.searchParams.get("batchId"),
+				purposes: url.searchParams.get("purposes")?.split(","),
+			}),
+		);
 		return true;
 	}
 	const reports = routeMatch(path, /^\/api\/projects\/([^/]+)\/reports$/);
 	if (reports && request.method === "GET") {
-		json(response, 200, { reports: await listReportSnapshots(database, reports[0]) });
+		const url = new URL(request.url ?? path, `http://${request.headers.host ?? "127.0.0.1"}`);
+		json(
+			response,
+			200,
+			await listReportSnapshots(database, reports[0], parsePagination(url), url.searchParams.get("batchId")),
+		);
 		return true;
 	}
 	const alerts = routeMatch(path, /^\/api\/projects\/([^/]+)\/drift-alerts$/);
 	if (alerts && request.method === "GET") {
-		json(response, 200, { alerts: await listDriftAlerts(database, alerts[0]) });
+		const url = new URL(request.url ?? path, `http://${request.headers.host ?? "127.0.0.1"}`);
+		json(response, 200, await listDriftAlerts(database, alerts[0], parsePagination(url)));
 		return true;
 	}
 	const costs = routeMatch(path, /^\/api\/projects\/([^/]+)\/costs$/);
@@ -320,7 +372,8 @@ async function handleBatchTaskRoutes(
 	}
 	const snapshotShare = routeMatch(path, /^\/api\/reports\/([^/]+)\/shares$/);
 	if (snapshotShare && request.method === "GET") {
-		json(response, 200, { shares: await listReportShares(database, snapshotShare[0]) });
+		const url = new URL(request.url ?? path, `http://${request.headers.host ?? "127.0.0.1"}`);
+		json(response, 200, await listReportShares(database, snapshotShare[0], parsePagination(url)));
 		return true;
 	}
 	if (snapshotShare && request.method === "POST") {
@@ -427,9 +480,11 @@ async function handleKnowledgeRoutes(
 ): Promise<boolean> {
 	if (path === "/api/knowledge/questions" && request.method === "GET") {
 		const url = new URL(request.url ?? path, `http://${request.headers.host ?? "127.0.0.1"}`);
-		json(response, 200, {
-			questions: await listLibraryQuestions(database, organizationId, url.searchParams.get("industry")),
-		});
+		json(
+			response,
+			200,
+			await listLibraryQuestions(database, organizationId, url.searchParams.get("industry"), parsePagination(url)),
+		);
 		return true;
 	}
 	if (path === "/api/knowledge/questions" && request.method === "POST") {
@@ -470,12 +525,21 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 			},
 		});
 	});
-	const allowedOrigin = process.env.GEO_ALLOWED_ORIGIN?.trim() || "http://127.0.0.1:3000";
-	if (request.headers.origin === allowedOrigin) {
-		response.setHeader("access-control-allow-origin", allowedOrigin);
+	const allowedOrigins = new Set([
+		process.env.GEO_ALLOWED_ORIGIN?.trim() || "http://127.0.0.1:3000",
+		...(process.env.GEO_ALLOWED_ORIGINS ?? "")
+			.split(",")
+			.map((value) => value.trim())
+			.filter(Boolean),
+		"tauri://localhost",
+		"http://tauri.localhost",
+		"https://tauri.localhost",
+	]);
+	if (request.headers.origin && allowedOrigins.has(request.headers.origin)) {
+		response.setHeader("access-control-allow-origin", request.headers.origin);
 		response.setHeader("access-control-allow-credentials", "true");
 	}
-	response.setHeader("access-control-allow-headers", "authorization,content-type");
+	response.setHeader("access-control-allow-headers", "authorization,content-type,x-geo-client");
 	response.setHeader("access-control-expose-headers", "x-request-id");
 	response.setHeader("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
 	if (request.method === "OPTIONS") {
@@ -492,9 +556,12 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 		return;
 	}
 	if (path === "/api/auth/login" && request.method === "POST") {
-		const user = await login(database, response, await readJson(request));
-		requestOrganizationId = user.organizationId;
-		json(response, 200, { user });
+		const result = await login(database, response, await readJson(request));
+		requestOrganizationId = result.user.organizationId;
+		json(response, 200, {
+			user: result.user,
+			sessionToken: request.headers["x-geo-client"] === "desktop" ? result.sessionToken : undefined,
+		});
 		return;
 	}
 	if (path === "/api/health")
@@ -511,7 +578,15 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 		if (!identity) return json(response, 401, { error: "请先登录" });
 		requestOrganizationId = identity.organizationId;
 		const artifactKey = decodeURIComponent(path.slice("/artifacts/".length));
-		if (!(await canReadArtifact(database, identity.organizationId, artifactKey, identity.isSuperAdmin)))
+		if (
+			!(await canReadArtifact(
+				database,
+				identity.organizationId,
+				artifactKey,
+				identity.allProjects,
+				identity.projectIds,
+			))
+		)
 			return json(response, 404, { error: "证据文件不存在" });
 		await serveArtifact(response, artifactKey);
 		return;
@@ -528,28 +603,64 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 		const body = z.object({ organizationId: z.string().trim().min(1) }).parse(await readJson(request));
 		return json(response, 200, { user: await selectOrganization(database, response, identity, body.organizationId) });
 	}
-	const adminOnly =
-		path.startsWith("/api/settings") ||
-		path.startsWith("/api/users") ||
-		path.startsWith("/api/audit-logs") ||
-		path.startsWith("/api/service-logs") ||
-		path.startsWith("/api/organizations");
-	const requiredRole = adminOnly ? "admin" : request.method === "GET" ? "viewer" : "analyst";
-	if (!hasRole(identity, requiredRole)) return json(response, 403, { error: "当前角色无权执行此操作" });
+	if (path === "/api/rbac/navigation" && request.method === "GET") {
+		const isDesktop = request.headers["x-geo-client"] === "desktop";
+		return json(
+			response,
+			200,
+			await getDynamicNavigation(database, identity.permissions, identity.isSuperAdmin, isDesktop),
+		);
+	}
+	await authorizeDynamicRequest(database, identity.permissions, identity.isSuperAdmin, request.method ?? "GET", path);
 	if (path === "/api/organizations" && request.method === "GET") {
 		if (!identity.isSuperAdmin) return json(response, 403, { error: "只有系统超管可以查看全部机构" });
-		return json(response, 200, { organizations: await listOrganizations(database) });
+		return json(response, 200, await listOrganizations(database, parsePagination(requestUrl)));
 	}
 	if (path === "/api/organizations" && request.method === "POST") {
 		if (!identity.isSuperAdmin) return json(response, 403, { error: "只有系统超管可以创建机构" });
-		const value = await createOrganization(database, await readJson(request));
+		const value = await createOrganization(database, await readJson(request), identity.id);
 		await auditRequest(database, identity, request.method, path);
 		return json(response, 201, value);
 	}
+	const organizationPermissions = routeMatch(path, /^\/api\/organizations\/([^/]+)\/permissions$/);
+	if (organizationPermissions && request.method === "PUT") {
+		if (!identity.isSuperAdmin) return json(response, 403, { error: "只有系统超管可以配置机构授权" });
+		const body = z.object({ permissionKeys: z.array(z.string()) }).parse(await readJson(request));
+		await updateOrganizationPermissions(database, organizationPermissions[0], body.permissionKeys, identity.id);
+		await auditRequest(database, identity, request.method, path);
+		return json(response, 200, { saved: true });
+	}
+	const organizationStatus = routeMatch(path, /^\/api\/organizations\/([^/]+)\/status$/);
+	if (organizationStatus && request.method === "PUT") {
+		if (!identity.isSuperAdmin) return json(response, 403, { error: "只有系统超管可以封禁或解封机构" });
+		await setOrganizationStatus(database, organizationStatus[0], await readJson(request));
+		await auditRequest(database, identity, request.method, path);
+		return json(response, 200, { saved: true });
+	}
+	if (path === "/api/rbac/catalog" && request.method === "GET")
+		return json(response, 200, await getRbacCatalog(database, identity.organizationId));
+	if (path === "/api/rbac/roles" && request.method === "GET")
+		return json(response, 200, await listRoles(database, identity.organizationId, parsePagination(requestUrl)));
+	if (path === "/api/rbac/roles" && request.method === "POST") {
+		const value = await createRole(database, identity.organizationId, await readJson(request));
+		await auditRequest(database, identity, request.method, path);
+		return json(response, 201, value);
+	}
+	const role = routeMatch(path, /^\/api\/rbac\/roles\/([^/]+)$/);
+	if (role && request.method === "PUT") {
+		await updateRole(database, identity.organizationId, role[0], await readJson(request));
+		await auditRequest(database, identity, request.method, path);
+		return json(response, 200, { saved: true });
+	}
+	if (role && request.method === "DELETE") {
+		await deleteRole(database, identity.organizationId, role[0]);
+		await auditRequest(database, identity, request.method, path);
+		return json(response, 200, { deleted: true });
+	}
 	if (path === "/api/users" && request.method === "GET")
-		return json(response, 200, { users: await listUsers(database, identity.organizationId) });
+		return json(response, 200, await listUsers(database, identity.organizationId, parsePagination(requestUrl)));
 	if (path === "/api/audit-logs" && request.method === "GET")
-		return json(response, 200, { logs: await listAuditLogs(database, identity.organizationId) });
+		return json(response, 200, await listAuditLogs(database, identity.organizationId, parsePagination(requestUrl)));
 	if (path === "/api/service-logs" && request.method === "GET")
 		return json(response, 200, await getServiceLogs(requestUrl, identity.organizationId, identity.isSuperAdmin));
 	if (path === "/api/service-logs/export.csv" && request.method === "GET") {
@@ -570,17 +681,27 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 		await auditRequest(database, identity, request.method, path);
 		return json(response, 201, value);
 	}
+	const userAccess = routeMatch(path, /^\/api\/users\/([^/]+)\/access$/);
+	if (userAccess && request.method === "PUT") {
+		await updateUserAccess(database, identity.organizationId, userAccess[0], await readJson(request));
+		await auditRequest(database, identity, request.method, path);
+		return json(response, 200, { saved: true });
+	}
 	const user = routeMatch(path, /^\/api\/users\/([^/]+)$/);
 	if (user && request.method === "DELETE") {
 		await disableUser(database, user[0], identity.id, identity.organizationId);
 		await auditRequest(database, identity, request.method, path);
 		return json(response, 200, { disabled: true });
 	}
-	const resourceOrganization = await requestResourceOrganization(database, path);
-	if (resourceOrganization && !identity.isSuperAdmin && resourceOrganization !== identity.organizationId)
+	const resourceScope = await requestResourceScope(database, path);
+	if (
+		resourceScope &&
+		(resourceScope.organizationId !== identity.organizationId ||
+			!canAccessProject(resourceScope.projectId, identity.allProjects, identity.projectIds))
+	)
 		return json(response, 404, { error: "资源不存在" });
 	const handled =
-		(await handleProjectRoutes(request, response, path, identity.organizationId)) ||
+		(await handleProjectRoutes(request, response, path, identity)) ||
 		(await handleProjectDataRoutes(request, response, path)) ||
 		(await handleBatchTaskRoutes(request, response, path, identity.id)) ||
 		(await handleSettingsRoutes(request, response, path, identity.organizationId)) ||
@@ -595,6 +716,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 function apiErrorStatus(error: unknown): number {
 	if (error instanceof z.ZodError) return 400;
 	if (error instanceof AuthenticationError) return 401;
+	if (error instanceof AccessDeniedError) return 403;
 	if (error instanceof LogServiceUnavailableError) return 503;
 	return 500;
 }

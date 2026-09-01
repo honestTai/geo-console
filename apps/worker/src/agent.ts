@@ -6,6 +6,7 @@ import { type AgentJobPayload, type AgentPurpose, type Database, readEncryptedCr
 import { StructuredLogger, safeErrorMessage } from "@geo/logging";
 import { z } from "zod";
 import { getHRouterConfig } from "./hrouter";
+import { type Paginated, type PaginationInput, paginated } from "./pagination";
 import { parseJsonColumn } from "./utils";
 
 const PROMPT_VERSION = "geo-agent.v2";
@@ -634,17 +635,35 @@ export async function flushAgentLogs(): Promise<void> {
 	await agentRuntimeLogger.flush();
 }
 
-export async function listAgentRuns(database: Database, projectId: string): Promise<unknown[]> {
-	return (
-		await database.query(
+export async function listAgentRuns(
+	database: Database,
+	projectId: string,
+	input: PaginationInput,
+	filters: { batchId?: string | null; purposes?: string[] } = {},
+): Promise<Paginated<Record<string, unknown>>> {
+	const purposes = filters.purposes?.filter(Boolean) ?? [];
+	const total = Number(
+		(
+			await database.query<{ count: number }>(
+				`SELECT count(*)::int AS count FROM agent_runs WHERE project_id=$1
+				 AND ($2::text IS NULL OR batch_id=$2) AND (cardinality($3::text[])=0 OR purpose=ANY($3::text[]))`,
+				[projectId, filters.batchId ?? null, purposes],
+			)
+		).rows[0]?.count ?? 0,
+	);
+	const rows = (
+		await database.query<Record<string, unknown>>(
 			`SELECT r.*,j.attempts AS job_attempts,j.max_attempts AS job_max_attempts,j.last_error AS job_last_error
 			 FROM agent_runs r LEFT JOIN LATERAL (
 				 SELECT attempts,max_attempts,last_error FROM jobs
 				 WHERE type='agent_draft' AND payload->>'runId'=r.id ORDER BY created_at DESC LIMIT 1
-			 ) j ON true WHERE r.project_id=$1 ORDER BY r.created_at DESC LIMIT 100`,
-			[projectId],
+				 ) j ON true WHERE r.project_id=$1 AND ($2::text IS NULL OR r.batch_id=$2)
+				 AND (cardinality($3::text[])=0 OR r.purpose=ANY($3::text[]))
+				 ORDER BY r.created_at DESC LIMIT $4 OFFSET $5`,
+			[projectId, filters.batchId ?? null, purposes, input.pageSize, input.offset],
 		)
 	).rows;
+	return paginated(rows, total, input);
 }
 
 export async function approveAgentRun(

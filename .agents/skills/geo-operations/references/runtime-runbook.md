@@ -9,7 +9,7 @@
 | Capture Worker | 领取 capture、调用冻结 Provider、写 raw + v2 evidence | 5 分钟租约，每 60 秒续期，默认最多 3 次 |
 | Agent Worker | 执行 HRouter/Pi draft | 15 分钟租约，每 60 秒续期，最多 2 次，30 秒重试 |
 | Report Worker | 推进定时 Agent 报告门禁、冻结报告、生成 PDF/Word | 每 15 秒扫描，文档 5 分钟租约，30 秒重试 |
-| Web | 静态 React 工作台 | Caddy 内部反代 |
+| Web/Tauri | 同一 React 工作台与动态导航；Tauri 提供正式桌面壳和签名更新 | 浏览器同步调试；桌面检查 HTTPS 清单 |
 | PostgreSQL | 业务、队列和证据索引 | 生产唯一数据库 |
 | local/S3 store | raw response、网页、PDF、Word | 写入必须不可覆盖 |
 
@@ -63,9 +63,17 @@ Settings 的连接测试只验证当前配置；运行中的 batch 使用创建�
 
 ## Tenant / RBAC
 
-- 用户有 home organization；系统超管可用 `geo_organization` Cookie 选择活动机构。普通成员不能切换或跨机构读取。
-- 项目、Agent、报告、任务和 artifact 路由都解析数据库归属。404 可能是租户隔离结果，排查时不要向普通成员暴露另一个租户是否存在。
+- 权限资源、导航和 API 路由分别来自 `permissions` 与 `permission_routes`。最终权限是机构授权上限与用户多角色并集的交集；`users.role` 只保留迁移兼容，不参与授权。
+- 用户有 home organization；数据库唯一系统超管可用 `geo_organization` Cookie 选择活动机构。超管切换后也不能绕过活动机构边界；普通成员再按全部/指定客户范围过滤。
+- 项目、Agent、报告、任务和 artifact 路由都解析数据库的 organization/project 归属。404 可能是机构或客户范围隔离结果，排查时不要向普通成员暴露另一个租户或客户是否存在。
+- 机构封禁撤销全部非超管会话并阻止登录。解封后需重新登录；超管仍可选择封禁机构检查和修复授权。
 - Provider/HRouter config 和 encrypted credential 按机构查询；非默认机构无环境变量 fallback。问题库同样按机构 + 行业隔离，归档不物理删除。
+
+## Desktop Update
+
+- 客户端更新公钥在仓库 Tauri 配置中，私钥只在发布机 `~/.tauri/zz-geo.key` 或受控 CI Secret 中；权限应为 owner-only。
+- 更新清单必须通过 HTTPS 提供有效 SemVer、平台 URL 和签名。客户端不会接受未签名更新，禁止临时关闭校验。
+- 浏览器与桌面使用同一工作台版本和 API。桌面问题先区分远程工作台故障、Tauri WebView 故障和原生更新故障。
 
 ## Schedule、漂移与费用
 

@@ -12,9 +12,21 @@ corepack pnpm lint
 bash deploy/package.sh
 ```
 
+服务器 `.run` 与桌面客户端是两套产物。需要发布桌面版本时额外执行：
+
+```bash
+export TAURI_SIGNING_PRIVATE_KEY="$HOME/.tauri/zz-geo.key"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+corepack pnpm desktop:build
+```
+
+私钥不能进入 bundle 或仓库。上传 Tauri 平台产物、对应 `.sig` 与完整 `latest.json` 到受控 HTTPS 更新位置；先用内置公钥验证签名，再更新清单。更新清单不能包含不存在的平台占位记录。
+
+服务器使用 `geo-console desktop-publish <latest.json> <update-asset...>` 原子发布到跨应用升级保留的 `shared/desktop`。先发布版本化资产，最后替换清单；命令保留上一份清单，不删除旧资产。
+
 产物位于 `dist/geo-console-<release>.run` 和对应 `.sha256`。clean worktree 使用 12 位 commit；dirty worktree 使用 `<commit>-dev-<UTC>`。
 
-脚本通过 `git ls-files --cached --others --exclude-standard` 收集文件。不要假定只有已提交文件会进入 bundle。
+脚本通过 `git ls-files --cached --others --exclude-standard` 收集服务器文件并明确排除 `apps/desktop`。不要假定只有已提交文件会进入 bundle；桌面客户端必须走独立签名产物流程。
 
 打包器必须把 `deploy/install.sh`、`deploy/package.sh` 和 `deploy/geo-console` 规范化为 LF。生成后检查 bundle 启动器与 payload shell 文件不含 CRLF，避免 Linux 在 `set -o pipefail` 或 shebang 处失败。
 
@@ -110,6 +122,7 @@ geo-console logs log-service
 - `https://<domain>/app/` 返回工作台，并可进入登录流程。
 - 官网“进入工作台”链接指向同域 `/app`。
 - `/api/health` 中 `logService.status=ok`，容器内 `log-service:3020/health` 可用，工作台管理员可看到当前机构结构化日志。
+- 浏览器调试入口和已签名桌面客户端返回相同动态导航；桌面“检查更新”只能接受 GEO 公钥验证的包。
 
 `geo-console logs` 会持续跟随；只需有界日志时改用当前 release 下的 `docker compose --env-file .env logs --tail=200 <service>`。
 

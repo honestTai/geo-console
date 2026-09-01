@@ -1,0 +1,19 @@
+{
+	"name": "@geo/desktop",
+	"version": "0.2.0",
+	"private": true,
+	"license": "UNLICENSED",
+	"type": "module",
+	"scripts": {
+		"dev": "tauri dev",
+		"build": "cargo check --manifest-path src-tauri/Cargo.toml",
+		"bundle": "tauri build",
+		"check-types": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"devDependencies": {
+		"@tauri-apps/cli": "2.11.4",
+		"typescript": "^7.0.2",
+		"vitest": "^4.1.10"
+	}
+}

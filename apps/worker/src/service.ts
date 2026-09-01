@@ -14,6 +14,7 @@ import { calculateEqualWeightedOverall, calculateVisibilityMetrics } from "@geo/
 import { z } from "zod";
 import { auditWebsite, crawlPublishedUrl, crawlWebsite } from "./crawler";
 import { analyzeCustomer } from "./hrouter";
+import { type Paginated, type PaginationInput, paginated } from "./pagination";
 import { providerDefinitions } from "./providers";
 import { buildDeterministicFindings, buildReportAnalysis, type DiagnosisWebEvidence } from "./report";
 import { normalizeDomain, parseJsonColumn, sha256, stableJson } from "./utils";
@@ -31,14 +32,38 @@ const projectInputSchema = z.object({
 	knownCompetitors: z.array(z.string().trim().min(1)).default([]),
 });
 
-export async function listProjects(database: Database, organizationId = "default"): Promise<unknown[]> {
-	const result = await database.query(
+export async function listProjects(
+	database: Database,
+	organizationId: string,
+	input: PaginationInput,
+	access: { allProjects: boolean; projectIds: string[] },
+): Promise<Paginated<Record<string, unknown>>> {
+	const search = input.search ? `%${input.search}%` : null;
+	const scopeValues = access.allProjects ? [] : [...new Set(access.projectIds)];
+	const scopeClause = access.allProjects
+		? "true"
+		: scopeValues.length
+			? `p.id IN (${scopeValues.map((_, index) => `$${index + 3}`).join(",")})`
+			: "false";
+	const baseParams = [organizationId, search, ...scopeValues];
+	const total = Number(
+		(
+			await database.query<{ count: number }>(
+				`SELECT count(*)::int AS count FROM projects p WHERE p.organization_id=$1
+				 AND ($2::text IS NULL OR p.name ILIKE $2 OR p.domain ILIKE $2 OR p.industry ILIKE $2) AND ${scopeClause}`,
+				baseParams,
+			)
+		).rows[0]?.count ?? 0,
+	);
+	const limitPosition = baseParams.length + 1;
+	const result = await database.query<Record<string, unknown>>(
 		`SELECT p.*, count(DISTINCT b.id)::int AS batch_count, max(b.created_at) AS last_batch_at
 		 FROM projects p LEFT JOIN experiment_batches b ON b.project_id = p.id
-		 WHERE p.organization_id=$1 GROUP BY p.id ORDER BY p.updated_at DESC`,
-		[organizationId],
+		 WHERE p.organization_id=$1 AND ($2::text IS NULL OR p.name ILIKE $2 OR p.domain ILIKE $2 OR p.industry ILIKE $2)
+		 AND ${scopeClause} GROUP BY p.id ORDER BY p.updated_at DESC LIMIT $${limitPosition} OFFSET $${limitPosition + 1}`,
+		[...baseParams, input.pageSize, input.offset],
 	);
-	return result.rows;
+	return paginated(result.rows, total, input);
 }
 
 export async function createProject(
@@ -859,12 +884,25 @@ async function detectDriftAlerts(database: Database, batchId: string): Promise<v
 	}
 }
 
-export async function listDriftAlerts(database: Database, projectId: string): Promise<unknown[]> {
-	return (
-		await database.query("SELECT * FROM drift_alerts WHERE project_id=$1 ORDER BY created_at DESC LIMIT 100", [
-			projectId,
-		])
+export async function listDriftAlerts(
+	database: Database,
+	projectId: string,
+	input: PaginationInput,
+): Promise<Paginated<Record<string, unknown>>> {
+	const total = Number(
+		(
+			await database.query<{ count: number }>("SELECT count(*)::int AS count FROM drift_alerts WHERE project_id=$1", [
+				projectId,
+			])
+		).rows[0]?.count ?? 0,
+	);
+	const rows = (
+		await database.query<Record<string, unknown>>(
+			"SELECT * FROM drift_alerts WHERE project_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+			[projectId, input.pageSize, input.offset],
+		)
 	).rows;
+	return paginated(rows, total, input);
 }
 
 export async function getProjectCostSummary(database: Database, projectId: string): Promise<unknown> {
