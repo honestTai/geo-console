@@ -3,7 +3,9 @@ import {
 	IconAlertTriangle,
 	IconArrowLeft,
 	IconBolt,
+	IconBook2,
 	IconBuilding,
+	IconBuildingCommunity,
 	IconChartLine,
 	IconCheck,
 	IconChevronDown,
@@ -68,6 +70,10 @@ type UserIdentity = {
 	email: string;
 	displayName: string;
 	role: "admin" | "analyst" | "viewer";
+	homeOrganizationId: string;
+	organizationId: string;
+	organizationName: string;
+	isSuperAdmin: boolean;
 	localBypass: boolean;
 };
 
@@ -78,6 +84,7 @@ type ProjectSummary = {
 	domain: string;
 	region: string;
 	language: string;
+	industry: string | null;
 	status: string;
 	batch_count: number;
 	last_batch_at: string | null;
@@ -85,6 +92,7 @@ type ProjectSummary = {
 type Competitor = { id?: string; name: string; domain: string; aliases: string[] };
 type Prompt = {
 	id?: string;
+	library_question_id?: string | null;
 	question: string;
 	intent: string;
 	topic?: string | null;
@@ -353,6 +361,7 @@ type ReportSnapshot = {
 	title: string;
 	payload_hash: string;
 	pdf_artifact_key: string | null;
+	word_artifact_key: string | null;
 	created_at: string;
 };
 type ReportShare = {
@@ -362,6 +371,39 @@ type ReportShare = {
 	revoked_at: string | null;
 	created_at: string;
 	created_by_email: string | null;
+};
+type ReportWorkflowState =
+	| "narrative_queued"
+	| "narrative_running"
+	| "narrative_approval"
+	| "quality_queued"
+	| "quality_running"
+	| "quality_approval"
+	| "quality_blocked"
+	| "documents_queued"
+	| "ready";
+type ReportWorkflowResult = {
+	state: ReportWorkflowState;
+	runId: string | null;
+	reportId: string | null;
+};
+type ServiceLogLevel = "debug" | "info" | "warn" | "error";
+type ServiceLogRow = {
+	id: string;
+	organization_id: string | null;
+	service: string;
+	level: ServiceLogLevel;
+	event: string;
+	message: string;
+	trace_id: string | null;
+	project_id: string | null;
+	metadata: Record<string, unknown>;
+	occurred_at: string;
+};
+type ServiceLogResponse = {
+	logs: ServiceLogRow[];
+	nextCursor: string | null;
+	counts: Record<ServiceLogLevel, number>;
 };
 type DriftAlert = {
 	id: string;
@@ -410,9 +452,12 @@ type View =
 	| "remediation"
 	| "attribution"
 	| "report"
+	| "knowledge"
 	| "settings"
 	| "members"
-	| "auditLogs";
+	| "auditLogs"
+	| "serviceLogs"
+	| "organizations";
 
 const views: Array<{ id: View; label: string; icon: typeof IconActivity }> = [
 	{ id: "overview", label: "项目总览", icon: IconBuilding },
@@ -423,10 +468,14 @@ const views: Array<{ id: View; label: string; icon: typeof IconActivity }> = [
 	{ id: "remediation", label: "整改中心", icon: IconClipboardCheck },
 	{ id: "attribution", label: "业务归因", icon: IconRoute },
 	{ id: "report", label: "复测报告", icon: IconReportAnalytics },
+	{ id: "knowledge", label: "问题知识库", icon: IconBook2 },
 	{ id: "settings", label: "平台设置", icon: IconSettings },
 	{ id: "members", label: "机构成员", icon: IconUsers },
 	{ id: "auditLogs", label: "审计日志", icon: IconHistory },
+	{ id: "serviceLogs", label: "运行日志", icon: IconActivity },
+	{ id: "organizations", label: "多租户管理", icon: IconBuildingCommunity },
 ];
+const managementViews: View[] = ["knowledge", "settings", "members", "auditLogs", "serviceLogs", "organizations"];
 
 const percentage = (value: number | null | undefined) => (value == null ? "-" : `${(value * 100).toFixed(1)}%`);
 const date = (value: string | null | undefined) =>
@@ -574,12 +623,37 @@ export function App() {
 		setProject(null);
 		setLoading(false);
 	}
+	function applyIdentity(identity: UserIdentity) {
+		setUser(identity);
+		setProjects([]);
+		setProjectId(null);
+		setProject(null);
+		setView("overview");
+		setLoading(true);
+	}
+	const isAdmin = user.role === "admin" || user.isSuperAdmin;
+	if (!projectId && managementViews.includes(view))
+		return (
+			<ManagementWorkspace
+				view={view}
+				user={user}
+				onBack={() => setView("overview")}
+				onSelectView={setView}
+				onLogout={logoutUser}
+				onIdentityChange={applyIdentity}
+			/>
+		);
 	if (!projectId)
 		return (
 			<ProjectHome
-				account={<AccountControl user={user} onLogout={logoutUser} />}
+				account={<AccountControl user={user} onLogout={logoutUser} onIdentityChange={applyIdentity} />}
 				projects={projects}
-				onOpen={setProjectId}
+				onOpen={(id) => {
+					setView("overview");
+					setProjectId(id);
+				}}
+				onManage={setView}
+				isAdmin={isAdmin}
 				onCreate={() => setCreating(true)}
 				creating={creating}
 				onClose={() => setCreating(false)}
@@ -617,7 +691,8 @@ export function App() {
 					{views
 						.filter(
 							(item) =>
-								!["settings", "members", "auditLogs"].includes(item.id) || user.role === "admin",
+								(!["settings", "members", "auditLogs", "serviceLogs"].includes(item.id) || isAdmin) &&
+								(item.id !== "organizations" || user.isSuperAdmin),
 						)
 						.map((item) => (
 							<button
@@ -649,7 +724,7 @@ export function App() {
 							<IconGlobe size={16} />
 							{project?.domain ?? ""}
 						</div>
-						<AccountControl user={user} onLogout={logoutUser} />
+						<AccountControl user={user} onLogout={logoutUser} onIdentityChange={applyIdentity} />
 					</div>
 				</header>
 				{error && <Notice type="error" message={error} />}
@@ -657,7 +732,8 @@ export function App() {
 					<div className="center">
 						<IconLoader2 className="spin" />
 					</div>
-				) : project.status !== "active" && view !== "settings" ? (
+				) : project.status !== "active" &&
+					!["settings", "members", "auditLogs", "serviceLogs", "knowledge", "organizations"].includes(view) ? (
 					<Onboarding
 						project={project}
 						refresh={async () => {
@@ -675,9 +751,16 @@ export function App() {
 						{view === "remediation" && <Remediation project={project} refresh={loadProject} />}
 						{view === "attribution" && <Attribution project={project} />}
 						{view === "report" && <Report project={project} />}
-						{view === "settings" && user.role === "admin" && <Settings />}
-						{view === "members" && user.role === "admin" && <Members localBypass={user.localBypass} />}
-						{view === "auditLogs" && user.role === "admin" && <AuditLogs />}
+						{view === "knowledge" && (
+							<KnowledgeBase project={project} canWrite={user.role !== "viewer" || user.isSuperAdmin} />
+						)}
+						{view === "settings" && isAdmin && <Settings />}
+						{view === "members" && isAdmin && <Members localBypass={user.localBypass} />}
+						{view === "auditLogs" && isAdmin && <AuditLogs />}
+						{view === "serviceLogs" && isAdmin && <ServiceLogs />}
+						{view === "organizations" && user.isSuperAdmin && (
+							<OrganizationManagement user={user} onIdentityChange={applyIdentity} />
+						)}
 					</>
 				)}
 			</main>
@@ -688,6 +771,7 @@ export function App() {
 function Login({ error, onLogin }: { error: string | null; onLogin(user: UserIdentity): void }) {
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
+	const [organizationId, setOrganizationId] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [message, setMessage] = useState<string | null>(error);
 	async function submit(event: FormEvent) {
@@ -695,7 +779,11 @@ function Login({ error, onLogin }: { error: string | null; onLogin(user: UserIde
 		setBusy(true);
 		setMessage(null);
 		try {
-			const result = await post<{ user: UserIdentity }>("/api/auth/login", { email, password });
+			const result = await post<{ user: UserIdentity }>("/api/auth/login", {
+				email,
+				password,
+				organizationId: organizationId || undefined,
+			});
 			onLogin(result.user);
 		} catch (reason) {
 			setMessage(reason instanceof Error ? reason.message : "登录失败");
@@ -737,6 +825,14 @@ function Login({ error, onLogin }: { error: string | null; onLogin(user: UserIde
 						required
 					/>
 				</label>
+				<label>
+					机构 ID（同邮箱属于多个机构时填写）
+					<input
+						value={organizationId}
+						onChange={(event) => setOrganizationId(event.target.value)}
+						autoComplete="organization"
+					/>
+				</label>
 				{message && <Notice type="error" message={message} />}
 				<Button type="submit" busy={busy}>
 					登录
@@ -746,15 +842,55 @@ function Login({ error, onLogin }: { error: string | null; onLogin(user: UserIde
 	);
 }
 
-function AccountControl({ user, onLogout }: { user: UserIdentity; onLogout(): Promise<void> }) {
+type OrganizationSummary = {
+	id: string;
+	name: string;
+	project_count: number;
+	user_count: number;
+	created_at: string;
+};
+
+function AccountControl({
+	user,
+	onLogout,
+	onIdentityChange,
+}: {
+	user: UserIdentity;
+	onLogout(): Promise<void>;
+	onIdentityChange(user: UserIdentity): void;
+}) {
+	const [organizations, setOrganizations] = useState<OrganizationSummary[]>([]);
+	useEffect(() => {
+		if (!user.isSuperAdmin) return;
+		void api<{ organizations: OrganizationSummary[] }>("/api/organizations")
+			.then((result) => setOrganizations(result.organizations))
+			.catch(() => setOrganizations([]));
+	}, [user.isSuperAdmin]);
+	async function switchOrganization(organizationId: string) {
+		const result = await post<{ user: UserIdentity }>("/api/organizations/select", { organizationId });
+		onIdentityChange(result.user);
+	}
 	return (
 		<div className="account-control">
 			<div>
 				<b>{user.displayName}</b>
 				<small>
-					{user.role} · {user.email}
+					{user.isSuperAdmin ? "系统超管" : user.role} · {user.organizationName}
 				</small>
 			</div>
+			{user.isSuperAdmin && organizations.length > 0 && (
+				<select
+					aria-label="活动机构"
+					value={user.organizationId}
+					onChange={(event) => void switchOrganization(event.target.value)}
+				>
+					{organizations.map((organization) => (
+						<option value={organization.id} key={organization.id}>
+							{organization.name}
+						</option>
+					))}
+				</select>
+			)}
 			<Button variant="secondary" onClick={() => void onLogout()}>
 				退出
 			</Button>
@@ -766,6 +902,8 @@ function ProjectHome({
 	account,
 	projects,
 	onOpen,
+	onManage,
+	isAdmin,
 	onCreate,
 	creating,
 	onClose,
@@ -775,6 +913,8 @@ function ProjectHome({
 	account: ReactNode;
 	projects: ProjectSummary[];
 	onOpen(id: string): void;
+	onManage(view: View): void;
+	isAdmin: boolean;
 	onCreate(): void;
 	creating: boolean;
 	onClose(): void;
@@ -792,6 +932,14 @@ function ProjectHome({
 					</div>
 				</div>
 				<div className="home-actions">
+					<Button variant="secondary" icon={<IconBook2 size={17} />} onClick={() => onManage("knowledge")}>
+						问题知识库
+					</Button>
+					{isAdmin && (
+						<Button variant="secondary" icon={<IconSettings size={17} />} onClick={() => onManage("settings")}>
+							机构管理
+						</Button>
+					)}
 					<Button icon={<IconPlus size={17} />} onClick={onCreate}>
 						新建客户
 					</Button>
@@ -847,6 +995,74 @@ function ProjectHome({
 	);
 }
 
+function ManagementWorkspace({
+	view,
+	user,
+	onBack,
+	onSelectView,
+	onLogout,
+	onIdentityChange,
+}: {
+	view: View;
+	user: UserIdentity;
+	onBack(): void;
+	onSelectView(view: View): void;
+	onLogout(): Promise<void>;
+	onIdentityChange(user: UserIdentity): void;
+}) {
+	const isAdmin = user.role === "admin" || user.isSuperAdmin;
+	const available = views.filter(
+		(item) =>
+			managementViews.includes(item.id) &&
+			(!["settings", "members", "auditLogs", "serviceLogs"].includes(item.id) || isAdmin) &&
+			(item.id !== "organizations" || user.isSuperAdmin),
+	);
+	return (
+		<div className="management-shell">
+			<header>
+				<div className="brand">
+					<span className="brand-mark">Z</span>
+					<div>
+						<strong>ZZ Geo</strong>
+						<small>{user.organizationName}</small>
+					</div>
+				</div>
+				<div className="home-actions">
+					<Button variant="secondary" icon={<IconArrowLeft size={16} />} onClick={onBack}>
+						客户项目
+					</Button>
+					<AccountControl user={user} onLogout={onLogout} onIdentityChange={onIdentityChange} />
+				</div>
+			</header>
+			<nav className="management-nav" aria-label="机构管理">
+				{available.map((item) => (
+					<button
+						type="button"
+						className={view === item.id ? "active" : ""}
+						key={item.id}
+						onClick={() => onSelectView(item.id)}
+					>
+						<item.icon size={17} />
+						<span>{item.label}</span>
+					</button>
+				))}
+			</nav>
+			<main className="management-workspace">
+				{view === "knowledge" && (
+					<KnowledgeBase initialIndustry={null} canWrite={user.role !== "viewer" || user.isSuperAdmin} />
+				)}
+				{view === "settings" && isAdmin && <Settings />}
+				{view === "members" && isAdmin && <Members localBypass={user.localBypass} />}
+				{view === "auditLogs" && isAdmin && <AuditLogs />}
+				{view === "serviceLogs" && isAdmin && <ServiceLogs />}
+				{view === "organizations" && user.isSuperAdmin && (
+					<OrganizationManagement user={user} onIdentityChange={onIdentityChange} />
+				)}
+			</main>
+		</div>
+	);
+}
+
 function CreateProject({ onClose, onCreated }: { onClose(): void; onCreated(id: string): void }) {
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -861,6 +1077,7 @@ function CreateProject({ onClose, onCreated }: { onClose(): void; onCreated(id: 
 				websiteUrl: data.get("websiteUrl"),
 				region: data.get("region"),
 				language: data.get("language"),
+				industry: data.get("industry"),
 				businessFocus: data.get("businessFocus") || null,
 				aliases: String(data.get("aliases") || "")
 					.split(/[，,]/)
@@ -905,6 +1122,10 @@ function CreateProject({ onClose, onCreated }: { onClose(): void; onCreated(id: 
 					<label>
 						语言
 						<input name="language" required defaultValue="zh-CN" />
+					</label>
+					<label className="wide">
+						所属行业
+						<input name="industry" required placeholder="用于复用机构内同业问题库" />
 					</label>
 					<label className="wide">
 						业务重点（可选）
@@ -987,8 +1208,8 @@ function Onboarding({ project, refresh }: { project: Project; refresh(): Promise
 					<IconWorldSearch size={34} />
 					<h2>读取客户的真实官网</h2>
 					<p>
-						系统会抓取 Sitemap 及最多 100 个同域页面，再由 DeepSeek 生成客户画像、竞品候选和购买问题。此过程需要已配置的
-						API Key。
+						系统会抓取 Sitemap 及最多 100 个同域页面，再由 HRouter GPT
+						生成客户画像、竞品候选和购买问题，并合并当前机构同业知识库。此过程需要已配置的 Agent 模型与 API Key。
 					</p>
 					{error && <Notice type="error" message={error} />}
 					<div className="actions">
@@ -1166,7 +1387,9 @@ function OverviewKpis({ trends, tasks }: { trends: TrendResponse; tasks: Task[] 
 		return before == null || after == null ? null : (after - before) * 100;
 	};
 	const evidenceCount = latest.metrics.validSamples + latest.metrics.failedSamples;
-	const evidenceDelta = baseline ? evidenceCount - (baseline.metrics.validSamples + baseline.metrics.failedSamples) : null;
+	const evidenceDelta = baseline
+		? evidenceCount - (baseline.metrics.validSamples + baseline.metrics.failedSamples)
+		: null;
 	const deltaChip = (value: number | null, unit: string) =>
 		value == null ? (
 			<span className="kpi-delta">首个基线</span>
@@ -1210,7 +1433,9 @@ function OverviewKpis({ trends, tasks }: { trends: TrendResponse; tasks: Task[] 
 					{openTasks}
 					<small> 待审批</small>
 				</div>
-				<span className="kpi-delta">{draftPending ? "Pi Agent 草稿待审" : openTasks > 0 ? "待人工处理" : "全部已验收"}</span>
+				<span className="kpi-delta">
+					{draftPending ? "Pi Agent 草稿待审" : openTasks > 0 ? "待人工处理" : "全部已验收"}
+				</span>
 			</div>
 		</div>
 	);
@@ -1275,11 +1500,7 @@ function OverviewTrendPanel({
 			</>
 		);
 	}
-	return (
-		<div className="overview-trends">
-			{content}
-		</div>
-	);
+	return <div className="overview-trends">{content}</div>;
 }
 
 function Overview({ project, refresh }: { project: Project; refresh(): Promise<void> }) {
@@ -1561,13 +1782,7 @@ function captureLogMessage(capture: Capture): string {
 	return `${capture.status}${capture.failureMessage ? ` · ${capture.failureMessage}` : ""}`;
 }
 
-function RunCaptureLog({
-	captures,
-	active,
-}: {
-	captures: Capture[];
-	active: boolean;
-}) {
+function RunCaptureLog({ captures, active }: { captures: Capture[]; active: boolean }) {
 	if (!captures.length)
 		return (
 			<div className="run-log">
@@ -1592,9 +1807,7 @@ function RunCaptureLog({
 					<span>
 						{providerShortLabel(capture.engine)} · {captureLogMessage(capture)}
 					</span>
-					<b className={capture.status === "complete" ? "ok" : "error"}>
-						{capture.status === "complete" ? "✓" : "!"}
-					</b>
+					<b className={capture.status === "complete" ? "ok" : "error"}>{capture.status === "complete" ? "✓" : "!"}</b>
 				</div>
 			))}
 			{!active ? (
@@ -1716,10 +1929,7 @@ function Monitoring({ project, refresh }: { project: Project; refresh(): Promise
 			setBusy(false);
 		}
 	}
-	async function create(
-		kind: "quick_audit" | "baseline" | "retest",
-		compareToBatchId: string | null = selected,
-	) {
+	async function create(kind: "quick_audit" | "baseline" | "retest", compareToBatchId: string | null = selected) {
 		setBusy(true);
 		setError(null);
 		try {
@@ -2033,7 +2243,10 @@ const overallPercent = (item: TrendResponse["comparable"][number], key: string):
 };
 
 const perPlatformMention = (metrics: Batch["metrics"]): Array<{ label: string; value: number | null }> =>
-	Object.entries(metrics.perPlatform).map(([platform, item]) => ({ label: providerShortLabel(platform), value: item.brandMentionRate }));
+	Object.entries(metrics.perPlatform).map(([platform, item]) => ({
+		label: providerShortLabel(platform),
+		value: item.brandMentionRate,
+	}));
 
 function ChartLegend({ series }: { series: ChartSeries[] }) {
 	return (
@@ -2068,7 +2281,14 @@ function LineTrendChart({ series, labels }: { series: ChartSeries[]; labels: Cha
 			<svg className="chart-svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="关键指标趋势图">
 				{[0, 25, 50, 75, 100].map((tick) => (
 					<g key={tick}>
-						<line x1={padLeft} y1={yAt(tick)} x2={width - padRight} y2={yAt(tick)} stroke="var(--line)" strokeWidth="1" />
+						<line
+							x1={padLeft}
+							y1={yAt(tick)}
+							x2={width - padRight}
+							y2={yAt(tick)}
+							stroke="var(--line)"
+							strokeWidth="1"
+						/>
 						<text x={padLeft - 8} y={yAt(tick) + 4} textAnchor="end">
 							{tick}%
 						</text>
@@ -2094,7 +2314,15 @@ function LineTrendChart({ series, labels }: { series: ChartSeries[]; labels: Cha
 					return (
 						<g key={item.label}>
 							{segments.map((d) => (
-								<path key={d} d={d} fill="none" stroke={item.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+								<path
+									key={d}
+									d={d}
+									fill="none"
+									stroke={item.color}
+									strokeWidth="2.5"
+									strokeLinecap="round"
+									strokeLinejoin="round"
+								/>
 							))}
 							{item.values.map((value, index) =>
 								value == null ? null : (
@@ -2193,7 +2421,11 @@ function ComparisonDeltaChart({
 								{row.value == null ? null : (
 									<i
 										className={`chart-delta-fill ${row.value >= 0 ? "pos" : "neg"}`}
-										style={row.value >= 0 ? { left: "50%", width: `${widthPercent}%` } : { right: "50%", width: `${widthPercent}%` }}
+										style={
+											row.value >= 0
+												? { left: "50%", width: `${widthPercent}%` }
+												: { right: "50%", width: `${widthPercent}%` }
+										}
 									/>
 								)}
 							</span>
@@ -2250,9 +2482,7 @@ function ReportExecutiveOverview({
 				</div>
 				<div className="dm">
 					<span>平均提及位置</span>
-					<b>
-						{typeof overall.averageMentionPosition === "number" ? overall.averageMentionPosition.toFixed(1) : "-"}
-					</b>
+					<b>{typeof overall.averageMentionPosition === "number" ? overall.averageMentionPosition.toFixed(1) : "-"}</b>
 				</div>
 				<div className="dm">
 					<span>有效样本</span>
@@ -2494,6 +2724,137 @@ function Evidence({ project }: { project: Project }) {
 	);
 }
 
+function answerInline(value: string, keyPrefix: string): ReactNode[] {
+	const pattern = /(\*\*[^*]+\*\*|`[^`]+`|!?\[[^\]]*\]\(https?:\/\/[^\s)]+\))/g;
+	const parts: ReactNode[] = [];
+	let offset = 0;
+	for (const [index, match] of [...value.matchAll(pattern)].entries()) {
+		const token = match[0];
+		const start = match.index ?? 0;
+		if (start > offset) parts.push(value.slice(offset, start));
+		if (token.startsWith("**")) parts.push(<strong key={`${keyPrefix}-b-${index}`}>{token.slice(2, -2)}</strong>);
+		else if (token.startsWith("`")) parts.push(<code key={`${keyPrefix}-c-${index}`}>{token.slice(1, -1)}</code>);
+		else {
+			const image = token.startsWith("!");
+			const link = token.match(/^!?\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)$/);
+			if (link)
+				parts.push(
+					<a key={`${keyPrefix}-a-${index}`} href={link[2]} target="_blank" rel="noreferrer">
+						{image ? `图片：${link[1] || link[2]}` : link[1] || link[2]}
+					</a>,
+				);
+			else parts.push(token);
+		}
+		offset = start + token.length;
+	}
+	if (offset < value.length) parts.push(value.slice(offset));
+	return parts;
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: A single pass keeps Markdown block precedence explicit without injecting HTML.
+function FormattedAnswer({ value }: { value: string }) {
+	const lines = value.replaceAll("\r\n", "\n").split("\n");
+	const blocks: ReactNode[] = [];
+	for (let index = 0; index < lines.length; ) {
+		const line = lines[index]?.trimEnd() ?? "";
+		if (!line.trim()) {
+			index += 1;
+			continue;
+		}
+		const heading = line.match(/^(#{1,6})\s+(.+)$/);
+		if (heading) {
+			const level = Math.min(4, heading[1].length + 1);
+			const content = answerInline(heading[2], `h-${index}`);
+			blocks.push(
+				level === 2 ? (
+					<h2 key={`h-${index}`}>{content}</h2>
+				) : level === 3 ? (
+					<h3 key={`h-${index}`}>{content}</h3>
+				) : (
+					<h4 key={`h-${index}`}>{content}</h4>
+				),
+			);
+			index += 1;
+			continue;
+		}
+		if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
+			blocks.push(<hr key={`hr-${index}`} />);
+			index += 1;
+			continue;
+		}
+		if (line.includes("|") && /^\s*\|?\s*:?-{3,}/.test(lines[index + 1] ?? "")) {
+			const rows: string[][] = [];
+			const header = line
+				.replace(/^\||\|$/g, "")
+				.split("|")
+				.map((cell) => cell.trim());
+			index += 2;
+			while (index < lines.length && (lines[index] ?? "").includes("|")) {
+				rows.push(
+					(lines[index] ?? "")
+						.replace(/^\||\|$/g, "")
+						.split("|")
+						.map((cell) => cell.trim()),
+				);
+				index += 1;
+			}
+			blocks.push(
+				<div className="answer-table-wrap" key={`table-${index}`}>
+					<table>
+						<thead>
+							<tr>
+								{header.map((cell, cellIndex) => (
+									<th key={cell}>{answerInline(cell, `th-${index}-${cellIndex}`)}</th>
+								))}
+							</tr>
+						</thead>
+						<tbody>
+							{rows.map((row, rowIndex) => (
+								<tr key={row.join("|")}>
+									{row.map((cell, cellIndex) => (
+										<td key={cell}>{answerInline(cell, `td-${rowIndex}-${cellIndex}`)}</td>
+									))}
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>,
+			);
+			continue;
+		}
+		const listMatch = line.match(/^\s*(?:[-*+]\s+|\d+[.)]\s+)(.+)$/);
+		if (listMatch) {
+			const ordered = /^\s*\d/.test(line);
+			const items: string[] = [];
+			while (index < lines.length) {
+				const item = (lines[index] ?? "").match(/^\s*(?:[-*+]\s+|\d+[.)]\s+)(.+)$/);
+				if (!item || /^\s*\d/.test(lines[index] ?? "") !== ordered) break;
+				items.push(item[1]);
+				index += 1;
+			}
+			const children = items.map((item, itemIndex) => (
+				<li key={item}>{answerInline(item, `li-${index}-${itemIndex}`)}</li>
+			));
+			blocks.push(ordered ? <ol key={`ol-${index}`}>{children}</ol> : <ul key={`ul-${index}`}>{children}</ul>);
+			continue;
+		}
+		const paragraph: string[] = [line.trim()];
+		index += 1;
+		while (
+			index < lines.length &&
+			(lines[index] ?? "").trim() &&
+			!/^#{1,6}\s+/.test(lines[index] ?? "") &&
+			!/^\s*(?:[-*+]\s+|\d+[.)]\s+)/.test(lines[index] ?? "") &&
+			!((lines[index] ?? "").includes("|") && /^\s*\|?\s*:?-{3,}/.test(lines[index + 1] ?? ""))
+		) {
+			paragraph.push((lines[index] ?? "").trim());
+			index += 1;
+		}
+		blocks.push(<p key={`p-${index}`}>{answerInline(paragraph.join(" "), `p-${index}`)}</p>);
+	}
+	return <div className="formatted-answer">{blocks}</div>;
+}
+
 function EvidenceDetail({ capture }: { capture: Capture }) {
 	return (
 		<article className="evidence-detail">
@@ -2514,7 +2875,9 @@ function EvidenceDetail({ capture }: { capture: Capture }) {
 				)}
 			</div>
 			{capture.answerText ? (
-				<blockquote className="ed-quote">{capture.answerText}</blockquote>
+				<div className="ed-quote">
+					<FormattedAnswer value={capture.answerText} />
+				</div>
 			) : (
 				<Notice type="error" message={capture.failureMessage ?? "本次采集没有回答"} />
 			)}
@@ -3245,10 +3608,20 @@ function agentRunDuration(run: AgentRun): string {
 	return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Purpose-specific approved schemas intentionally render in one auditable component.
 function AgentDraftContent({ run }: { run: AgentRun }) {
 	if (!run.draft) return null;
 	if (run.purpose === "report_narrative") {
 		const limitations = Array.isArray(run.draft.limitations) ? run.draft.limitations.map(String) : [];
+		const reputation = (run.draft.reputation ?? {}) as {
+			overall?: string;
+			summary?: string;
+			positiveSignals?: Array<{ statement?: string; sourceUrls?: string[] }>;
+			negativeSignals?: Array<{ statement?: string; sourceUrls?: string[] }>;
+		};
+		const recommendations = Array.isArray(run.draft.geoRecommendations)
+			? (run.draft.geoRecommendations as Array<{ priority?: string; title?: string; action?: string }>)
+			: [];
 		return (
 			<div className="agent-draft-content">
 				<div>
@@ -3259,6 +3632,27 @@ function AgentDraftContent({ run }: { run: AgentRun }) {
 					<span>管理层叙述</span>
 					<p>{String(run.draft.executiveSummary ?? "-")}</p>
 				</div>
+				<div className="agent-reputation-preview">
+					<span>AI 口碑 · {reputation.overall ?? "not_observed"}</span>
+					<p>{reputation.summary ?? "-"}</p>
+					{[...(reputation.positiveSignals ?? []), ...(reputation.negativeSignals ?? [])].map((signal) => (
+						<p key={`${signal.statement}-${signal.sourceUrls?.join("|")}`}>
+							{signal.statement} · {signal.sourceUrls?.length ? signal.sourceUrls.join("、") : "平台未开放来源"}
+						</p>
+					))}
+				</div>
+				{recommendations.length > 0 && (
+					<div>
+						<span>GEO 优化建议</span>
+						<ul>
+							{recommendations.map((item) => (
+								<li key={`${item.title}-${item.action}`}>
+									{item.priority} · {item.title}：{item.action}
+								</li>
+							))}
+						</ul>
+					</div>
+				)}
 				{limitations.length > 0 && (
 					<div>
 						<span>证据局限</span>
@@ -3279,7 +3673,7 @@ function AgentDraftContent({ run }: { run: AgentRun }) {
 		return (
 			<div className="agent-draft-content">
 				<div>
-					<span>检查结论</span>
+					<span>检查结论 · {String(run.draft.verdict ?? "-")}</span>
 					<p>{String(run.draft.summary ?? "-")}</p>
 				</div>
 				<div>
@@ -3410,6 +3804,7 @@ function Report({ project }: { project: Project }) {
 	const [snapshots, setSnapshots] = useState<ReportSnapshot[]>([]);
 	const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
 	const [reportBusy, setReportBusy] = useState<string | null>(null);
+	const [workflowState, setWorkflowState] = useState<ReportWorkflowState | null>(null);
 	const [shareUrl, setShareUrl] = useState<string | null>(null);
 	const [shares, setShares] = useState<ReportShare[]>([]);
 	const latestSnapshotId = snapshots.find((item) => item.batch_id === selected)?.id ?? null;
@@ -3439,6 +3834,19 @@ function Report({ project }: { project: Project }) {
 		const timer = window.setInterval(() => void loadAgentRuns().catch(() => undefined), 2_000);
 		return () => window.clearInterval(timer);
 	}, [hasActiveAgentRuns, loadAgentRuns]);
+	const pendingDocumentSnapshot = snapshots.find(
+		(item) => item.batch_id === selected && (!item.pdf_artifact_key || !item.word_artifact_key),
+	);
+	useEffect(() => {
+		if (workflowState !== "documents_queued" || !pendingDocumentSnapshot) return;
+		const timer = window.setInterval(() => void loadSnapshots().catch(() => undefined), 2_000);
+		return () => window.clearInterval(timer);
+	}, [workflowState, pendingDocumentSnapshot, loadSnapshots]);
+	useEffect(() => {
+		const latest = snapshots.find((item) => item.batch_id === selected);
+		if (workflowState === "documents_queued" && latest?.pdf_artifact_key && latest.word_artifact_key)
+			setWorkflowState("ready");
+	}, [workflowState, snapshots, selected]);
 	useEffect(() => {
 		setShareUrl(null);
 		if (!latestSnapshotId) {
@@ -3449,6 +3857,7 @@ function Report({ project }: { project: Project }) {
 	}, [latestSnapshotId, loadShares]);
 	useEffect(() => {
 		if (!selected) return;
+		setWorkflowState(null);
 		setReport(null);
 		setReportError(null);
 		api<ReportPayload>(`/api/batches/${selected}/report`)
@@ -3469,27 +3878,16 @@ function Report({ project }: { project: Project }) {
 	const analysis = report?.analysis;
 	const selectedSnapshots = snapshots.filter((item) => item.batch_id === selected);
 	const latestSnapshot = selectedSnapshots[0];
-	const activeAgentPurposes = new Set(
-		agentRuns.filter((run) => run.status === "queued" || run.status === "running").map((run) => run.purpose),
+	const approvedNarrative = agentRuns.find((run) => run.purpose === "report_narrative" && run.status === "approved");
+	const approvedQuality = agentRuns.find(
+		(run) =>
+			run.purpose === "quality_review" &&
+			run.status === "approved" &&
+			run.draft?.verdict === "pass" &&
+			run.draft.reviewedNarrativeRunId === approvedNarrative?.id,
 	);
-	async function createSnapshot() {
-		if (!batch) return;
-		setReportBusy("snapshot");
-		setReportError(null);
-		try {
-			await post(`/api/batches/${batch.id}/reports`, {
-				reportType: batch.kind === "quick_audit" ? "quick_audit" : batch.kind === "retest" ? "retest" : "remediation",
-				compareToBatchId: batch.compare_to_batch_id,
-			});
-			await loadSnapshots();
-		} catch (reason) {
-			setReportError(reason instanceof Error ? reason.message : "报告快照生成失败");
-		} finally {
-			setReportBusy(null);
-		}
-	}
 	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Polling preserves each explicit server-side PDF terminal state for the user.
-	async function createPdf() {
+	async function createDocuments() {
 		if (!latestSnapshot) return;
 		setReportBusy("pdf");
 		try {
@@ -3501,16 +3899,17 @@ function Report({ project }: { project: Project }) {
 				const status = await api<{
 					status: "ready" | "queued" | "failed" | "missing";
 					artifactKey: string | null;
+					wordArtifactKey: string | null;
 					error: string | null;
 				}>(`/api/reports/${latestSnapshot.id}/pdf`);
 				if (status.status === "failed" || status.status === "missing") throw new Error(status.error ?? "PDF 生成失败");
 				result = { status: status.status === "ready" ? "ready" : "queued", artifactKey: status.artifactKey };
 			}
-			if (!result.artifactKey) throw new Error("Report Worker 尚未在 2 分钟内完成 PDF");
+			if (!result.artifactKey) throw new Error("Report Worker 尚未在 2 分钟内完成 PDF 与 Word");
 			await loadSnapshots();
 			window.open(`/artifacts/${result.artifactKey}`, "_blank", "noopener,noreferrer");
 		} catch (reason) {
-			setReportError(reason instanceof Error ? reason.message : "PDF 生成失败");
+			setReportError(reason instanceof Error ? reason.message : "报告文档生成失败");
 		} finally {
 			setReportBusy(null);
 		}
@@ -3532,19 +3931,35 @@ function Report({ project }: { project: Project }) {
 			setReportBusy(null);
 		}
 	}
-	async function runReportAgent(purpose: "report_narrative" | "quality_review") {
+	async function advanceReport() {
 		if (!batch) return;
-		setReportBusy(purpose);
+		setReportBusy("workflow");
 		setReportError(null);
 		try {
-			await post(`/api/batches/${batch.id}/agent`, { purpose });
-			await loadAgentRuns();
+			const result = await post<ReportWorkflowResult>(`/api/batches/${batch.id}/report-workflow`, {
+				restart: Boolean(latestSnapshot?.pdf_artifact_key && latestSnapshot.word_artifact_key),
+			});
+			setWorkflowState(result.state);
+			await Promise.all([loadAgentRuns(), loadSnapshots()]);
 		} catch (reason) {
-			setReportError(reason instanceof Error ? reason.message : "Agent 运行失败");
+			setReportError(reason instanceof Error ? reason.message : "报告工作流启动失败");
 		} finally {
 			setReportBusy(null);
 		}
 	}
+	const awaitingApproval = agentRuns.some((run) => run.status === "awaiting_approval");
+	const reportReady = Boolean(latestSnapshot?.pdf_artifact_key && latestSnapshot.word_artifact_key);
+	const workflowLabel = awaitingApproval
+		? "等待人工审批"
+		: hasActiveAgentRuns
+			? "Agent 处理中"
+			: reportReady
+				? "生成新报告版本"
+				: workflowState === "quality_blocked"
+					? "重试质量检查"
+					: approvedNarrative && !approvedQuality
+						? "继续质量检查"
+						: "生成并校验报告";
 	return (
 		<section className="report">
 			<div className="report-workspace no-print">
@@ -3558,41 +3973,19 @@ function Report({ project }: { project: Project }) {
 					</div>
 					<BatchPicker project={project} selected={selected} setSelected={setSelected} />
 				</div>
-				<div className="report-command-bar">
+				<div className="report-command-bar report-workflow-command-bar">
 					<div className="report-command-group">
-						<span>Agent 分析</span>
+						<span>Agent 报告工作流</span>
 						<div>
 							<Button
-								variant="secondary"
 								icon={<IconFileText size={17} />}
-								busy={reportBusy === "report_narrative"}
-								disabled={!batch || activeAgentPurposes.has("report_narrative")}
-								onClick={() => runReportAgent("report_narrative")}
+								busy={reportBusy === "workflow" || workflowState === "documents_queued" || hasActiveAgentRuns}
+								disabled={
+									!batch || hasActiveAgentRuns || awaitingApproval || ["queued", "running"].includes(batch.status)
+								}
+								onClick={advanceReport}
 							>
-								生成报告叙述
-							</Button>
-							<Button
-								variant="secondary"
-								icon={<IconShieldCheck size={17} />}
-								busy={reportBusy === "quality_review"}
-								disabled={!batch || activeAgentPurposes.has("quality_review")}
-								onClick={() => runReportAgent("quality_review")}
-							>
-								运行质量检查
-							</Button>
-						</div>
-					</div>
-					<div className="report-command-group">
-						<span>版本</span>
-						<div>
-							<Button
-								variant="secondary"
-								icon={<IconDatabase size={17} />}
-								busy={reportBusy === "snapshot"}
-								disabled={!batch || ["queued", "running"].includes(batch.status)}
-								onClick={createSnapshot}
-							>
-								冻结新版本
+								{workflowLabel}
 							</Button>
 						</div>
 					</div>
@@ -3611,6 +4004,15 @@ function Report({ project }: { project: Project }) {
 						</div>
 					</div>
 				</div>
+				<fieldset className="report-workflow-steps" aria-label="报告工作流状态">
+					<span className={hasActiveAgentRuns ? "active" : approvedNarrative ? "complete" : ""}>叙述</span>
+					<i />
+					<span className={approvedQuality ? "complete" : approvedNarrative ? "active" : ""}>质检</span>
+					<i />
+					<span className={latestSnapshot ? "complete" : approvedQuality ? "active" : ""}>冻结</span>
+					<i />
+					<span className={reportReady ? "complete" : latestSnapshot ? "active" : ""}>文档</span>
+				</fieldset>
 			</div>
 			{reportError && <Notice type="error" message={reportError} />}
 			{batch && analysis ? (
@@ -3619,8 +4021,13 @@ function Report({ project }: { project: Project }) {
 					analysis={analysis}
 					baselineBatch={baselineBatch}
 					pdfAction={
-						<Button icon={<IconDownload size={17} />} busy={reportBusy === "pdf"} disabled={!latestSnapshot} onClick={createPdf}>
-							导出 PDF
+						<Button
+							icon={<IconDownload size={17} />}
+							busy={reportBusy === "pdf"}
+							disabled={!latestSnapshot}
+							onClick={createDocuments}
+						>
+							生成 PDF + Word
 						</Button>
 					}
 				/>
@@ -3644,8 +4051,11 @@ function Report({ project }: { project: Project }) {
 								key={run.id}
 								run={run}
 								onApprove={async () => {
-									await post(`/api/agent-runs/${run.id}/approve`);
-									await loadAgentRuns();
+									const result = await post<{ workflow: ReportWorkflowResult | null }>(
+										`/api/agent-runs/${run.id}/approve`,
+									);
+									setWorkflowState(result.workflow?.state ?? null);
+									await Promise.all([loadAgentRuns(), loadSnapshots()]);
 								}}
 								onReject={async () => {
 									await post(`/api/agent-runs/${run.id}/reject`);
@@ -3658,6 +4068,18 @@ function Report({ project }: { project: Project }) {
 					<p className="agent-activity-empty">当前批次暂无 Agent 任务。</p>
 				)}
 			</section>
+			{approvedNarrative && (
+				<section className="approved-agent-report">
+					<header>
+						<div>
+							<span className="eyebrow">Pi Agent 已批准结论</span>
+							<h3>口碑检测与 GEO 优化意见</h3>
+						</div>
+						<span>{approvedQuality ? "质量校验通过" : "等待质量校验"}</span>
+					</header>
+					<AgentDraftContent run={approvedNarrative} />
+				</section>
+			)}
 			<section className="report-assets no-print">
 				<header>
 					<div>
@@ -3703,6 +4125,11 @@ function Report({ project }: { project: Project }) {
 											rel="noreferrer"
 										>
 											查看 PDF
+										</a>
+									)}
+									{snapshot.word_artifact_key && (
+										<a className="button secondary" href={`/artifacts/${snapshot.word_artifact_key}`}>
+											下载 Word
 										</a>
 									)}
 								</div>
@@ -4138,11 +4565,7 @@ function ProviderPanel({
 	runAction(name: string, run: () => Promise<unknown>): Promise<void>;
 }) {
 	return (
-		<article
-			id="active-provider-panel"
-			role="tabpanel"
-			aria-labelledby={`provider-tab-${provider.providerId}`}
-		>
+		<article id="active-provider-panel" role="tabpanel" aria-labelledby={`provider-tab-${provider.providerId}`}>
 			<header>
 				<div>
 					<span className="platform-logo">
@@ -4288,10 +4711,7 @@ function Settings() {
 			setBusy(null);
 		}
 	}
-	function updateProvider(
-		id: ProviderId,
-		values: ProviderDraft,
-	) {
+	function updateProvider(id: ProviderId, values: ProviderDraft) {
 		setDrafts((current) => ({ ...current, [id]: { ...current[id], ...values } }));
 	}
 	const activeProvider = providers.find((provider) => provider.providerId === activeProviderId) ?? providers[0];
@@ -4478,10 +4898,7 @@ function Members({ localBypass }: { localBypass: boolean }) {
 					<div>
 						<IconKey size={24} />
 						<h3>本机免登录开发模式</h3>
-						<p>
-							配置 GEO_ADMIN_EMAIL 和 GEO_ADMIN_PASSWORD
-							后重启，即可启用管理员、分析师和只读成员管理。
-						</p>
+						<p>配置 GEO_ADMIN_EMAIL 和 GEO_ADMIN_PASSWORD 后重启，即可启用管理员、分析师和只读成员管理。</p>
 					</div>
 				</div>
 			) : (
@@ -4506,6 +4923,283 @@ function AuditLogs() {
 	);
 }
 
+type ServiceLogFilters = {
+	service: string;
+	level: string;
+	search: string;
+	from: string;
+	to: string;
+};
+
+const emptyServiceLogFilters: ServiceLogFilters = { service: "", level: "", search: "", from: "", to: "" };
+const serviceLogLabels: Record<string, string> = {
+	api: "API",
+	"capture-worker": "Capture Worker",
+	"agent-worker": "Agent Worker",
+	"report-worker": "Report Worker",
+	"log-service": "Log Service",
+	"local-worker-coordinator": "Local Worker",
+};
+
+function serviceLogParams(filters: ServiceLogFilters, cursor?: string | null): URLSearchParams {
+	const params = new URLSearchParams();
+	if (filters.service) params.set("service", filters.service);
+	if (filters.level) params.set("level", filters.level);
+	if (filters.search.trim()) params.set("search", filters.search.trim());
+	if (filters.from) params.set("from", new Date(`${filters.from}T00:00:00`).toISOString());
+	if (filters.to) params.set("to", new Date(`${filters.to}T23:59:59.999`).toISOString());
+	if (cursor) params.set("cursor", cursor);
+	params.set("limit", "100");
+	return params;
+}
+
+function ServiceLogs() {
+	const [draftFilters, setDraftFilters] = useState<ServiceLogFilters>(emptyServiceLogFilters);
+	const [filters, setFilters] = useState<ServiceLogFilters>(emptyServiceLogFilters);
+	const [logs, setLogs] = useState<ServiceLogRow[]>([]);
+	const [counts, setCounts] = useState<Record<ServiceLogLevel, number>>({ debug: 0, info: 0, warn: 0, error: 0 });
+	const [nextCursor, setNextCursor] = useState<string | null>(null);
+	const [loadingLogs, setLoadingLogs] = useState(false);
+	const [autoRefresh, setAutoRefresh] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const [health, setHealth] = useState<Record<string, unknown> | null>(null);
+	const [retentionDays, setRetentionDays] = useState(90);
+	const [retentionConfirmed, setRetentionConfirmed] = useState(false);
+	const [retentionBusy, setRetentionBusy] = useState(false);
+
+	const load = useCallback(
+		async (append = false, cursor: string | null = null) => {
+			setLoadingLogs(true);
+			setError(null);
+			try {
+				const params = serviceLogParams(filters, append ? cursor : null);
+				const result = await api<ServiceLogResponse>(`/api/service-logs?${params}`);
+				setLogs((current) => (append ? [...current, ...result.logs] : result.logs));
+				setCounts(result.counts);
+				setNextCursor(result.nextCursor);
+			} catch (reason) {
+				setError(reason instanceof Error ? reason.message : "运行日志加载失败");
+			} finally {
+				setLoadingLogs(false);
+			}
+		},
+		[filters],
+	);
+	useEffect(() => {
+		void load(false);
+	}, [load]);
+	useEffect(() => {
+		void api<{ logService?: Record<string, unknown> }>("/api/health")
+			.then((result) => setHealth(result.logService ?? null))
+			.catch(() => setHealth({ status: "unavailable" }));
+	}, []);
+	useEffect(() => {
+		if (!autoRefresh) return;
+		const timer = window.setInterval(() => void load(false), 10_000);
+		return () => window.clearInterval(timer);
+	}, [autoRefresh, load]);
+	const exportParams = serviceLogParams(filters);
+	exportParams.delete("limit");
+	async function prune() {
+		setRetentionBusy(true);
+		setError(null);
+		try {
+			const result = await post<{ deleted: number }>("/api/service-logs/retention", { olderThanDays: retentionDays });
+			setRetentionConfirmed(false);
+			await load(false);
+			setError(`已清理 ${result.deleted} 条过期运行日志`);
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : "日志清理失败");
+		} finally {
+			setRetentionBusy(false);
+		}
+	}
+	return (
+		<section className="service-logs-view">
+			<div className="overview-head">
+				<div>
+					<span className="eyebrow">独立日志服务</span>
+					<h2>运行日志</h2>
+					<p className="muted">
+						{health?.status === "ok"
+							? `服务正常 · ${Number(health.storedLogs ?? 0).toLocaleString("zh-CN")} 条 · 保留 ${health.retentionDays} 天`
+							: health?.status === "unconfigured"
+								? "日志服务未配置"
+								: "日志服务暂不可用"}
+					</p>
+				</div>
+				<div className="actions">
+					<label className="toggle-label compact-toggle">
+						<input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} />
+						自动刷新
+					</label>
+					<a className="button secondary" href={`/api/service-logs/export.csv?${exportParams}`}>
+						<IconDownload size={16} />
+						CSV
+					</a>
+					<Button
+						variant="secondary"
+						icon={<IconRefresh size={16} />}
+						busy={loadingLogs}
+						onClick={() => void load(false)}
+					>
+						刷新
+					</Button>
+				</div>
+			</div>
+			<div className="service-log-counts">
+				{(["error", "warn", "info", "debug"] as const).map((level) => (
+					<button
+						type="button"
+						className={filters.level === level ? `active level-${level}` : `level-${level}`}
+						key={level}
+						onClick={() => {
+							const next = { ...draftFilters, level: filters.level === level ? "" : level };
+							setDraftFilters(next);
+							setFilters(next);
+						}}
+					>
+						<span>{level.toUpperCase()}</span>
+						<b>{counts[level].toLocaleString("zh-CN")}</b>
+					</button>
+				))}
+			</div>
+			<div className="service-log-filters">
+				<select
+					value={draftFilters.service}
+					onChange={(event) => setDraftFilters({ ...draftFilters, service: event.target.value })}
+				>
+					<option value="">全部服务</option>
+					{Object.entries(serviceLogLabels).map(([value, label]) => (
+						<option value={value} key={value}>
+							{label}
+						</option>
+					))}
+				</select>
+				<select
+					value={draftFilters.level}
+					onChange={(event) => setDraftFilters({ ...draftFilters, level: event.target.value })}
+				>
+					<option value="">全部级别</option>
+					<option value="error">ERROR</option>
+					<option value="warn">WARN</option>
+					<option value="info">INFO</option>
+					<option value="debug">DEBUG</option>
+				</select>
+				<input
+					type="date"
+					aria-label="开始日期"
+					value={draftFilters.from}
+					onChange={(event) => setDraftFilters({ ...draftFilters, from: event.target.value })}
+				/>
+				<input
+					type="date"
+					aria-label="结束日期"
+					value={draftFilters.to}
+					onChange={(event) => setDraftFilters({ ...draftFilters, to: event.target.value })}
+				/>
+				<input
+					className="service-log-search"
+					placeholder="消息、事件、Trace ID 或项目 ID"
+					value={draftFilters.search}
+					onChange={(event) => setDraftFilters({ ...draftFilters, search: event.target.value })}
+				/>
+				<Button onClick={() => setFilters({ ...draftFilters })}>筛选</Button>
+				<Button
+					variant="ghost"
+					onClick={() => {
+						setDraftFilters(emptyServiceLogFilters);
+						setFilters(emptyServiceLogFilters);
+					}}
+				>
+					重置
+				</Button>
+			</div>
+			{error && <Notice type={error.startsWith("已清理") ? "success" : "error"} message={error} />}
+			<div className="service-log-table-wrap">
+				<table className="service-log-table">
+					<thead>
+						<tr>
+							<th>时间</th>
+							<th>级别</th>
+							<th>服务 / 事件</th>
+							<th>消息</th>
+							<th>关联</th>
+						</tr>
+					</thead>
+					<tbody>
+						{logs.map((log) => (
+							<tr key={log.id}>
+								<td>
+									<time>{date(log.occurred_at)}</time>
+								</td>
+								<td>
+									<span className={`service-log-level level-${log.level}`}>{log.level}</span>
+								</td>
+								<td>
+									<b>{serviceLogLabels[log.service] ?? log.service}</b>
+									<code>{log.event}</code>
+								</td>
+								<td>
+									<p>{log.message}</p>
+									{Object.keys(log.metadata).length > 0 && (
+										<details>
+											<summary>上下文</summary>
+											<code>{JSON.stringify(log.metadata, null, 2)}</code>
+										</details>
+									)}
+								</td>
+								<td>
+									{log.trace_id && <code title="Trace ID">{log.trace_id}</code>}
+									{log.project_id && <small>项目 {log.project_id}</small>}
+									{log.organization_id === null && <small>系统日志</small>}
+								</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+				{!loadingLogs && logs.length === 0 && (
+					<Empty title="当前筛选没有日志" detail="调整时间、服务、级别或关键字后重新筛选。" />
+				)}
+			</div>
+			{nextCursor && (
+				<Button variant="secondary" busy={loadingLogs} onClick={() => void load(true, nextCursor)}>
+					加载更多
+				</Button>
+			)}
+			<section className="service-log-retention">
+				<div>
+					<h3>日志保留操作</h3>
+					<p>仅清理当前机构的运行日志；业务审计和证据不受影响。</p>
+				</div>
+				<select value={retentionDays} onChange={(event) => setRetentionDays(Number(event.target.value))}>
+					<option value={30}>30 天前</option>
+					<option value={90}>90 天前</option>
+					<option value={180}>180 天前</option>
+					<option value={365}>365 天前</option>
+				</select>
+				<label className="toggle-label compact-toggle">
+					<input
+						type="checkbox"
+						checked={retentionConfirmed}
+						onChange={(event) => setRetentionConfirmed(event.target.checked)}
+					/>
+					确认清理
+				</label>
+				<Button
+					variant="danger"
+					icon={<IconTrash size={16} />}
+					busy={retentionBusy}
+					disabled={!retentionConfirmed}
+					onClick={() => void prune()}
+				>
+					清理过期日志
+				</Button>
+			</section>
+		</section>
+	);
+}
+
 type AuditLogRow = {
 	id: string;
 	action: string;
@@ -4515,6 +5209,220 @@ type AuditLogRow = {
 	actor_email: string | null;
 	created_at: string;
 };
+
+type LibraryQuestion = {
+	id: string;
+	industry: string;
+	question: string;
+	intent: string;
+	topic: string | null;
+	persona: string | null;
+	tags: string[];
+	created_by_email: string | null;
+	created_at: string;
+};
+
+function KnowledgeBase({
+	project,
+	initialIndustry,
+	canWrite,
+}: {
+	project?: Project;
+	initialIndustry?: string | null;
+	canWrite: boolean;
+}) {
+	const [industry, setIndustry] = useState(project?.industry ?? initialIndustry ?? "");
+	const [questions, setQuestions] = useState<LibraryQuestion[]>([]);
+	const [form, setForm] = useState({ question: "", intent: "购买决策", topic: "", persona: "", tags: "" });
+	const [error, setError] = useState<string | null>(null);
+	const load = useCallback(
+		() =>
+			api<{ questions: LibraryQuestion[] }>(
+				`/api/knowledge/questions${industry ? `?industry=${encodeURIComponent(industry)}` : ""}`,
+			).then((result) => setQuestions(result.questions)),
+		[industry],
+	);
+	useEffect(() => {
+		void load().catch((reason) => setError(reason instanceof Error ? reason.message : "问题库加载失败"));
+	}, [load]);
+	async function create() {
+		setError(null);
+		try {
+			await post("/api/knowledge/questions", {
+				industry,
+				question: form.question,
+				intent: form.intent,
+				topic: form.topic || null,
+				persona: form.persona || null,
+				tags: form.tags
+					.split(/[，,]/)
+					.map((value) => value.trim())
+					.filter(Boolean),
+			});
+			setForm({ question: "", intent: "购买决策", topic: "", persona: "", tags: "" });
+			await load();
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : "问题添加失败");
+		}
+	}
+	return (
+		<section className="knowledge-base">
+			<div className="overview-head">
+				<div>
+					<span className="eyebrow">机构知识资产</span>
+					<h2>行业问题知识库</h2>
+					<p className="muted">新客户官网分析会自动合并同机构、同行业的问题；新增内容只由成员维护。</p>
+				</div>
+				<label className="knowledge-industry-filter">
+					行业
+					<input value={industry} onChange={(event) => setIndustry(event.target.value)} placeholder="输入行业筛选" />
+				</label>
+			</div>
+			{error && <Notice type="error" message={error} />}
+			{!canWrite && <Notice message="当前为只读角色，可以查看知识库，但不能新增或归档问题。" />}
+			<div className="knowledge-create">
+				<input
+					className="knowledge-question-input"
+					placeholder="潜在客户会向 AI 提出的真实问题"
+					value={form.question}
+					onChange={(event) => setForm({ ...form, question: event.target.value })}
+				/>
+				<input
+					placeholder="意图"
+					value={form.intent}
+					onChange={(event) => setForm({ ...form, intent: event.target.value })}
+				/>
+				<input
+					placeholder="主题"
+					value={form.topic}
+					onChange={(event) => setForm({ ...form, topic: event.target.value })}
+				/>
+				<input
+					placeholder="购买者角色"
+					value={form.persona}
+					onChange={(event) => setForm({ ...form, persona: event.target.value })}
+				/>
+				<input
+					placeholder="标签，逗号分隔"
+					value={form.tags}
+					onChange={(event) => setForm({ ...form, tags: event.target.value })}
+				/>
+				<Button
+					icon={<IconPlus size={16} />}
+					disabled={!canWrite || !industry || form.question.trim().length < 4 || !form.intent}
+					onClick={create}
+				>
+					加入知识库
+				</Button>
+			</div>
+			{questions.length ? (
+				<div className="knowledge-list">
+					{questions.map((question) => (
+						<article key={question.id}>
+							<div>
+								<span>{question.industry}</span>
+								<h3>{question.question}</h3>
+								<p>
+									{question.intent}
+									{question.topic ? ` · ${question.topic}` : ""}
+									{question.persona ? ` · ${question.persona}` : ""}
+								</p>
+								<small>
+									{question.created_by_email ?? "系统"} · {date(question.created_at)}
+								</small>
+							</div>
+							<Button
+								variant="ghost"
+								icon={<IconTrash size={15} />}
+								disabled={!canWrite}
+								onClick={() => api(`/api/knowledge/questions/${question.id}`, { method: "DELETE" }).then(load)}
+							>
+								归档
+							</Button>
+						</article>
+					))}
+				</div>
+			) : (
+				<Empty title="该行业还没有问题" detail="添加首个问题后，后续同行业客户建档时会自动复用。" />
+			)}
+		</section>
+	);
+}
+
+function OrganizationManagement({
+	user,
+	onIdentityChange,
+}: {
+	user: UserIdentity;
+	onIdentityChange(user: UserIdentity): void;
+}) {
+	const [organizations, setOrganizations] = useState<OrganizationSummary[]>([]);
+	const [name, setName] = useState("");
+	const [error, setError] = useState<string | null>(null);
+	const load = useCallback(
+		() =>
+			api<{ organizations: OrganizationSummary[] }>("/api/organizations").then((result) =>
+				setOrganizations(result.organizations),
+			),
+		[],
+	);
+	useEffect(() => {
+		void load().catch(() => setOrganizations([]));
+	}, [load]);
+	async function create() {
+		setError(null);
+		try {
+			await post("/api/organizations", { name });
+			setName("");
+			await load();
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : "机构创建失败");
+		}
+	}
+	async function select(organizationId: string) {
+		const result = await post<{ user: UserIdentity }>("/api/organizations/select", { organizationId });
+		onIdentityChange(result.user);
+	}
+	return (
+		<section className="organization-management">
+			<div className="overview-head">
+				<div>
+					<span className="eyebrow">系统超管</span>
+					<h2>多租户管理</h2>
+					<p className="muted">每个机构拥有独立的项目、证据、模型凭据、问题库、报告、成员和审计日志。</p>
+				</div>
+				<div className="organization-create">
+					<input value={name} onChange={(event) => setName(event.target.value)} placeholder="新机构名称" />
+					<Button icon={<IconPlus size={16} />} disabled={!name.trim()} onClick={create}>
+						创建机构
+					</Button>
+				</div>
+			</div>
+			{error && <Notice type="error" message={error} />}
+			<div className="organization-list">
+				{organizations.map((organization) => (
+					<article className={organization.id === user.organizationId ? "active" : ""} key={organization.id}>
+						<div>
+							<h3>{organization.name}</h3>
+							<code>{organization.id}</code>
+							<p>
+								{organization.project_count} 个项目 · {organization.user_count} 位有效成员
+							</p>
+						</div>
+						<Button
+							variant="secondary"
+							disabled={organization.id === user.organizationId}
+							onClick={() => void select(organization.id)}
+						>
+							进入机构
+						</Button>
+					</article>
+				))}
+			</div>
+		</section>
+	);
+}
+
 function AuditLogPanel() {
 	const [logs, setLogs] = useState<AuditLogRow[]>([]);
 	useEffect(() => {

@@ -1,6 +1,6 @@
 ---
 name: geo-operations
-description: Operate and troubleshoot an existing GEO Console instance, including health, provider failures, capture/Agent/report queues, schedules, drift alerts, object storage, backups, restores, and evidence retention. Use for runtime diagnosis and recovery; use geo-deployment for first installation, upgrades, rollback, or environment provisioning.
+description: Operate and troubleshoot an existing GEO Console instance, including health, structured log service, provider failures, capture/Agent/report queues, schedules, drift alerts, object storage, backups, restores, and evidence/log retention. Use for runtime diagnosis and recovery; use geo-deployment for first installation, upgrades, rollback, or environment provisioning.
 ---
 
 # GEO Console Operations
@@ -16,7 +16,7 @@ description: Operate and troubleshoot an existing GEO Console instance, includin
 
 ## 事实边界
 
-- `/api/health` 只证明 API 可以访问数据库与对象存储，并报告 HRouter 是否已配置；它不证明三个 Worker 正在消费，也不测试五个 Provider。
+- `/api/health` 证明 API 可访问数据库/对象存储并报告 Log Service 状态；Log Service `/health` 只证明其可读数据库。两者都不证明三个 Worker 正在消费，也不测试五个 Provider。
 - 服务器 `geo-console doctor` 检查 Compose、全部服务、HTTPS 和备份文件可见性；它仍不证明队列已排空、Provider Key 有效或 S3 对象可恢复。
 - `query_captures`、raw response objects、网站快照和报告快照不可作为普通修复更新或删除。修配置、网络、配额或代码后，创建新批次或重试派生任务。
 - Provider 的 auth、quota、timeout、model retirement、search-not-triggered、protocol change 是不同故障；必须保留原 Provider 和失败码，不得替换模型/平台或补写成功。
@@ -31,6 +31,7 @@ description: Operate and troubleshoot an existing GEO Console instance, includin
 - Agent 失败时保留 tool trace 和 error；重新入队产生新的运行记录或按产品流程重试，不把未审批 draft 写入正式记录。
 - 数据库写修复必须有精确实例、表、ID、预期行数、当前备份、显式授权和审计说明。先用事务或 `RETURNING` 证明目标；绝不对未指定外部数据库执行 migration 或修复。
 - 删除证据、项目或对象属于破坏性操作。先解析关联行和 object prefix，验证备份可恢复，再单独请求确认。
+- `service_logs` 可按明确机构和保留天数清理；`audit_logs` 与证据不可借用日志清理接口。所有清理先确认活动租户、预期范围和备份。
 
 ## 备份与恢复
 

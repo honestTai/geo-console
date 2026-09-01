@@ -20,6 +20,7 @@
 		"@earendil-works/pi-ai": "0.84.4",
 		"@geo/core": "workspace:*",
 		"@geo/evidence": "workspace:*",
+		"@geo/logging": "workspace:*",
 		"@geo/metrics": "workspace:*",
 		"@geo/search-providers": "workspace:*",
 		"cheerio": "^1.2.0",

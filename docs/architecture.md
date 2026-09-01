@@ -7,30 +7,38 @@
                     -> /app/  React 工作台
                     -> /api/  API :3010 -> PostgreSQL
                                          -> S3 兼容证据存储
+                              Log Service :3020 -> PostgreSQL service_logs
                               Capture Worker -> 五家联网 API
                               Agent Worker   -> HRouter GPT
                               Report Worker  -> Playwright PDF
 ```
 
-本机使用同一业务代码，数据库切换为文件持久化 PGlite，对象存储切换为用户数据目录。`pnpm geo start` 启动 API、Capture Worker、Agent Worker、Report Worker 和 Web。
+本机使用同一业务代码，但 PGlite 不允许多个进程争用同一目录：API 进程内组合运行 Capture/Agent/Report 队列，独立 Log Service 使用 `${GEO_DATA_DIR}/log-service` 下的单独 PGlite，Web 仍为独立 Vite 进程。生产 PostgreSQL 继续运行八个独立 Compose 服务。
 
 - `landing`：静态官网。交互演示全部标注为演示数据，不访问业务 API、不写数据库、不作为指标或证据。
 - `apps/web`：发布在 `/app/` 的客户建档、监测、证据、官网审计、诊断、整改、归因、报告和机构管理工作台。
-- `apps/worker/src/index.ts`：机构会话、角色、项目 API、周期调度和审计日志。
+- `apps/worker/src/index.ts`：机构会话、请求级租户作用域、RBAC、超管机构切换、项目 API、周期调度和审计日志。
+- `apps/log-service`：内网结构化运行日志采集、租户查询、CSV 导出、分页与保留期清理；不接收证据正文或凭据。
 - `capture-worker.ts`：按数据库租约领取 `capture` 任务，只调用冻结配置中的供应商。
 - `agent-worker.ts`：领取 `agent_draft` 任务，实时保存受限工具轨迹，完成后进入人工审批。
-- `report-worker.ts`：领取 `report_pdf` 任务，以固定中文字体生成 PDF 后写对象存储。
+- `report-worker.ts`：在已批准 Agent 报告叙述与质量检查后领取 `report_document` 任务，以冻结快照生成 PDF 与 Word 后写对象存储。
 - `packages/search-providers`：五个平台的真实 API 协议与失败分类。
 - `packages/evidence`：`QueryCapture v1/v2` 不可变证据契约。
 - `packages/metrics`：品牌匹配后的确定性指标与等权平台汇总。
 - `packages/core`：PGlite/PostgreSQL 共用迁移、Schema、租约、信封加密和批次可比性。
+- `packages/logging`：跨进程日志类型、脱敏、批量缓冲、内部服务客户端和 Trace ID 关联。
+
+每个用户归属一个机构；普通管理员、分析师和只读成员只能读取活动机构的项目与资源。系统超管可切换活动机构并管理全部机构，但项目、证据、报告、问题库、Provider/HRouter 配置、成员和审计日志仍按 `organization_id` 分区。证据文件下载同样先解析数据库归属，不仅依赖对象 key。
 
 旧 `consumer_surface` 证据仍可只读查看。新批次只创建 `llm_search_api` v2 证据；两种口径不会进入同一个冻结批次或趋势比较。每个新批次冻结端点、模型、协议、搜索策略、搜索工具和适配器版本，Capture Worker 只读取该冻结契约；缺少完整契约的历史基线不能用于新复测。
 
 ## 工作台信息架构
 
 - 项目业务菜单包括项目总览、AI 监测、证据中心、官网审计、差距诊断、整改中心、业务归因和复测报告。
-- 管理员菜单将平台设置、机构成员和审计日志拆成三个独立视图；分析师与只读成员不显示这些入口。
+- 机构级问题知识库、平台设置、成员、业务审计、运行日志和多租户管理在未选择客户时也可进入，避免空租户无法先配置平台。
+- 管理员菜单将平台设置、机构成员、审计日志和运行日志拆成独立视图；分析师与只读成员不显示管理入口。
+- 问题知识库按机构和行业维护；新客户分析先复用同业问题，再追加 Agent 发现的新问题候选，只有成员主动添加的记录才成为后续共享知识。
+- 系统超管拥有多租户管理视图和活动机构切换；机构管理员只管理本机构成员与设置。
 - 平台设置用本地真实品牌 Logo 的平台导航切换五个平台，每次只渲染当前平台表单；HRouter GPT 配置保持独立。
 - 桌面使用固定侧栏；390px 移动端使用可横向滚动的底部图标导航，避免菜单增加后压缩点击目标。
 - 总览和监测图表只渲染 API 返回的真实、可比批次数据；没有数据时显示空状态，不内置示例客户或指标。
@@ -46,10 +54,10 @@
 3. 快审固定每平台每题 1 次。正式基线默认 3 次并分布在 0、4、24 小时窗口。
 4. 批次冻结客户、竞品、问题、平台、模型、协议、搜索策略、地区、重复次数、时间窗口和适配器版本。
 5. Capture Worker 保存回答、来源、Query Fan-out 可见性、原始响应、Request ID、Token、延迟、成本可见性、内容哈希和失败码。
-6. 指标由代码确定性计算；Pi Agent 只能用项目、指标和证据领域工具生成草稿。
-7. 人工批准诊断、整改、内容和报告叙述。系统不自动发布或修改客户网站。
+6. 指标由代码确定性计算；Pi Agent 逐条校验其他模型回答及其来源，并生成口碑正负信号、GEO 优化建议和报告叙述草稿。
+7. 人工批准报告叙述后，系统自动排队绑定该版本的 Pi Agent 质量检查；质量检查人工批准且通过后，自动冻结快照并排队 PDF/Word。诊断、整改、内容与报告草稿都不自动发布或修改客户网站。
 8. 已发布 URL 重新抓取验收。复测必须复制正式基线完整配置。
-9. 报告先冻结 payload 与 SHA-256，再异步生成 PDF、CSV、JSON或可撤销分享链接；定时监测批次结束后，Report Worker 自动冻结对应报告并排队生成 PDF。
+9. 只有已批准叙述与通过的质量检查才能冻结报告 payload 与 SHA-256；Report Worker 再确定性生成 PDF/Word，另提供 CSV、JSON 和可撤销分享链接。定时批次会依序创建 Agent 任务，等待人工批准后再继续冻结与导出。
 
 ## 不变量
 
@@ -69,6 +77,8 @@
 
 Pi SDK 没有 Bash、任意文件、任意 SQL 或开放 HTTP 工具。网页和回答被标记为不可信内容。草稿中的证据 ID、问题 ID 和任务 ID必须属于当前项目；未知 ID 拒绝入库。
 
+报告口碑信号必须来自 AI 搜索回答中实际出现的评价。`cited` 信号的 URL 必须属于引用的回答证据；平台未开放来源时只能标为 `unavailable`，不能补造 URL。质量检查绑定最新已批准叙述的 run ID，未通过时禁止生成正式文档。
+
 ### 口径透明
 
 DeepSeek、Kimi、豆包和通义是官方联网 API 结果。元宝平台固定显示“元宝搜索源 + 混元合成”。任何 API 结果都不冒充消费端 App。
@@ -76,7 +86,9 @@ DeepSeek、Kimi、豆包和通义是官方联网 API 结果。元宝平台固定
 ## 安全边界
 
 - 服务器仅暴露 Caddy 80/443；API、Worker 与 PostgreSQL 留在 Compose 网络。
-- 管理员、分析师和只读角色由 HttpOnly、SameSite=Strict 会话保护。
-- 供应商 Key 使用 AES-256-GCM 信封加密；主密钥由 Docker Secret 或 KMS 挂载文件提供。
+- 管理员、分析师和只读角色由 HttpOnly、SameSite=Strict 会话保护；所有资源入口执行机构归属校验，系统超管是显式布尔权限而不是机构角色。
+- 供应商与 HRouter Key 使用包含机构 ID 的 AES-256-GCM AAD 信封加密；环境变量 Key 只作为默认机构的引导配置，其他机构必须保存独立密钥。
 - 分享链接仅存哈希，可设置过期并撤销。
 - 所有写 API、Agent 审批和成员变更进入审计日志。
+- API、Capture、Agent 和 Report 通过内部令牌向 Log Service 批量发送结构化运行日志。敏感键、Bearer/API token、回答正文、网页正文和原始响应均在客户端与服务端双重脱敏。
+- `audit_logs` 是业务审计；`service_logs` 是可按机构和保留期清理的运行数据。运行日志清理不得触碰审计、Capture、网页、原始响应或报告证据。

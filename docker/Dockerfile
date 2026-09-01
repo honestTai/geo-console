@@ -6,6 +6,7 @@ COPY apps ./apps
 COPY packages/core ./packages/core
 COPY packages/evidence ./packages/evidence
 COPY packages/metrics ./packages/metrics
+COPY packages/logging ./packages/logging
 COPY packages/search-providers ./packages/search-providers
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @geo/web build

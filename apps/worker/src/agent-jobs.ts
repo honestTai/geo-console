@@ -1,5 +1,6 @@
 import type { AgentJobPayload, Database } from "@geo/core";
-import { executeAgentDraft } from "./agent";
+import { safeErrorMessage } from "@geo/logging";
+import { agentRuntimeLogger, executeAgentDraft } from "./agent";
 import { parseJsonColumn } from "./utils";
 
 type AgentJob = {
@@ -50,7 +51,12 @@ export async function runOneAgentJob(
 				"UPDATE jobs SET lease_expires_at=now()+interval '15 minutes',updated_at=now() WHERE id=$1 AND lease_owner=$2 AND status='leased'",
 				[job.id, owner],
 			)
-			.catch((error) => console.error("Agent 任务租约续期失败", job.id, error));
+			.catch((error) =>
+				agentRuntimeLogger.error("agent.lease_renewal_failed", safeErrorMessage(error), {
+					traceId: payload.runId,
+					metadata: { jobId: job.id },
+				}),
+			);
 	}, 60_000);
 	try {
 		await runner(database, payload.runId, payload.targetTaskId);

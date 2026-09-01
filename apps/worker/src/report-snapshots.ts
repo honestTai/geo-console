@@ -2,14 +2,149 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { access } from "node:fs/promises";
 import { areBatchConfigsComparable, type Database, type ReportType } from "@geo/core";
 import type { QueryCapture } from "@geo/evidence";
+import { StructuredLogger, safeErrorMessage } from "@geo/logging";
 import { chromium } from "playwright";
 import { z } from "zod";
+import { enqueueAgentDraft } from "./agent";
+import { renderReportDocx } from "./docx";
 import { artifactExists, putArtifact } from "./object-store";
 import { providerDefinitions } from "./providers";
 import { getBatch, getBatchReport } from "./service";
 import { parseJsonColumn, sha256, stableJson } from "./utils";
 
 const reportTypeSchema = z.enum(["quick_audit", "remediation", "retest"]);
+const reportLogger = new StructuredLogger("report-worker");
+
+export type ReportWorkflowResult = {
+	state:
+		| "narrative_queued"
+		| "narrative_running"
+		| "narrative_approval"
+		| "quality_queued"
+		| "quality_running"
+		| "quality_approval"
+		| "quality_blocked"
+		| "documents_queued"
+		| "ready";
+	runId: string | null;
+	reportId: string | null;
+};
+
+type WorkflowRun = {
+	id: string;
+	purpose: string;
+	status: string;
+	draft: unknown;
+	created_at: string;
+	approved_at: string | null;
+};
+
+function activeRunState(run: WorkflowRun, purpose: "narrative" | "quality"): ReportWorkflowResult["state"] {
+	if (run.status === "awaiting_approval") return purpose === "narrative" ? "narrative_approval" : "quality_approval";
+	if (run.status === "running") return purpose === "narrative" ? "narrative_running" : "quality_running";
+	return purpose === "narrative" ? "narrative_queued" : "quality_queued";
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The workflow advances evidence-bound approval gates idempotently in one transactionally observable decision.
+export async function advanceReportWorkflow(
+	database: Database,
+	batchId: string,
+	options: { createdBy?: string | null; allowRetry?: boolean; restart?: boolean } = {},
+): Promise<ReportWorkflowResult> {
+	const batch = (
+		await database.query<{ project_id: string; kind: ReportType | "baseline"; status: string }>(
+			"SELECT project_id,kind,status FROM experiment_batches WHERE id=$1",
+			[batchId],
+		)
+	).rows[0];
+	if (!batch) throw new Error("采集批次不存在");
+	if (!["complete", "partial"].includes(batch.status)) throw new Error("报告工作流只能基于已完成或部分完成的批次");
+	const runs = (
+		await database.query<WorkflowRun>(
+			`SELECT id,purpose,status,draft,created_at,approved_at FROM agent_runs WHERE batch_id=$1
+			 AND purpose IN ('report_narrative','quality_review') ORDER BY created_at DESC`,
+			[batchId],
+		)
+	).rows;
+	const activeNarrative = runs.find(
+		(run) => run.purpose === "report_narrative" && ["queued", "running", "awaiting_approval"].includes(run.status),
+	);
+	if (options.restart) {
+		if (activeNarrative)
+			return { state: activeRunState(activeNarrative, "narrative"), runId: activeNarrative.id, reportId: null };
+		const queued = await enqueueAgentDraft(database, {
+			projectId: batch.project_id,
+			batchId,
+			purpose: "report_narrative",
+		});
+		return { state: "narrative_queued", runId: queued.id, reportId: null };
+	}
+	const narrative = runs.find((run) => run.purpose === "report_narrative" && run.status === "approved");
+	if (!narrative) {
+		if (activeNarrative)
+			return { state: activeRunState(activeNarrative, "narrative"), runId: activeNarrative.id, reportId: null };
+		const queued = await enqueueAgentDraft(database, {
+			projectId: batch.project_id,
+			batchId,
+			purpose: "report_narrative",
+		});
+		return { state: "narrative_queued", runId: queued.id, reportId: null };
+	}
+	const qualityRuns = runs.filter(
+		(run) =>
+			run.purpose === "quality_review" &&
+			new Date(run.created_at).getTime() >= new Date(narrative.approved_at ?? 0).getTime(),
+	);
+	const approvedQuality = qualityRuns.find((run) => {
+		if (run.status !== "approved" || !run.draft) return false;
+		return (
+			(parseJsonColumn(run.draft as string | Record<string, unknown>) as { reviewedNarrativeRunId?: unknown })
+				.reviewedNarrativeRunId === narrative.id
+		);
+	});
+	if (!approvedQuality) {
+		const activeQuality = qualityRuns.find((run) => ["queued", "running", "awaiting_approval"].includes(run.status));
+		if (activeQuality)
+			return { state: activeRunState(activeQuality, "quality"), runId: activeQuality.id, reportId: null };
+		const queued = await enqueueAgentDraft(database, {
+			projectId: batch.project_id,
+			batchId,
+			purpose: "quality_review",
+		});
+		return { state: "quality_queued", runId: queued.id, reportId: null };
+	}
+	const qualityDraft = parseJsonColumn(approvedQuality.draft as string | Record<string, unknown>) as {
+		verdict?: unknown;
+	};
+	if (qualityDraft.verdict !== "pass") {
+		if (!options.allowRetry) return { state: "quality_blocked", runId: approvedQuality.id, reportId: null };
+		const queued = await enqueueAgentDraft(database, {
+			projectId: batch.project_id,
+			batchId,
+			purpose: "quality_review",
+		});
+		return { state: "quality_queued", runId: queued.id, reportId: null };
+	}
+	const existing = (
+		await database.query<{ id: string; pdf_artifact_key: string | null; word_artifact_key: string | null }>(
+			`SELECT id,pdf_artifact_key,word_artifact_key FROM report_snapshots
+			 WHERE batch_id=$1 AND payload->>'agentNarrativeRunId'=$2 ORDER BY created_at DESC LIMIT 1`,
+			[batchId, narrative.id],
+		)
+	).rows[0];
+	let reportId = existing?.id ?? null;
+	if (!reportId) {
+		const reportType: ReportType =
+			batch.kind === "retest" ? "retest" : batch.kind === "quick_audit" ? "quick_audit" : "remediation";
+		reportId = (await createReportSnapshot(database, { batchId, reportType, createdBy: options.createdBy ?? null })).id;
+	}
+	const queued = await requestReportPdf(database, reportId);
+	return {
+		state: queued.status === "ready" ? "ready" : "documents_queued",
+		runId: approvedQuality.id,
+		reportId,
+	};
+}
 
 const hashToken = (token: string): string => createHash("sha256").update(token).digest("hex");
 const escapeHtml = (value: unknown): string =>
@@ -57,6 +192,7 @@ function sourceSet(captures: QueryCapture[]): Set<string> {
 	return new Set(captures.flatMap((capture) => capture.sources.map((source) => source.url)));
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Snapshot freezing validates type, comparison, narrative, and quality gates together.
 export async function createReportSnapshot(
 	database: Database,
 	input: { batchId: string; reportType: ReportType; compareToBatchId?: string | null; createdBy?: string | null },
@@ -73,6 +209,7 @@ export async function createReportSnapshot(
 		const compareToBatchId = input.compareToBatchId ?? String(batch.compare_to_batch_id ?? "");
 		const baseline = await getBatch(database, compareToBatchId);
 		if (!baseline) throw new Error("复测报告缺少正式基线");
+		if (baseline.project_id !== batch.project_id) throw new Error("复测报告基线不属于当前客户项目");
 		if (!areBatchConfigsComparable(batch.config as never, baseline.config as never))
 			throw new Error("复测与基线冻结条件不一致，禁止生成前后对比");
 		const currentSources = sourceSet(batch.captures as QueryCapture[]);
@@ -87,11 +224,30 @@ export async function createReportSnapshot(
 	}
 	const approvedNarrative = (
 		await database.query<Record<string, unknown>>(
-			`SELECT draft FROM agent_runs WHERE batch_id=$1 AND purpose='report_narrative' AND status='approved'
+			`SELECT id,draft,approved_at FROM agent_runs WHERE batch_id=$1 AND purpose='report_narrative' AND status='approved'
 			 ORDER BY approved_at DESC LIMIT 1`,
 			[input.batchId],
 		)
 	).rows[0];
+	if (!approvedNarrative) throw new Error("冻结报告前必须先运行并批准 Pi Agent 报告叙述（含口碑检测与 GEO 建议）");
+	const approvedQuality = (
+		await database.query<Record<string, unknown>>(
+			`SELECT id,draft,approved_at FROM agent_runs WHERE batch_id=$1 AND purpose='quality_review' AND status='approved'
+			 ORDER BY approved_at DESC LIMIT 20`,
+			[input.batchId],
+		)
+	).rows
+		.map((row) => ({
+			id: String(row.id),
+			parsedDraft: parseJsonColumn(row.draft as string | Record<string, unknown>),
+		}))
+		.find(
+			(row) =>
+				(row.parsedDraft as { reviewedNarrativeRunId?: unknown }).reviewedNarrativeRunId === approvedNarrative.id,
+		);
+	if (!approvedQuality) throw new Error("冻结报告前必须先运行并批准针对当前报告叙述的 Pi Agent 质量检查");
+	if ((approvedQuality.parsedDraft as { verdict?: unknown }).verdict !== "pass")
+		throw new Error("Pi Agent 质量检查未通过，禁止冻结或导出正式报告");
 	const providerDisclosures = (batch.config as { platforms: string[] }).platforms.map((providerId) => ({
 		providerId,
 		disclosure:
@@ -101,16 +257,17 @@ export async function createReportSnapshot(
 	}));
 	const createdAt = new Date().toISOString();
 	const payload = {
-		schemaVersion: "geo.report-snapshot.v1",
+		schemaVersion: "geo.report-snapshot.v2",
 		reportType,
 		createdAt,
 		batch,
 		report,
 		comparison,
 		providerDisclosures,
-		agentNarrative: approvedNarrative
-			? parseJsonColumn(approvedNarrative.draft as string | Record<string, unknown>)
-			: null,
+		agentNarrativeRunId: approvedNarrative.id,
+		agentNarrative: parseJsonColumn(approvedNarrative.draft as string | Record<string, unknown>),
+		agentQualityRunId: approvedQuality.id,
+		agentQualityReview: approvedQuality.parsedDraft,
 		blackBoxStatement:
 			"本报告记录指定模型、协议、地区、问题集与采样窗口下的联网 API 结果。API 回答不等同于对应消费端 App；结果可能随模型、索引、搜索策略和时间变化，不构成固定排名承诺。",
 	};
@@ -120,9 +277,10 @@ export async function createReportSnapshot(
 	await database.query(
 		`INSERT INTO report_snapshots
 		 (id,organization_id,project_id,batch_id,compare_to_batch_id,report_type,schema_version,title,payload,payload_hash,created_by)
-		 VALUES ($1,'default',$2,$3,$4,$5,'geo.report-snapshot.v1',$6,$7::jsonb,$8,$9)`,
+			 VALUES ($1,$2,$3,$4,$5,$6,'geo.report-snapshot.v2',$7,$8::jsonb,$9,$10)`,
 		[
 			id,
+			batch.organization_id,
 			batch.project_id,
 			input.batchId,
 			comparison ? (comparison.baselineBatchId as string) : null,
@@ -140,7 +298,7 @@ export async function listReportSnapshots(database: Database, projectId: string)
 	return (
 		await database.query(
 			`SELECT id,project_id,batch_id,compare_to_batch_id,report_type,schema_version,title,payload_hash,
-			 pdf_artifact_key,created_at FROM report_snapshots WHERE project_id=$1 ORDER BY created_at DESC`,
+				 pdf_artifact_key,word_artifact_key,created_at FROM report_snapshots WHERE project_id=$1 ORDER BY created_at DESC`,
 			[projectId],
 		)
 	).rows;
@@ -164,6 +322,7 @@ function platformRows(payload: Record<string, unknown>): string {
 		.join("");
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Report sections intentionally mirror the immutable document contract.
 export function renderReportHtml(snapshot: Record<string, unknown>): string {
 	const payload = snapshot.payload as Record<string, unknown>;
 	const report = payload.report as {
@@ -192,6 +351,24 @@ export function renderReportHtml(snapshot: Record<string, unknown>): string {
 	const findings = report.findings ?? analysis.gaps ?? [];
 	const tasks = report.tasks ?? [];
 	const disclosures = (payload.providerDisclosures as Array<{ providerId: string; disclosure: string }>) ?? [];
+	const narrative = payload.agentNarrative as
+		| {
+				reputation?: {
+					overall?: string;
+					summary?: string;
+					positiveSignals?: Array<Record<string, unknown>>;
+					negativeSignals?: Array<Record<string, unknown>>;
+				};
+				geoRecommendations?: Array<Record<string, unknown>>;
+				limitations?: string[];
+		  }
+		| undefined;
+	const reputation = narrative?.reputation;
+	const reputationSignal = (signal: Record<string, unknown>, polarity: "positive" | "negative"): string => {
+		const urls = Array.isArray(signal.sourceUrls) ? signal.sourceUrls.map(String) : [];
+		const evidenceIds = Array.isArray(signal.evidenceIds) ? signal.evidenceIds.map(String) : [];
+		return `<article class="reputation-signal ${polarity}"><strong>${polarity === "positive" ? "正面" : "负面"}</strong><p>${escapeHtml(signal.statement)}</p><small>来源：${urls.length ? urls.map((url) => `<a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`).join("、") : "平台未开放来源"} · 证据 ${escapeHtml(evidenceIds.join("、"))}</small></article>`;
+	};
 	const comparison = payload.comparison as Record<string, unknown> | null;
 	const chart = Object.entries(
 		(payload.batch as { metrics?: { perPlatform?: Record<string, { brandMentionRate?: number }> } }).metrics
@@ -203,16 +380,17 @@ export function renderReportHtml(snapshot: Record<string, unknown>): string {
 		)
 		.join("");
 	return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(snapshot.title)}</title><style>
-		@page{size:A4;margin:20mm 14mm 18mm}*{box-sizing:border-box}body{margin:0;color:#18201d;font:14px/1.65 "Noto Sans CJK SC","Source Han Sans SC","PingFang SC","Microsoft YaHei",sans-serif;background:#fff}main{max-width:1080px;margin:auto;padding:32px}.cover{min-height:240px;border-bottom:4px solid #117a65;padding:40px 0}.eyebrow{color:#117a65;font-weight:700}.cover h1{font-size:32px;margin:14px 0 10px;letter-spacing:0}.muted{color:#66716d}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:24px 0}.kpi{border:1px solid #d9e1de;border-radius:6px;padding:14px}.kpi strong{display:block;font-size:24px;color:#0d584a}.section{break-inside:avoid;margin:28px 0}.section h2{font-size:20px;border-bottom:1px solid #ccd7d3;padding-bottom:7px}.toc a{display:block;color:#117a65;text-decoration:none;padding:3px 0}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #d9e1de;padding:7px;text-align:left;vertical-align:top}th{background:#eff5f2}.bar-row{display:grid;grid-template-columns:150px 1fr 52px;gap:10px;align-items:center;margin:8px 0}.bar{height:12px;background:#e5ece9}.bar i{display:block;height:100%;background:#117a65}.finding{border-left:3px solid #117a65;padding:8px 12px;margin:12px 0;background:#f7faf9}.warning{border:1px solid #d4a72c;background:#fff9e8;padding:12px}.appendix{font-size:11px;word-break:break-all}@media(max-width:700px){main{padding:18px}.kpis{grid-template-columns:1fr 1fr}.cover h1{font-size:25px}.bar-row{grid-template-columns:100px 1fr 46px}table{display:block;overflow:auto}}
+		@page{size:A4;margin:20mm 14mm 18mm}*{box-sizing:border-box}body{margin:0;color:#18201d;font:14px/1.65 "Noto Sans CJK SC","Source Han Sans SC","PingFang SC","Microsoft YaHei",sans-serif;background:#fff}main{max-width:1080px;margin:auto;padding:32px}.cover{min-height:240px;border-bottom:4px solid #117a65;padding:40px 0}.eyebrow{color:#117a65;font-weight:700}.cover h1{font-size:32px;margin:14px 0 10px;letter-spacing:0}.muted{color:#66716d}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:24px 0}.kpi{border:1px solid #d9e1de;border-radius:6px;padding:14px}.kpi strong{display:block;font-size:24px;color:#0d584a}.section{break-inside:avoid;margin:28px 0}.section h2{font-size:20px;border-bottom:1px solid #ccd7d3;padding-bottom:7px}.toc a{display:block;color:#117a65;text-decoration:none;padding:3px 0}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #d9e1de;padding:7px;text-align:left;vertical-align:top}th{background:#eff5f2}.bar-row{display:grid;grid-template-columns:150px 1fr 52px;gap:10px;align-items:center;margin:8px 0}.bar{height:12px;background:#e5ece9}.bar i{display:block;height:100%;background:#117a65}.finding{border-left:3px solid #117a65;padding:8px 12px;margin:12px 0;background:#f7faf9}.reputation-signal{padding:10px 12px;margin:10px 0;border-left:3px solid #188b66;background:#f1f9f5}.reputation-signal.negative{border-color:#c43d46;background:#fff3f3}.reputation-signal p{margin:4px 0}.reputation-signal a{color:#0d584a;word-break:break-all}.recommendation{border:1px solid #d9e1de;padding:10px 12px;margin:9px 0}.warning{border:1px solid #d4a72c;background:#fff9e8;padding:12px}.appendix{font-size:11px;word-break:break-all}@media(max-width:700px){main{padding:18px}.kpis{grid-template-columns:1fr 1fr}.cover h1{font-size:25px}.bar-row{grid-template-columns:100px 1fr 46px}table{display:block;overflow:auto}}
 		</style></head><body><main><section class="cover"><div class="eyebrow">GEO CONSOLE / ${escapeHtml(snapshot.report_type)}</div><h1>${escapeHtml(snapshot.title)}</h1><p>${escapeHtml((analysis.executive ?? {}).headline)}</p><p class="muted">快照 ${escapeHtml(snapshot.id)} · ${escapeHtml(reportDate(snapshot.created_at))}</p></section>
 		<section class="kpis"><div class="kpi">品牌提及率<strong>${percent(overall.brandMentionRate)}</strong></div><div class="kpi">首位推荐率<strong>${percent(overall.firstRecommendationRate)}</strong></div><div class="kpi">品牌声量份额<strong>${percent(overall.brandShareOfVoice)}</strong></div><div class="kpi">数据覆盖率<strong>${percent(overall.dataCoverage)}</strong></div></section>
-		<section class="section toc"><h2>目录</h2><a href="#summary">1. 执行摘要</a><a href="#platforms">2. 平台指标</a><a href="#questions">3. 问题与竞品</a><a href="#sources">4. 信源</a><a href="#remediation">5. 诊断与整改</a><a href="#evidence">6. 证据与局限</a></section>
+		<section class="section toc"><h2>目录</h2><a href="#summary">1. 执行摘要</a><a href="#reputation">2. AI 口碑检测</a><a href="#platforms">3. 平台指标</a><a href="#questions">4. 问题与竞品</a><a href="#sources">5. 信源</a><a href="#remediation">6. GEO 优化与整改</a><a href="#evidence">7. 证据与局限</a></section>
 		<section class="section" id="summary"><h2>1. 执行摘要</h2><p>${escapeHtml((analysis.executive ?? {}).summary)}</p><p>${escapeHtml((payload.agentNarrative as Record<string, unknown> | null)?.executiveSummary ?? "")}</p>${chart}</section>
-		<section class="section" id="platforms"><h2>2. 平台指标</h2><table><thead><tr><th>平台口径</th><th>回答覆盖</th><th>品牌提及</th><th>首位推荐</th><th>声量份额</th><th>官网引用</th></tr></thead><tbody>${platformRows(payload)}</tbody></table></section>
-		<section class="section" id="questions"><h2>3. 问题与竞品</h2><table><thead><tr><th>问题</th><th>有效/计划</th><th>提及率</th><th>首位率</th><th>最佳位置</th><th>来源数</th></tr></thead><tbody>${prompts.map((row) => `<tr><td>${escapeHtml(row.question)}</td><td>${escapeHtml(row.completeSamples)}/${escapeHtml(row.plannedSamples)}</td><td>${percent(row.targetMentionRate)}</td><td>${percent(row.firstRecommendationRate)}</td><td>${escapeHtml(row.bestTargetPosition ?? "未出现")}</td><td>${escapeHtml(row.sourceCount)}</td></tr>`).join("")}</tbody></table></section>
-		<section class="section" id="sources"><h2>4. 信源与变化</h2><table><thead><tr><th>域名</th><th>引用次数</th><th>覆盖问题</th><th>分类</th></tr></thead><tbody>${sources.map((source) => `<tr><td>${escapeHtml(source.domain)}</td><td>${escapeHtml(source.citationCount)}</td><td>${escapeHtml(source.promptCount)}</td><td>${escapeHtml(source.category ?? (source.isOwned ? "owned" : "other"))}</td></tr>`).join("")}</tbody></table>${comparison ? `<p>新增信源：${escapeHtml((comparison.newSources as string[]).join("、") || "无")}</p><p>丢失信源：${escapeHtml((comparison.lostSources as string[]).join("、") || "无")}</p>` : ""}</section>
-		<section class="section" id="remediation"><h2>5. 诊断与整改</h2>${findings.map((finding) => `<article class="finding"><strong>${escapeHtml(finding.title)}</strong><p>${escapeHtml(finding.detail)}</p><p>建议：${escapeHtml(finding.recommendation)}</p><small>证据：${escapeHtml(parseJsonColumn<string[]>((finding.evidence_ids ?? finding.evidenceIds ?? []) as string | string[]).join("、"))}</small></article>`).join("") || "<p>尚无已批准诊断。</p>"}<table><thead><tr><th>任务</th><th>优先级</th><th>状态</th><th>负责人</th><th>验收</th></tr></thead><tbody>${tasks.map((task) => `<tr><td>${escapeHtml(task.title)}</td><td>${escapeHtml(task.priority)}</td><td>${escapeHtml(task.status)}</td><td>${escapeHtml(task.owner ?? "待分配")}</td><td>${escapeHtml(task.acceptance_criteria)}</td></tr>`).join("")}</tbody></table></section>
-		<section class="section appendix" id="evidence"><h2>6. 证据索引与口径声明</h2>${prompts.flatMap((row) => (row.captures as Array<Record<string, unknown>>).map((capture) => `<p>${escapeHtml(capture.captureId)} · ${escapeHtml(capture.platform)} · 第 ${escapeHtml(capture.attempt)} 次 · ${escapeHtml(capture.status)} · 原始证据 ${escapeHtml(capture.screenshotKey ?? "不可用")}</p>`)).join("")}<div class="warning"><strong>黑盒局限</strong><p>${escapeHtml(payload.blackBoxStatement)}</p>${disclosures.map((item) => `<p><b>${escapeHtml(item.providerId)}</b>：${escapeHtml(item.disclosure)}</p>`).join("")}</div></section>
+		<section class="section" id="reputation"><h2>2. AI 口碑检测</h2><p><strong>${escapeHtml(reputation?.overall ?? "not_observed")}</strong> · ${escapeHtml(reputation?.summary ?? "AI 搜索回答中未观察到可报告的口碑评价。")}</p>${(reputation?.positiveSignals ?? []).map((signal) => reputationSignal(signal, "positive")).join("")}${(reputation?.negativeSignals ?? []).map((signal) => reputationSignal(signal, "negative")).join("") || "<p>本批次未观察到负面口碑信号。</p>"}</section>
+		<section class="section" id="platforms"><h2>3. 平台指标</h2><table><thead><tr><th>平台口径</th><th>回答覆盖</th><th>品牌提及</th><th>首位推荐</th><th>声量份额</th><th>官网引用</th></tr></thead><tbody>${platformRows(payload)}</tbody></table></section>
+		<section class="section" id="questions"><h2>4. 问题与竞品</h2><table><thead><tr><th>问题</th><th>有效/计划</th><th>提及率</th><th>首位率</th><th>最佳位置</th><th>来源数</th></tr></thead><tbody>${prompts.map((row) => `<tr><td>${escapeHtml(row.question)}</td><td>${escapeHtml(row.completeSamples)}/${escapeHtml(row.plannedSamples)}</td><td>${percent(row.targetMentionRate)}</td><td>${percent(row.firstRecommendationRate)}</td><td>${escapeHtml(row.bestTargetPosition ?? "未出现")}</td><td>${escapeHtml(row.sourceCount)}</td></tr>`).join("")}</tbody></table></section>
+		<section class="section" id="sources"><h2>5. 信源与变化</h2><table><thead><tr><th>域名</th><th>引用次数</th><th>覆盖问题</th><th>分类</th></tr></thead><tbody>${sources.map((source) => `<tr><td>${escapeHtml(source.domain)}</td><td>${escapeHtml(source.citationCount)}</td><td>${escapeHtml(source.promptCount)}</td><td>${escapeHtml(source.category ?? (source.isOwned ? "owned" : "other"))}</td></tr>`).join("")}</tbody></table>${comparison ? `<p>新增信源：${escapeHtml((comparison.newSources as string[]).join("、") || "无")}</p><p>丢失信源：${escapeHtml((comparison.lostSources as string[]).join("、") || "无")}</p>` : ""}</section>
+		<section class="section" id="remediation"><h2>6. GEO 优化与整改</h2>${(narrative?.geoRecommendations ?? []).map((item) => `<article class="recommendation"><strong>${escapeHtml(item.priority)} · ${escapeHtml(item.title)}</strong><p>${escapeHtml(item.action)}</p><small>${escapeHtml(item.rationale)} · 证据 ${escapeHtml((item.evidenceIds as string[]).join("、"))}</small></article>`).join("")}${findings.map((finding) => `<article class="finding"><strong>${escapeHtml(finding.title)}</strong><p>${escapeHtml(finding.detail)}</p><p>建议：${escapeHtml(finding.recommendation)}</p><small>证据：${escapeHtml(parseJsonColumn<string[]>((finding.evidence_ids ?? finding.evidenceIds ?? []) as string | string[]).join("、"))}</small></article>`).join("") || "<p>尚无已批准诊断。</p>"}<table><thead><tr><th>任务</th><th>优先级</th><th>状态</th><th>负责人</th><th>验收</th></tr></thead><tbody>${tasks.map((task) => `<tr><td>${escapeHtml(task.title)}</td><td>${escapeHtml(task.priority)}</td><td>${escapeHtml(task.status)}</td><td>${escapeHtml(task.owner ?? "待分配")}</td><td>${escapeHtml(task.acceptance_criteria)}</td></tr>`).join("")}</tbody></table></section>
+		<section class="section appendix" id="evidence"><h2>7. 证据索引与口径声明</h2>${prompts.flatMap((row) => (row.captures as Array<Record<string, unknown>>).map((capture) => `<p>${escapeHtml(capture.captureId)} · ${escapeHtml(capture.platform)} · 第 ${escapeHtml(capture.attempt)} 次 · ${escapeHtml(capture.status)} · 原始证据 ${escapeHtml(capture.screenshotKey ?? "不可用")}</p>`)).join("")}<div class="warning"><strong>证据与黑盒局限</strong>${(narrative?.limitations ?? []).map((item) => `<p>${escapeHtml(item)}</p>`).join("")}<p>${escapeHtml(payload.blackBoxStatement)}</p>${disclosures.map((item) => `<p><b>${escapeHtml(item.providerId)}</b>：${escapeHtml(item.disclosure)}</p>`).join("")}</div></section>
 		</main></body></html>`;
 }
 
@@ -253,22 +431,40 @@ export async function generateReportPdf(database: Database, reportId: string): P
 	return { artifactKey };
 }
 
+export async function generateReportWord(database: Database, reportId: string): Promise<{ artifactKey: string }> {
+	const snapshot = await getReportSnapshot(database, reportId);
+	if (!snapshot) throw new Error("报告快照不存在");
+	const artifactKey = `reports/${reportId}.docx`;
+	if (!(await artifactExists(artifactKey)))
+		await putArtifact(
+			artifactKey,
+			renderReportDocx(snapshot),
+			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		);
+	await database.query("UPDATE report_snapshots SET word_artifact_key=COALESCE(word_artifact_key,$2) WHERE id=$1", [
+		reportId,
+		artifactKey,
+	]);
+	return { artifactKey };
+}
+
 export async function requestReportPdf(
 	database: Database,
 	reportId: string,
 ): Promise<{ status: "ready" | "queued"; artifactKey: string | null }> {
 	const report = await getReportSnapshot(database, reportId);
 	if (!report) throw new Error("报告快照不存在");
-	if (report.pdf_artifact_key) return { status: "ready", artifactKey: String(report.pdf_artifact_key) };
+	if (report.pdf_artifact_key && report.word_artifact_key)
+		return { status: "ready", artifactKey: String(report.pdf_artifact_key) };
 	const active = (
 		await database.query(
-			"SELECT id FROM jobs WHERE type='report_pdf' AND payload->>'reportId'=$1 AND status IN ('pending','leased') LIMIT 1",
+			"SELECT id FROM jobs WHERE type IN ('report_document','report_pdf') AND payload->>'reportId'=$1 AND status IN ('pending','leased') LIMIT 1",
 			[reportId],
 		)
 	).rows[0];
 	if (!active)
 		await database.query(
-			"INSERT INTO jobs (id,type,payload,status,available_at,created_at,updated_at) VALUES ($1,'report_pdf',$2::jsonb,'pending',now(),now(),now())",
+			"INSERT INTO jobs (id,type,payload,status,available_at,created_at,updated_at) VALUES ($1,'report_document',$2::jsonb,'pending',now(),now(),now())",
 			[randomUUID(), JSON.stringify({ reportId })],
 		);
 	return { status: "queued", artifactKey: null };
@@ -277,24 +473,45 @@ export async function requestReportPdf(
 export async function getReportPdfStatus(
 	database: Database,
 	reportId: string,
-): Promise<{ status: "ready" | "queued" | "failed" | "missing"; artifactKey: string | null; error: string | null }> {
+): Promise<{
+	status: "ready" | "queued" | "failed" | "missing";
+	artifactKey: string | null;
+	wordArtifactKey: string | null;
+	error: string | null;
+}> {
 	const report = await getReportSnapshot(database, reportId);
-	if (!report) return { status: "missing", artifactKey: null, error: "报告快照不存在" };
-	if (report.pdf_artifact_key) return { status: "ready", artifactKey: String(report.pdf_artifact_key), error: null };
+	if (!report) return { status: "missing", artifactKey: null, wordArtifactKey: null, error: "报告快照不存在" };
+	if (report.pdf_artifact_key && report.word_artifact_key)
+		return {
+			status: "ready",
+			artifactKey: String(report.pdf_artifact_key),
+			wordArtifactKey: String(report.word_artifact_key),
+			error: null,
+		};
 	const job = (
 		await database.query<Record<string, unknown>>(
-			"SELECT status,last_error FROM jobs WHERE type='report_pdf' AND payload->>'reportId'=$1 ORDER BY created_at DESC LIMIT 1",
+			"SELECT status,last_error FROM jobs WHERE type IN ('report_document','report_pdf') AND payload->>'reportId'=$1 ORDER BY created_at DESC LIMIT 1",
 			[reportId],
 		)
 	).rows[0];
 	return job?.status === "failed"
-		? { status: "failed", artifactKey: null, error: String(job.last_error ?? "PDF 生成失败") }
-		: { status: "queued", artifactKey: null, error: null };
+		? {
+				status: "failed",
+				artifactKey: report.pdf_artifact_key ? String(report.pdf_artifact_key) : null,
+				wordArtifactKey: report.word_artifact_key ? String(report.word_artifact_key) : null,
+				error: String(job.last_error ?? "报告文档生成失败"),
+			}
+		: {
+				status: "queued",
+				artifactKey: report.pdf_artifact_key ? String(report.pdf_artifact_key) : null,
+				wordArtifactKey: report.word_artifact_key ? String(report.word_artifact_key) : null,
+				error: null,
+			};
 }
 
 export async function queueScheduledReportSnapshots(database: Database): Promise<number> {
-	const batches = await database.query<{ batch_id: string; kind: string; report_id: string | null }>(
-		`SELECT b.id AS batch_id,b.kind,
+	const batches = await database.query<{ batch_id: string; report_id: string | null }>(
+		`SELECT b.id AS batch_id,
 			(SELECT id FROM report_snapshots WHERE batch_id=b.id ORDER BY created_at DESC LIMIT 1) AS report_id
 		 FROM monitoring_schedules s
 		 JOIN experiment_batches b ON b.id=s.last_batch_id
@@ -302,14 +519,15 @@ export async function queueScheduledReportSnapshots(database: Database): Promise
 	);
 	let created = 0;
 	for (const batch of batches.rows) {
-		let reportId = batch.report_id;
-		if (!reportId) {
-			const reportType: ReportType =
-				batch.kind === "retest" ? "retest" : batch.kind === "quick_audit" ? "quick_audit" : "remediation";
-			reportId = (await createReportSnapshot(database, { batchId: batch.batch_id, reportType })).id;
-			created += 1;
+		try {
+			const result = await advanceReportWorkflow(database, batch.batch_id);
+			if (!batch.report_id && result.reportId) created += 1;
+		} catch (error) {
+			reportLogger.error("report.workflow_failed", safeErrorMessage(error), {
+				traceId: batch.batch_id,
+				metadata: { batchId: batch.batch_id, scheduled: true },
+			});
 		}
-		await requestReportPdf(database, reportId);
 	}
 	return created;
 }
@@ -318,7 +536,7 @@ export async function runOneReportJob(database: Database, owner: string): Promis
 	const job = await database.transaction(async (transaction) => {
 		const result = await transaction.query<{ id: string; payload: { reportId: string } }>(
 			`WITH candidate AS (
-				SELECT id FROM jobs WHERE type='report_pdf' AND attempts<max_attempts
+				SELECT id FROM jobs WHERE type IN ('report_document','report_pdf') AND attempts<max_attempts
 				 AND available_at<=now() AND (status='pending' OR (status='leased' AND lease_expires_at<now()))
 				 ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED
 			) UPDATE jobs SET status='leased',lease_owner=$1,lease_expires_at=now()+interval '5 minutes',
@@ -328,12 +546,31 @@ export async function runOneReportJob(database: Database, owner: string): Promis
 		return result.rows[0] ?? null;
 	});
 	if (!job) return false;
+	const reportContext = (
+		await database.query<{ organization_id: string; project_id: string }>(
+			"SELECT organization_id,project_id FROM report_snapshots WHERE id=$1",
+			[job.payload.reportId],
+		)
+	).rows[0];
+	reportLogger.info("report.document_started", "开始生成 PDF 与 Word", {
+		organizationId: reportContext?.organization_id ?? null,
+		projectId: reportContext?.project_id ?? null,
+		traceId: job.id,
+		metadata: { reportId: job.payload.reportId },
+	});
 	try {
 		await generateReportPdf(database, job.payload.reportId);
+		await generateReportWord(database, job.payload.reportId);
 		await database.query(
 			"UPDATE jobs SET status='complete',lease_owner=NULL,lease_expires_at=NULL,updated_at=now() WHERE id=$1 AND lease_owner=$2",
 			[job.id, owner],
 		);
+		reportLogger.info("report.document_completed", "PDF 与 Word 生成完成", {
+			organizationId: reportContext?.organization_id ?? null,
+			projectId: reportContext?.project_id ?? null,
+			traceId: job.id,
+			metadata: { reportId: job.payload.reportId },
+		});
 	} catch (error) {
 		await database.query(
 			`UPDATE jobs SET status=CASE WHEN attempts>=max_attempts THEN 'failed'::job_status ELSE 'pending'::job_status END,
@@ -341,8 +578,18 @@ export async function runOneReportJob(database: Database, owner: string): Promis
 			 WHERE id=$1 AND lease_owner=$2`,
 			[job.id, owner, error instanceof Error ? error.message.slice(0, 2000) : "PDF 生成失败"],
 		);
+		reportLogger.error("report.document_failed", safeErrorMessage(error), {
+			organizationId: reportContext?.organization_id ?? null,
+			projectId: reportContext?.project_id ?? null,
+			traceId: job.id,
+			metadata: { reportId: job.payload.reportId },
+		});
 	}
 	return true;
+}
+
+export async function flushReportLogs(): Promise<void> {
+	await reportLogger.flush();
 }
 
 export async function createReportShare(

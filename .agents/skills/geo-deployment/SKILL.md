@@ -1,6 +1,6 @@
 ---
 name: geo-deployment
-description: Install, deploy, upgrade, or roll back GEO Console locally or on Linux with the private release bundle, Docker Compose, PostgreSQL, Caddy HTTPS, local/S3 evidence storage, and separate API/Capture/Agent/Report services. Use for environment and release work; not for feature development or ordinary incident response.
+description: Install, deploy, upgrade, or roll back GEO Console locally or on Linux with the private release bundle, Docker Compose, PostgreSQL, Caddy HTTPS, local/S3 evidence storage, standalone structured Log Service, and separate API/Capture/Agent/Report services. Use for environment and release work; not for feature development or ordinary incident response.
 ---
 
 # GEO Console Deployment
@@ -35,6 +35,7 @@ corepack pnpm geo start
 ```
 
 - 本机只绑定 `127.0.0.1`，数据库为 PGlite，不能作为生产部署。
+- 本机 API 进程内组合执行 Capture/Agent/Report，独立 Log Service 使用 `${GEO_DATA_DIR}/log-service` 的单独 PGlite；不要手工启动多个进程争用业务 PGlite。
 - 默认数据根为 `~/Library/Application Support/GEO Console`；可在首次 setup 前用 `GEO_DATA_DIR` 指向明确目录。
 - macOS 使用 Keychain 保存主密钥。Windows/Linux 本机运行前必须通过安全方式提供 32 字节随机值的 Base64 `GEO_MASTER_KEY`；丢失后已加密 Provider/HRouter Key 无法恢复。
 - 备份前停止本机服务，再运行 `corepack pnpm geo backup`。恢复只进入新的数据目录。
@@ -43,11 +44,11 @@ corepack pnpm geo start
 
 - 支持 Ubuntu/Debian、Docker Engine + Compose plugin；无需 GPU。
 - Demo 低并发基线：2 vCPU、4 GB RAM、50 GB SSD、2 GB Swap、`GEO_CAPTURE_CONCURRENCY=1`。持续监测建议至少 4 vCPU、8 GB RAM、80 GB SSD。
-- 只有 Caddy 暴露 80/443。API、Capture Worker、Agent Worker、Report Worker 与 PostgreSQL 只在 Compose 网络内。
+- 只有 Caddy 暴露 80/443。Log Service 3020、API、Capture Worker、Agent Worker、Report Worker 与 PostgreSQL 只在 Compose 网络内。
 - 同一域名根路径发布静态官网，`/app/` 发布业务工作台；官网示意数据与 API、数据库和证据链隔离。
 - 服务器从闭源 `.run` bundle 中的源码构建 Web/Worker 镜像；不依赖公开 Git 仓库。
 - 安装根为 `/opt/geo-console`：`releases/<id>` 保存不可变版本，`current` 指向当前版本，`shared/.env` 与 `shared/secrets` 跨升级保留。
-- PostgreSQL password、32 字节 Base64 master key、bootstrap admin password 使用 owner-only Docker Secret 文件。S3 凭据当前保存在 owner-only `shared/.env`；有实例角色时优先省略静态 Access Key。
+- PostgreSQL password、32 字节 Base64 master key、bootstrap admin password 和 Log Service token 使用 owner-only Docker Secret 文件。S3 凭据当前保存在 owner-only `shared/.env`；有实例角色时优先省略静态 Access Key。
 - Provider 与 HRouter Key 必须登录平台设置后保存并信封加密，不得写入 image、Compose、release bundle 或普通环境文件。
 
 ## 发布边界
@@ -55,7 +56,7 @@ corepack pnpm geo start
 - 本地打包前检查 `git status`。工作区不干净会生成带 `dev-<UTC>` 的 release ID，并把未忽略的未跟踪文件一起打包。
 - 当前 `deploy/package.sh` 会打包仓库内的 `.agents/skills`，所以包含本文件中的 demo 凭据。将生成的 bundle 与仓库本身视为敏感资产；不得发送到 demo 管理范围之外。
 - bundle 不应包含 `.env`、`secrets/`、数据库、证据或备份；脚本会拒绝顶层 `.env` 和 `secrets`，仍要检查产物清单和 SHA-256。
-- 首次安装会创建 Secret、可选 2 GB Swap、按迁移安全顺序启动服务，并创建首份数据库/本地 evidence 成对备份。
+- 首次安装会创建 Secret、可选 2 GB Swap，按 PostgreSQL -> Log Service -> API -> Workers -> Web/Caddy 顺序启动，并创建首份数据库/本地 evidence 成对备份。
 - 升级会在切换前自动备份旧 release 的 PostgreSQL 与本地 evidence，然后停止应用、切换 `current`、运行向前 migration 并启动新版本。
 - 管理命令没有自动数据库 rollback。只有 migration 兼容时才可单纯使用旧应用版本；不兼容时必须把升级前备份恢复到新建空 PostgreSQL/对象位置，验证后切换。
 - 不部署浏览器登录档案、Collector node 或页面 adapter；当前云架构只使用五家联网 API。
@@ -66,4 +67,4 @@ corepack pnpm geo start
 
 ## 完成标准
 
-部署完成必须验证 HTTPS 根路径官网、`/app/` 登录、`/api/health`、全部七个 Compose 服务、migration 表、对象写读、成对备份、至少一个用户提供 Key 的 Provider 连接测试，以及中文 PDF。不得因为容器是 running 就宣布成功。
+部署完成必须验证 HTTPS 根路径官网、`/app/` 登录、`/api/health`、Log Service `/health`、全部八个 Compose 服务、migration 表、结构化日志写入/租户读取、对象写读、成对备份、至少一个用户提供 Key 的 Provider 连接测试，以及中文 PDF。不得因为容器是 running 就宣布成功。

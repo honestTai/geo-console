@@ -26,34 +26,42 @@ const projectInputSchema = z.object({
 	region: z.string().trim().min(1),
 	language: z.string().trim().min(1),
 	businessFocus: z.string().trim().optional().nullable(),
+	industry: z.string().trim().min(1).max(120).optional().nullable(),
 	aliases: z.array(z.string().trim().min(1)).default([]),
 	knownCompetitors: z.array(z.string().trim().min(1)).default([]),
 });
 
-export async function listProjects(database: Database): Promise<unknown[]> {
+export async function listProjects(database: Database, organizationId = "default"): Promise<unknown[]> {
 	const result = await database.query(
 		`SELECT p.*, count(DISTINCT b.id)::int AS batch_count, max(b.created_at) AS last_batch_at
 		 FROM projects p LEFT JOIN experiment_batches b ON b.project_id = p.id
-		 GROUP BY p.id ORDER BY p.updated_at DESC`,
+		 WHERE p.organization_id=$1 GROUP BY p.id ORDER BY p.updated_at DESC`,
+		[organizationId],
 	);
 	return result.rows;
 }
 
-export async function createProject(database: Database, input: unknown): Promise<{ id: string }> {
+export async function createProject(
+	database: Database,
+	input: unknown,
+	organizationId = "default",
+): Promise<{ id: string }> {
 	const data = projectInputSchema.parse(input);
 	const id = randomUUID();
 	const url = new URL(data.websiteUrl);
 	await database.query(
-		`INSERT INTO projects (id,name,website_url,domain,region,language,business_focus,aliases,status)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,'draft')`,
+		`INSERT INTO projects (id,organization_id,name,website_url,domain,region,language,business_focus,industry,aliases,status)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,'draft')`,
 		[
 			id,
+			organizationId,
 			data.name,
 			url.href,
 			normalizeDomain(url.href),
 			data.region,
 			data.language,
 			data.businessFocus || null,
+			data.industry || null,
 			JSON.stringify([...new Set([data.name, ...data.aliases])]),
 		],
 	);
@@ -118,6 +126,7 @@ export async function analyzeProject(database: Database, id: string): Promise<Re
 	).rows[0];
 	const pages = await crawlWebsite(database, id, String(project.website_url), 100);
 	const analysis = await analyzeCustomer(database, {
+		organizationId: String(project.organization_id),
 		name: String(project.name),
 		websiteUrl: String(project.website_url),
 		region: String(project.region),
@@ -126,6 +135,34 @@ export async function analyzeProject(database: Database, id: string): Promise<Re
 		knownCompetitors: knownSetting ? parseJsonColumn<string[]>(knownSetting.value) : [],
 		pages,
 	});
+	const libraryQuestions = project.industry
+		? (
+				await database.query<Record<string, unknown>>(
+					`SELECT id,question,intent,topic,persona,tags FROM prompt_library_questions
+					 WHERE organization_id=$1 AND archived_at IS NULL AND lower(industry)=lower($2) ORDER BY created_at`,
+					[project.organization_id, project.industry],
+				)
+			).rows
+		: [];
+	const normalizedQuestions = new Set<string>();
+	const proposedPrompts = [
+		...libraryQuestions.map((prompt) => ({
+			libraryQuestionId: String(prompt.id),
+			question: String(prompt.question),
+			intent: String(prompt.intent),
+			topic: prompt.topic ? String(prompt.topic) : null,
+			persona: prompt.persona ? String(prompt.persona) : null,
+			tags: parseJsonColumn<string[]>(prompt.tags as string | string[]),
+		})),
+		...analysis.prompts.map((prompt) => ({ ...prompt, libraryQuestionId: null })),
+	]
+		.filter((prompt) => {
+			const normalized = prompt.question.trim().toLocaleLowerCase();
+			if (normalizedQuestions.has(normalized)) return false;
+			normalizedQuestions.add(normalized);
+			return true;
+		})
+		.slice(0, 100);
 	await database.transaction(async (transaction) => {
 		await transaction.query("DELETE FROM competitors WHERE project_id = $1", [id]);
 		await transaction.query("DELETE FROM prompts WHERE project_id = $1", [id]);
@@ -135,12 +172,14 @@ export async function analyzeProject(database: Database, id: string): Promise<Re
 				[randomUUID(), id, competitor.name, normalizeDomain(competitor.domain), JSON.stringify(competitor.aliases)],
 			);
 		}
-		for (const [position, prompt] of analysis.prompts.entries()) {
+		for (const [position, prompt] of proposedPrompts.entries()) {
 			await transaction.query(
-				"INSERT INTO prompts (id,project_id,question,intent,topic,persona,tags,approved,position) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,false,$8)",
+				`INSERT INTO prompts (id,project_id,library_question_id,question,intent,topic,persona,tags,approved,position)
+				 VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,false,$9)`,
 				[
 					randomUUID(),
 					id,
+					prompt.libraryQuestionId,
 					prompt.question,
 					prompt.intent,
 					prompt.topic,
@@ -155,7 +194,12 @@ export async function analyzeProject(database: Database, id: string): Promise<Re
 			[id, JSON.stringify(analysis.profile)],
 		);
 	});
-	return { ...analysis, crawledPages: pages.length };
+	return {
+		...analysis,
+		prompts: proposedPrompts,
+		libraryQuestionCount: libraryQuestions.length,
+		crawledPages: pages.length,
+	};
 }
 
 const reviewSchema = z.object({
@@ -174,6 +218,8 @@ const reviewSchema = z.object({
 		.array(
 			z.object({
 				id: z.string().optional(),
+				libraryQuestionId: z.string().optional().nullable(),
+				library_question_id: z.string().optional().nullable(),
 				question: z.string().trim().min(4),
 				intent: z.string().trim().min(1),
 				topic: z.preprocess((value) => (value === "" ? null : value), z.string().trim().min(1).optional().nullable()),
@@ -187,6 +233,19 @@ const reviewSchema = z.object({
 
 export async function confirmProject(database: Database, id: string, input: unknown): Promise<void> {
 	const data = reviewSchema.parse(input);
+	const referencedLibraryIds = data.prompts.flatMap((prompt) => {
+		const questionId = prompt.libraryQuestionId ?? prompt.library_question_id;
+		return questionId ? [questionId] : [];
+	});
+	if (referencedLibraryIds.length) {
+		const allowed = await database.query<{ id: string }>(
+			`SELECT q.id FROM prompt_library_questions q JOIN projects p ON p.organization_id=q.organization_id
+			 WHERE p.id=$1 AND q.archived_at IS NULL AND q.id=ANY($2::text[])`,
+			[id, referencedLibraryIds],
+		);
+		if (new Set(allowed.rows.map((row) => row.id)).size !== new Set(referencedLibraryIds).size)
+			throw new Error("监测问题引用了其他机构或已归档的知识库记录");
+	}
 	await database.transaction(async (transaction) => {
 		// Monitoring scope is versioned: old rows stay available to immutable captures and frozen batches.
 		await transaction.query(
@@ -205,10 +264,12 @@ export async function confirmProject(database: Database, id: string, input: unkn
 		}
 		for (const [position, prompt] of data.prompts.entries()) {
 			await transaction.query(
-				"INSERT INTO prompts (id,project_id,question,intent,topic,persona,tags,approved,position) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,true,$8)",
+				`INSERT INTO prompts (id,project_id,library_question_id,question,intent,topic,persona,tags,approved,position)
+				 VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,true,$9)`,
 				[
 					randomUUID(),
 					id,
+					prompt.libraryQuestionId ?? prompt.library_question_id ?? null,
 					prompt.question,
 					prompt.intent,
 					prompt.topic ?? null,
@@ -275,8 +336,8 @@ export async function createBatch(
 		);
 		if (prompts.rows.length === 0) throw new Error("至少确认一个监测问题");
 		const enabledProviders = await database.query<Record<string, unknown>>(
-			"SELECT * FROM provider_configs WHERE organization_id='default' AND enabled=true AND provider_id=ANY($1::text[])",
-			[data.platforms],
+			"SELECT * FROM provider_configs WHERE organization_id=$1 AND enabled=true AND provider_id=ANY($2::text[])",
+			[project.organization_id, data.platforms],
 		);
 		const enabledIds = new Set(enabledProviders.rows.map((row) => String(row.provider_id)));
 		const missing = data.platforms.filter((providerId) => !enabledIds.has(providerId));
@@ -294,6 +355,7 @@ export async function createBatch(
 				domain: String(project.domain),
 				region: String(project.region),
 				language: String(project.language),
+				industry: project.industry ? String(project.industry) : null,
 				aliases: parseJsonColumn<string[]>(project.aliases as string | string[]),
 			},
 			competitors: competitors.rows.map((row) => ({
@@ -302,7 +364,7 @@ export async function createBatch(
 				domain: String(row.domain),
 				aliases: parseJsonColumn<string[]>(row.aliases as string | string[]),
 			})),
-			prompts: prompts.rows.slice(0, 20).map((row) => ({
+			prompts: prompts.rows.slice(0, 100).map((row) => ({
 				id: String(row.id),
 				question: String(row.question),
 				intent: String(row.intent),
@@ -528,7 +590,10 @@ function captureFromRow(row: Record<string, unknown>): QueryCapture {
 
 export async function getBatch(database: Database, batchId: string): Promise<Record<string, unknown> | null> {
 	const batch = (
-		await database.query<Record<string, unknown>>("SELECT * FROM experiment_batches WHERE id = $1", [batchId])
+		await database.query<Record<string, unknown>>(
+			`SELECT b.*,p.organization_id FROM experiment_batches b JOIN projects p ON p.id=b.project_id WHERE b.id=$1`,
+			[batchId],
+		)
 	).rows[0];
 	if (!batch) return null;
 	const config = parseJsonColumn<FrozenBatchConfig>(batch.config as FrozenBatchConfig | string);

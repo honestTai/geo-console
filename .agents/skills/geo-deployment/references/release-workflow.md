@@ -100,6 +100,7 @@ geo-console version
 geo-console doctor
 geo-console status
 geo-console logs api
+geo-console logs log-service
 ```
 
 同时在浏览器或使用有界 HTTP 请求验证：
@@ -108,6 +109,7 @@ geo-console logs api
 - `https://<domain>/app` 重定向到 `/app/`。
 - `https://<domain>/app/` 返回工作台，并可进入登录流程。
 - 官网“进入工作台”链接指向同域 `/app`。
+- `/api/health` 中 `logService.status=ok`，容器内 `log-service:3020/health` 可用，工作台管理员可看到当前机构结构化日志。
 
 `geo-console logs` 会持续跟随；只需有界日志时改用当前 release 下的 `docker compose --env-file .env logs --tail=200 <service>`。
 
@@ -115,7 +117,7 @@ geo-console logs api
 
 - 若新 release 构建或 pre-switch 检查失败，保持旧 `current` 在线，不执行切换。
 - 若切换后失败且没有不兼容 migration，可在确认后重新激活旧 release；管理脚本没有内置 rollback 命令，不要临时改软链接后跳过验证。
-- 若 migration 不兼容，使用升级前 dump 和 evidence/S3 版本恢复到新建空 PostgreSQL 与隔离对象位置，验证旧 release 的健康、登录、样本证据和 PDF 后，再切换流量。
+- 若 migration 不兼容，使用升级前 dump 和 evidence/S3 版本恢复到新建空 PostgreSQL 与隔离对象位置，验证旧 release 的健康、登录、样本证据、Log Service 和 PDF 后，再切换流量。
 - 不要把 dump 直接恢复覆盖唯一数据库，也不要只回滚应用而忽略 schema。
 
 ## 7. 清理

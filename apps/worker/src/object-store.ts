@@ -43,6 +43,8 @@ export function artifactContentType(key: string): string {
 			return "text/html; charset=utf-8";
 		case ".pdf":
 			return "application/pdf";
+		case ".docx":
+			return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 		case ".png":
 			return "image/png";
 		default:

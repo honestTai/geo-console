@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { migrateDatabase, openDatabase } from "@geo/core";
+import { StructuredLogger, safeErrorMessage } from "@geo/logging";
+import { flushAgentLogs } from "./agent";
 import { executeAgentDraft, recoverOrphanedAgentRuns, runOneAgentJob } from "./agent-jobs";
 
 const database = await openDatabase();
 await migrateDatabase(database);
 await recoverOrphanedAgentRuns(database);
 const owner = process.env.GEO_AGENT_EXECUTOR_ID?.trim() || `agent:${process.pid}:${randomUUID()}`;
+const logger = new StructuredLogger("agent-worker");
 let active = false;
 
 async function tick(): Promise<void> {
@@ -14,7 +17,7 @@ async function tick(): Promise<void> {
 	try {
 		await runOneAgentJob(database, owner, executeAgentDraft);
 	} catch (error) {
-		console.error("Agent 任务执行失败", error);
+		logger.error("worker.tick_failed", safeErrorMessage(error), { traceId: owner });
 	} finally {
 		active = false;
 	}
@@ -22,10 +25,10 @@ async function tick(): Promise<void> {
 
 const timer = setInterval(() => void tick(), 1_000);
 void tick();
-console.log(`GEO Agent Worker 已启动：${owner}`);
+logger.info("service.started", "GEO Agent Worker 已启动", { traceId: owner });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const)
 	process.once(signal, () => {
 		clearInterval(timer);
-		void database.close().finally(() => process.exit(0));
+		void Promise.all([logger.flush(), flushAgentLogs()]).finally(() => database.close().finally(() => process.exit(0)));
 	});

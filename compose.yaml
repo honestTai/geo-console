@@ -13,6 +13,8 @@ x-worker-environment: &worker-environment
   GEO_S3_ACCESS_KEY_ID: ${GEO_S3_ACCESS_KEY_ID:-}
   GEO_S3_SECRET_ACCESS_KEY: ${GEO_S3_SECRET_ACCESS_KEY:-}
   GEO_S3_FORCE_PATH_STYLE: ${GEO_S3_FORCE_PATH_STYLE:-false}
+  GEO_LOG_SERVICE_URL: http://log-service:3020
+  GEO_LOG_SERVICE_TOKEN_FILE: /run/secrets/log_service_token
 
 x-worker-base: &worker-base
   image: geo-console-worker:${GEO_IMAGE_TAG:-local}
@@ -24,6 +26,7 @@ x-worker-base: &worker-base
   secrets:
     - postgres_password
     - master_key
+    - log_service_token
   volumes:
     - evidence_data:/data
   depends_on:
@@ -49,6 +52,34 @@ services:
       retries: 10
     restart: unless-stopped
 
+  log-service:
+    image: geo-console-worker:${GEO_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: worker
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://geo@postgres:5432/geo
+      PGPASSWORD_FILE: /run/secrets/postgres_password
+      GEO_LOG_SERVICE_HOST: 0.0.0.0
+      GEO_LOG_SERVICE_PORT: 3020
+      GEO_LOG_SERVICE_TOKEN_FILE: /run/secrets/log_service_token
+      GEO_LOG_RETENTION_DAYS: ${GEO_LOG_RETENTION_DAYS:-90}
+    secrets:
+      - postgres_password
+      - log_service_token
+    command: ["corepack", "pnpm", "--filter", "@geo/log-service", "start"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3020/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   api:
     <<: *worker-base
     environment:
@@ -67,6 +98,11 @@ services:
       interval: 15s
       timeout: 5s
       retries: 10
+    depends_on:
+      postgres:
+        condition: service_healthy
+      log-service:
+        condition: service_healthy
 
   capture-worker:
     <<: *worker-base
@@ -136,6 +172,8 @@ secrets:
     file: ./secrets/master_key
   admin_password:
     file: ./secrets/admin_password
+  log_service_token:
+    file: ./secrets/log_service_token
 
 volumes:
   postgres_data:

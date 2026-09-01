@@ -17,11 +17,12 @@
 
 ## 配置与 Secret
 
-- `GEO_DOMAIN` 是域名而不是 IP；`GEO_ADMIN_EMAIL` 已确认。
+- `GEO_DOMAIN` 是域名而不是 IP；`GEO_ADMIN_EMAIL` 已确认，该首次账号将成为系统超管。
 - Demo 的 capture concurrency 保持 1；只有容量和 Provider 配额明确时才提高。
 - `GEO_BACKUP_DIR` 是绝对、安全、容量充足且有异机同步策略的目录。
-- `shared/secrets/postgres_password`、`master_key`、`admin_password` 权限为 600，目录为 700；master key 解码后必须恰好 32 字节。
+- `shared/secrets/postgres_password`、`master_key`、`admin_password`、`log_service_token` 权限为 600，目录为 700；master key 解码后必须恰好 32 字节。
 - 主密钥有离线副本；不要打印、提交或在聊天中回显任何 Secret。
+- Provider/HRouter 环境变量或 Secret 文件只允许作为默认机构 bootstrap fallback。确认每个新增租户将在其活动机构内保存独立加密凭据，不共享默认机构密钥。
 - local object mode 确认 evidence volume 与备份同盘风险；S3 mode 确认 private bucket、versioning、encryption、endpoint、region、path style、恢复负责人和实例角色/Key。
 
 ## 发布包
@@ -35,6 +36,7 @@
 ## 上线前退出条件
 
 - `docker compose config --quiet` 通过。
-- 旧实例已有最新成对备份；S3 模式已抽查对象版本。
+- 旧实例已有包含全部租户/问题库/RBAC/业务审计/运行日志的最新数据库与对象成对备份；S3 模式已抽查原始证据、PDF 和 Word 对象版本。
+- `log-service` 只在 Compose 内网 3020，`GEO_LOG_RETENTION_DAYS` 在 7-3650 范围，Log Service token 不出现在 `.env` 或日志中。
 - 明确 migration 只能向前和可接受的停机窗口。
 - 明确失败后的策略：保持旧实例在线、停止切换，或恢复到新建空数据库；不能原地覆盖唯一数据库。

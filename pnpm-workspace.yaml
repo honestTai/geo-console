@@ -3,6 +3,7 @@ packages:
   - "packages/core"
   - "packages/evidence"
   - "packages/metrics"
+  - "packages/logging"
   - "packages/search-providers"
 
 allowBuilds:
