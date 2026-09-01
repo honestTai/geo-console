@@ -93,6 +93,7 @@ services:
       - postgres_password
       - master_key
       - admin_password
+      - log_service_token
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3010/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 15s
