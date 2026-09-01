@@ -19,6 +19,14 @@ if [[ -n "$(git -C "$REPO_DIR" status --porcelain)" ]]; then release_id="$commit
 	git ls-files --cached --others --exclude-standard -z | COPYFILE_DISABLE=1 tar --null -T - -cf -
 ) | tar -xf - -C "$stage_dir/payload"
 
+# Windows checkouts may use CRLF. Release entrypoints run under Linux and must be LF.
+for script in deploy/install.sh deploy/package.sh deploy/geo-console; do
+	file="$stage_dir/payload/$script"
+	[[ -f "$file" ]] || continue
+	awk '{ sub(sprintf("%c", 13) "$", ""); print }' "$file" >"$file.lf"
+	mv "$file.lf" "$file"
+done
+
 cat >"$stage_dir/payload/.geo-release" <<EOF
 RELEASE_ID=$release_id
 GIT_COMMIT=$commit
@@ -34,7 +42,7 @@ COPYFILE_DISABLE=1 tar -czf "$payload_archive" -C "$stage_dir" payload
 
 bundle_name="geo-console-$release_id.run"
 bundle_path="$OUTPUT_DIR/$bundle_name"
-cp "$REPO_DIR/deploy/install.sh" "$bundle_path"
+cp "$stage_dir/payload/deploy/install.sh" "$bundle_path"
 cat "$payload_archive" >>"$bundle_path"
 chmod 700 "$bundle_path"
 

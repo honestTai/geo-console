@@ -12,4 +12,6 @@ Only run migrations against a newly created project PGlite database or an explic
 
 Raw rows in `query_captures` and their artifacts are evidence. Do not update or delete them as a normal repair. Reparse into derived data or create a new batch. Retests must reuse the baseline `config` exactly.
 
+For every major functional change, apply the anti-drift workflow in `.agents/skills/geo-development/references/drift-control.md`. Record the pre-task Git ref, re-read the affected code sources of truth, update the mapped docs and skill references in the same change, and run `corepack pnpm check-drift -- --major --base <pre-task-ref>` before handoff. In a shared dirty worktree, pass the task-owned files explicitly with repeated `--file`. A major change includes architecture, data/evidence/queue contracts, provider protocols, metric or comparability semantics, Agent/security boundaries, major user workflows, or deployment/backup behavior.
+
 Before handoff run `corepack pnpm check-types`, `corepack pnpm test`, `corepack pnpm build`, and `corepack pnpm lint`. Use `apply_patch` for manual edits.

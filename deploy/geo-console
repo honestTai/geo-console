@@ -9,7 +9,7 @@ resolve_script_dir() {
 		source_path="$(readlink "$source_path")"
 		[[ "$source_path" == /* ]] || source_path="$source_dir/$source_path"
 	done
-	cd -- "$(dirname -- "$source_path")" && pwd
+	cd -P -- "$(dirname -- "$source_path")" && pwd -P
 }
 
 readonly SCRIPT_DIR="$(resolve_script_dir)"

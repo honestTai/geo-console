@@ -1,4 +1,4 @@
 interface:
-  display_name: "GEO 云端开发"
-  short_description: "开发五平台联网采集、证据指标、Pi Agent 与云端报告"
-  default_prompt: "按照云端数据契约开发或审查 GEO Console。"
+  display_name: "GEO Console 开发"
+  short_description: "开发和审查证据、指标、Worker、Agent、报告与工作台"
+  default_prompt: "按 GEO Console 的真实代码边界和证据契约完成这项开发任务。"

@@ -10,6 +10,7 @@
 		"dev": "tsx scripts/geo.ts start",
 		"build": "turbo build",
 		"check-types": "turbo check-types",
+		"check-drift": "node scripts/check-skill-drift.mjs",
 		"test": "turbo test",
 		"lint": "biome check --diagnostic-level=error --config-path=biome.json apps/web/src apps/web/vite.config.ts apps/worker/src packages/core/src packages/evidence/src packages/metrics/src packages/search-providers/src scripts/geo.ts",
 		"lint:fix": "biome check --write --diagnostic-level=error --config-path=biome.json apps/web/src apps/web/vite.config.ts apps/worker/src packages/core/src packages/evidence/src packages/metrics/src packages/search-providers/src scripts/geo.ts",
