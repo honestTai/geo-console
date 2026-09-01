@@ -1,0 +1,19 @@
+.gitattributes
+  s_e8b10f03d04a9f::t_e2446867b6c4bc 1-2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "2e07582b17c1376beba5938f59b16d928fe2e275",
+  "prompts": {},
+  "sessions": {
+    "s_e8b10f03d04a9f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05c86-0d87-7f91-a3fe-4df09430161e",
+        "model": "unknown"
+      },
+      "human_author": "honest.tai <honest.tai@outlook.com>"
+    }
+  }
+}
