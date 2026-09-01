@@ -1,0 +1,49 @@
+deploy/geo-console
+  s_f7396e9ea04896::t_d15956cea054a7 12
+.agents/skills/geo-deployment/references/release-workflow.md
+  s_ed55c5235f981c::t_7cf7f82be5f269 1-123
+.agents/skills/geo-development/references/domain-contracts.md
+  s_ed55c5235f981c::t_ce25d80ad8c19e 1-55
+.agents/skills/geo-development/references/drift-control.md
+  s_ed55c5235f981c::t_2eeb4cf15e2648 1-63
+.agents/skills/geo-development/references/project-map.md
+  s_ed55c5235f981c::t_b1b553e9b99edb 1-67
+.agents/skills/geo-operations/references/runtime-runbook.md
+  s_ed55c5235f981c::t_35f854996af38d 1-65
+apps/web/public/provider-logos/deepseek.svg
+  s_ed55c5235f981c::t_d41f8f78ab6636 1
+apps/web/public/provider-logos/qwen.svg
+  s_ed55c5235f981c::t_dc2ef5e51d6005 1
+landing/app.js
+  s_ed55c5235f981c::t_88b6170a67bde3 1-614
+landing/index.html
+  s_ed55c5235f981c::t_fd0d537845af7b 1-950
+landing/styles.css
+  s_ed55c5235f981c::t_be00931c4efcb2 1-1604
+scripts/check-skill-drift.mjs
+  s_ed55c5235f981c::t_89506155830cc9 1-189
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "860c539c0ab3fa74d856ca820c56caa1b4ac30ea",
+  "prompts": {},
+  "sessions": {
+    "s_ed55c5235f981c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05ab3-6e36-7373-967a-f0bc20fde040",
+        "model": "unknown"
+      },
+      "human_author": "honest.tai <honest.tai@outlook.com>"
+    },
+    "s_f7396e9ea04896": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a055a9-ef3c-7aa3-8bd0-00dd3fb247ab",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "honest.tai <honest.tai@outlook.com>"
+    }
+  }
+}
