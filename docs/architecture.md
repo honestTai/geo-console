@@ -89,7 +89,7 @@ DeepSeek、Kimi、豆包和通义是官方联网 API 结果。元宝平台固定
 
 ## 安全边界
 
-- 服务器仅暴露 Caddy 80/443；API、Worker 与 PostgreSQL 留在 Compose 网络。服务器从 `.run` bundle 构建镜像，Web dist 由发布机本地预构建后直接复制进 Web 镜像，Worker 镜像的 pnpm 与 Playwright 下载走 npmmirror。
+- 服务器仅暴露 Caddy 80/443；API、Worker 与 PostgreSQL 留在 Compose 网络。`.run` 只能由发布机本地源码工作区生成，服务器 payload 不携带打包脚本；服务器校验并解压 bundle 后重构镜像。Web dist 由发布机本地预构建后直接复制进 Web 镜像，Worker 镜像的 pnpm 与 Playwright 下载走 npmmirror。
 - Web/Tauri 会话由 HttpOnly、SameSite=Strict Cookie 保护；所有资源入口执行活动机构和客户范围校验。系统超管是数据库唯一的显式布尔权限，不属于任何机构角色。
 - 供应商与 HRouter Key 使用包含机构 ID 的 AES-256-GCM AAD 信封加密；环境变量 Key 只作为默认机构的引导配置，其他机构必须保存独立密钥。
 - 分享链接仅存哈希，可设置过期并撤销。
