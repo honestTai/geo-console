@@ -20,3 +20,22 @@
 .audit-checks-head h3 {
 	margin: 0;
 }
+
+/* 检查卡内容列：类别小灰字 + 标题 + 描述 */
+
+.audit-check-body {
+	display: grid;
+	gap: 3px;
+	min-width: 0;
+}
+
+.audit-check-category {
+	font-size: 11px;
+	color: var(--ink-4);
+}
+
+/* 状态 Tag 顶对齐，不撑满整行 */
+
+.audit-check-card > .ant-tag {
+	align-self: start;
+}

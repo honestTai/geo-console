@@ -89,7 +89,7 @@ export function RunCaptureLog({ captures, active }: { captures: Capture[]; activ
 			/>
 		);
 	const items: NonNullable<TimelineProps["items"]> = captures.map((capture) => ({
-		color: capture.status === "complete" ? "green" : "red",
+		color: "gray",
 		children: (
 			<span>
 				<time>{formatClock(capture.capturedAt)}</time> · {providerShortLabel(capture.engine)} ·{" "}
@@ -99,7 +99,7 @@ export function RunCaptureLog({ captures, active }: { captures: Capture[]; activ
 	}));
 	if (!active)
 		items.push({
-			color: "green",
+			color: "gray",
 			children: <span>指标已刷新 · {captures.length} 条近期 capture 已写入证据链</span>,
 		});
 	return <Timeline items={items} />;
@@ -399,9 +399,8 @@ export function Monitoring({ project, refresh }: { project: Project; refresh(): 
 						key: "schedule",
 						label: (
 							<span className="schedule-summary">
-								<IconChartLine size={18} /> 周期监测{" "}
-								<Tag color={scheduleEnabled ? "success" : "default"}>{scheduleEnabled ? "已启用" : "未启用"}</Tag> ·
-								下一次运行 {date(project.monitoringSchedule?.next_run_at)}
+								<IconChartLine size={18} /> 周期监测 <Tag>{scheduleEnabled ? "已启用" : "未启用"}</Tag> · 下一次运行{" "}
+								{date(project.monitoringSchedule?.next_run_at)}
 							</span>
 						),
 						children: (

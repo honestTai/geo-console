@@ -21,7 +21,7 @@
 }
 
 .project-home-card:hover {
-	border-color: var(--brand-line);
+	border-color: var(--line-strong);
 	box-shadow: var(--shadow-2);
 	transform: translateY(-2px);
 }
@@ -40,7 +40,7 @@
 }
 
 .project-home-card:hover .card-arrow {
-	color: var(--brand);
+	color: var(--ink);
 	transform: translateX(3px);
 }
 
@@ -79,8 +79,8 @@
 }
 
 .project-home-card-new:hover {
-	color: var(--brand);
-	border-color: var(--brand);
+	color: var(--ink);
+	border-color: var(--ink-4);
 }
 
 .project-home-card-new .ant-card-body {

@@ -188,6 +188,11 @@ export function App() {
 		if (availableViews.length && !availableViews.some((item) => item.id === view))
 			setView(availableViews[0]?.id ?? "overview");
 	}, [availableViews, view]);
+	// 切换视图时清掉报告页 Anchor 留下的 location.hash，避免残留到其他页面
+	// biome-ignore lint/correctness/useExhaustiveDependencies: view 是触发时机，effect 只操作 window.location
+	useEffect(() => {
+		if (window.location.hash) window.history.replaceState(null, "", window.location.pathname + window.location.search);
+	}, [view]);
 
 	async function logoutUser() {
 		await post("/api/auth/logout");

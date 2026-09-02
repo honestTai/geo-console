@@ -80,7 +80,7 @@ export function AccountControl({ user, onLogout }: { user: UserIdentity; onLogou
 						{user.organizationName}
 					</small>
 				</div>
-				{user.organizationSuspended && <Tag color="warning">已封禁</Tag>}
+				{user.organizationSuspended && <Tag>已封禁</Tag>}
 				<DesktopUpdateButton />
 				<Button variant="secondary" onClick={() => void onLogout()}>
 					退出
