@@ -1,6 +1,6 @@
-import { IconRoute } from "@tabler/icons-react";
+import { IconRoute, IconUpload } from "@tabler/icons-react";
 import type { TableProps } from "antd";
-import { Alert, App, Card, Select, Spin, Statistic, Table, Typography } from "antd";
+import { Alert, Button as AntdButton, App, Card, Select, Spin, Statistic, Table, Typography, Upload } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../access";
 import { api, post } from "../api";
@@ -113,9 +113,18 @@ export function Attribution({ project }: { project: Project }) {
 							onChange={setSourceType}
 						/>
 					</label>
+					{/* biome-ignore lint/a11y/noLabelWithoutControl: antd Upload 不渲染原生 input，用包围标签承载标题 */}
 					<label className="file-control">
 						CSV 文件
-						<input type="file" accept=".csv,text/csv" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+						<Upload
+							accept=".csv,text/csv"
+							maxCount={1}
+							beforeUpload={() => false}
+							onChange={(info) => setFile(info.fileList[0]?.originFileObj ?? null)}
+							onRemove={() => setFile(null)}
+						>
+							<AntdButton icon={<IconUpload size={16} />}>选择文件</AntdButton>
+						</Upload>
 					</label>
 					<Button permission="attribution.import" busy={busy} disabled={!file} onClick={importCsv}>
 						导入并校验
