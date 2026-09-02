@@ -7,6 +7,7 @@ import { usePaginated } from "../hooks/usePagination";
 import type { AgentRun, Finding, Paginated, Project } from "../types";
 import { BatchPicker, Empty, Pagination } from "../ui/primitives";
 import "./Diagnosis.css";
+import { Page } from "./Page";
 
 const findingColumns: TableProps<Finding>["columns"] = [
 	{
@@ -165,15 +166,12 @@ export function Diagnosis({ project, refresh }: { project: Project; refresh(): P
 	if (!project.batches.length)
 		return <Empty title="尚不能诊断" detail="诊断必须基于成功采集的真实回答。请先建立基线。" />;
 	return (
-		<section>
-			<div className="overview-head">
-				<div>
-					<span className="eyebrow">差距诊断</span>
-					<h2>证据定位的可整改差距</h2>
-					<p className="muted">
-						确定性规则输出可复核指标；Pi Agent 只能读取项目证据，并通过 HRouter GPT 生成待人工审批草稿。
-					</p>
-				</div>
+		<Page
+			breadcrumb={project.name}
+			eyebrow="差距诊断"
+			title="证据定位的可整改差距"
+			description="确定性规则输出可复核指标；Pi Agent 只能读取项目证据，并通过 HRouter GPT 生成待人工审批草稿。"
+			extra={
 				<div className="actions">
 					<BatchPicker project={project} selected={selected} setSelected={setSelected} />
 					<Button permission="agent.run" variant="secondary" busy={busy === "model"} onClick={() => run(true)}>
@@ -188,7 +186,8 @@ export function Diagnosis({ project, refresh }: { project: Project; refresh(): P
 						生成证据诊断
 					</Button>
 				</div>
-			</div>
+			}
+		>
 			{error && <Alert type="error" showIcon message={error} />}
 			{agentRuns.map((run) => (
 				<AgentRunCard key={run.id} run={run} agentRunsPage={agentRunsPage} refresh={refresh} />
@@ -232,6 +231,6 @@ export function Diagnosis({ project, refresh }: { project: Project; refresh(): P
 				totalPages={Math.max(1, Math.ceil(findings.length / 10))}
 				onPage={setFindingPage}
 			/>
-		</section>
+		</Page>
 	);
 }

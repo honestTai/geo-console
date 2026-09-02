@@ -1,11 +1,12 @@
 import { IconCheck, IconFileText, IconPlus, IconTrash } from "@tabler/icons-react";
-import { Alert, Collapse, Descriptions, Input, Select, Space, Tag } from "antd";
+import { Alert, Card, Collapse, Descriptions, Input, Popconfirm, Select, Space, Tag } from "antd";
 import { useState } from "react";
 import { Button, useAgentRunPolling, usePermission } from "../access";
 import { api, patch, post } from "../api";
 import { usePaginated } from "../hooks/usePagination";
 import type { AgentRun, Paginated, Project, Task } from "../types";
 import { Empty, Pagination } from "../ui/primitives";
+import { Page } from "./Page";
 import "./Remediation.css";
 
 export function Remediation({ project, refresh }: { project: Project; refresh(): Promise<void> }) {
@@ -44,16 +45,12 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 		["queued", "running", "awaiting_approval", "failed"].includes(run.status),
 	);
 	return (
-		<section>
-			<div className="overview-head">
-				<div>
-					<span className="eyebrow">整改中心</span>
-					<h2>证据驱动的待审批任务</h2>
-					<p className="muted">
-						Pi Agent 只生成草稿；每项任务都要由负责人核对证据、验收标准和发布地址后批准。发布后填写真实
-						URL，系统重新抓取页面完成验收。
-					</p>
-				</div>
+		<Page
+			breadcrumb={project.name}
+			eyebrow="整改中心"
+			title="证据驱动的待审批任务"
+			description="Pi Agent 只生成草稿；每项任务都要由负责人核对证据、验收标准和发布地址后批准。发布后填写真实 URL，系统重新抓取页面完成验收。"
+			extra={
 				<div className="actions">
 					<Button
 						permission="agent.run"
@@ -80,7 +77,8 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 						从已批准诊断建任务
 					</Button>
 				</div>
-			</div>
+			}
+		>
 			{error && <Alert type="error" showIcon message={error} />}
 			{activeRuns.length > 0 && (
 				<div className="remediation-runs">
@@ -106,7 +104,7 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 				totalPages={Math.max(1, Math.ceil(project.tasks.length / 10))}
 				onPage={setTaskPage}
 			/>
-		</section>
+		</Page>
 	);
 }
 
@@ -258,18 +256,22 @@ export function TaskItem({
 			: []),
 	];
 	return (
-		<article className="task remediation-item">
-			<div className="task-top">
+		<Card
+			size="small"
+			className="remediation-item"
+			title={
 				<Space size={8} wrap>
 					<Tag color={taskPriorityColor(task.priority)}>{priority.label}</Tag>
-					<strong className="task-title">{task.title}</strong>
+					<span className="task-title">{task.title}</span>
 					{task.verified_snapshot_id && (
 						<Tag color="green" icon={<IconCheck size={12} />}>
 							已抓取验收 · 快照 {task.verified_snapshot_id}
 						</Tag>
 					)}
 				</Space>
-				<Space size={8} wrap className="task-header-actions">
+			}
+			extra={
+				<Space size={8} wrap>
 					<Select
 						aria-label="任务状态"
 						style={{ width: 110 }}
@@ -279,20 +281,29 @@ export function TaskItem({
 						onChange={(status) => act(() => patch(`/api/tasks/${task.id}`, { status }))}
 					/>
 					<Tag color={TASK_STATUS_COLORS[task.status] ?? "default"}>{taskStatusLabels[task.status] ?? task.status}</Tag>
-					<Button
-						permission="remediation.manage"
-						variant="ghost"
-						icon={<IconTrash size={17} />}
-						aria-label="删除整改任务"
-						title="删除整改任务"
-						onClick={() => act(() => api(`/api/tasks/${task.id}`, { method: "DELETE" }))}
-					/>
+					<Popconfirm
+						title="删除该整改任务？"
+						okText="删除"
+						cancelText="取消"
+						onConfirm={() => act(() => api(`/api/tasks/${task.id}`, { method: "DELETE" }))}
+					>
+						<span>
+							<Button
+								permission="remediation.manage"
+								variant="ghost"
+								icon={<IconTrash size={17} />}
+								aria-label="删除整改任务"
+								title="删除整改任务"
+							/>
+						</span>
+					</Popconfirm>
 				</Space>
-			</div>
-			<p>{task.detail}</p>
+			}
+		>
+			<p className="task-detail">{task.detail}</p>
 			<Descriptions
 				size="small"
-				column={{ xs: 1, sm: 2 }}
+				column={{ xs: 1, lg: 2 }}
 				items={[
 					{ key: "metric", label: "预期指标", children: task.expected_metric },
 					{ key: "published", label: "发布地址", children: task.published_url ?? "-" },
@@ -361,6 +372,6 @@ export function TaskItem({
 				</Button>
 			</div>
 			<Collapse size="small" items={collapseItems} />
-		</article>
+		</Card>
 	);
 }

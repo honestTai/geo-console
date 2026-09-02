@@ -5,6 +5,7 @@ import { Button } from "../access";
 import { post } from "../api";
 import type { AuditCheck, Project } from "../types";
 import { date, Empty } from "../ui/primitives";
+import { Page } from "./Page";
 import "./WebsiteAudit.css";
 
 const verdictMeta: Record<string, { label: string; color: string }> = {
@@ -64,40 +65,40 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 	}
 	if (!audit)
 		return (
-			<section className="audit-page">
-				<div className="overview-head audit-head">
-					<div>
-						<span className="eyebrow">官网审计</span>
-						<h2>公开页面的 AI 可读性检查</h2>
-						<p className="muted">
-							检查 AI 与搜索系统能否稳定读取官网，以及页面是否提供可理解、可引用的实体和事实结构。
-						</p>
-					</div>
+			<Page
+				className="audit-page"
+				breadcrumb={project.name}
+				eyebrow="官网审计"
+				title="公开页面的 AI 可读性检查"
+				description="检查 AI 与搜索系统能否稳定读取官网，以及页面是否提供可理解、可引用的实体和事实结构。"
+				extra={
 					<Button permission="audit.run" busy={busy} icon={<IconShieldCheck size={17} />} onClick={run}>
 						开始真实审计
 					</Button>
-				</div>
+				}
+			>
 				{error && <Alert type="error" showIcon message={error} />}
 				<Empty
 					title="还没有官网审计证据"
 					detail="运行后会真实请求客户官网、robots.txt、Sitemap 和 llms.txt，并保存不可变审计快照。"
 				/>
-			</section>
+			</Page>
 		);
 	const passCount = audit.result.checks.filter((check) => check.status === "pass").length;
 	const verdict = verdictMeta[audit.result.verdict];
 	return (
-		<section className="audit-page">
-			<div className="overview-head audit-head">
-				<div>
-					<span className="eyebrow">官网审计</span>
-					<h2>公开页面的 AI 可读性检查</h2>
-					<p className="muted">检查 AI 与搜索系统能否稳定读取官网，以及页面是否提供可理解、可引用的实体和事实结构。</p>
-				</div>
+		<Page
+			className="audit-page"
+			breadcrumb={project.name}
+			eyebrow="官网审计"
+			title="公开页面的 AI 可读性检查"
+			description="检查 AI 与搜索系统能否稳定读取官网，以及页面是否提供可理解、可引用的实体和事实结构。"
+			extra={
 				<Button permission="audit.run" busy={busy} icon={<IconShieldCheck size={17} />} onClick={run}>
 					重新审计
 				</Button>
-			</div>
+			}
+		>
 			{error && <Alert type="error" showIcon message={error} />}
 			<div className="audit-hero">
 				<Statistic title="AI 可读性得分" value={audit.result.score} suffix="/ 100" />
@@ -117,9 +118,9 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 					/>
 				)}
 			<Descriptions
-				className="audit-facts"
+				bordered
 				size="small"
-				column={{ xs: 1, sm: 2, lg: 4 }}
+				column={{ xs: 1, lg: 2 }}
 				items={[
 					{ key: "title", label: "页面标题", children: audit.result.homepage.title ?? "未检测到" },
 					{ key: "canonical", label: "Canonical", children: audit.result.homepage.canonical ?? "未声明" },
@@ -166,6 +167,6 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 					),
 				}))}
 			/>
-		</section>
+		</Page>
 	);
 }

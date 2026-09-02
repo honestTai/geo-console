@@ -9,6 +9,7 @@ import {
 } from "@tabler/icons-react";
 import {
 	Alert,
+	Anchor,
 	Button as AntdButton,
 	Descriptions,
 	Dropdown,
@@ -41,6 +42,8 @@ import {
 } from "../types";
 import { BatchPicker, date, downloadText, Empty, Notice, Pagination, percentage } from "../ui/primitives";
 import { BatchMetrics, ComparisonDeltaChart } from "./charts";
+import { Page } from "./Page";
+import "./Report.css";
 
 export function ReportExecutiveOverview({
 	batch,
@@ -676,9 +679,9 @@ type ReportDocSectionConfig = {
 function ReportDocSection({ config }: { config: ReportDocSectionConfig }) {
 	if (config.columns) {
 		return (
-			<div className="report-section split-report-section">
+			<div id={`report-section-${config.key}`} className="report-section split-report-section">
 				{config.columns.map((column) => (
-					<div key={column.number}>
+					<div key={column.number} id={`report-section-${config.key}-${column.number}`}>
 						<div className="report-title-row">
 							<div>
 								<span>{column.number}</span>
@@ -692,7 +695,10 @@ function ReportDocSection({ config }: { config: ReportDocSectionConfig }) {
 		);
 	}
 	return (
-		<div className={`report-section${config.className ? ` ${config.className}` : ""}`}>
+		<div
+			id={`report-section-${config.key}`}
+			className={`report-section${config.className ? ` ${config.className}` : ""}`}
+		>
 			<div className="report-title-row">
 				<div>
 					{config.number ? <span>{config.number}</span> : null}
@@ -703,6 +709,28 @@ function ReportDocSection({ config }: { config: ReportDocSectionConfig }) {
 			</div>
 			{config.content}
 		</div>
+	);
+}
+
+/** 报告正文目录：与 buildReportDocSections 的输出一一对应，columns 区块展开为子级锚点。 */
+function reportDocAnchorItems(sections: ReportDocSectionConfig[]) {
+	return sections.map((section) =>
+		section.columns
+			? {
+					key: section.key,
+					href: `#report-section-${section.key}`,
+					title: `${section.columns[0].number} ${section.columns[0].title}`,
+					children: section.columns.slice(1).map((column) => ({
+						key: `${section.key}-${column.number}`,
+						href: `#report-section-${section.key}-${column.number}`,
+						title: `${column.number} ${column.title}`,
+					})),
+				}
+			: {
+					key: section.key,
+					href: `#report-section-${section.key}`,
+					title: section.number ? `${section.number} ${section.title}` : section.title,
+				},
 	);
 }
 
@@ -1168,6 +1196,12 @@ export function Report({ project }: { project: Project }) {
 	}
 	const awaitingApproval = agentRuns.some((run) => run.status === "awaiting_approval");
 	const reportReady = Boolean(latestSnapshot?.pdf_artifact_key && latestSnapshot.word_artifact_key);
+	const docSections =
+		batch && analysis && report
+			? buildReportDocSections({ batch, analysis, report, baselineBatch }).filter(
+					(section) => section.when?.({ batch, analysis, report, baselineBatch }) ?? true,
+				)
+			: [];
 	const workflowLabel = awaitingApproval
 		? "等待人工审批"
 		: hasActiveAgentRuns
@@ -1208,16 +1242,15 @@ export function Report({ project }: { project: Project }) {
 	return (
 		<section className="report">
 			<div className="report-workspace no-print">
-				<div className="overview-head">
-					<div>
-						<span className="eyebrow">报告工作台</span>
-						<h2>中文效果报告</h2>
-						<p className="muted">
-							{batch ? `${batchKindLabel(batch.kind)} · ${date(batch.created_at)} · ${batch.status}` : "未选择批次"}
-						</p>
-					</div>
-					<BatchPicker project={project} selected={selected} setSelected={setSelected} />
-				</div>
+				<Page
+					breadcrumb={project.name}
+					eyebrow="报告工作台"
+					title="中文效果报告"
+					description={
+						batch ? `${batchKindLabel(batch.kind)} · ${date(batch.created_at)} · ${batch.status}` : "未选择批次"
+					}
+					extra={<BatchPicker project={project} selected={selected} setSelected={setSelected} />}
+				/>
 				<div className="report-command-bar report-workflow-command-bar">
 					<Space size="small" wrap>
 						<Button
@@ -1347,10 +1380,17 @@ export function Report({ project }: { project: Project }) {
 					]}
 				/>
 			</section>
-			{batch && analysis && report ? (
-				buildReportDocSections({ batch, analysis, report, baselineBatch })
-					.filter((section) => section.when?.({ batch, analysis, report, baselineBatch }) ?? true)
-					.map((section) => <ReportDocSection key={section.key} config={section} />)
+			{docSections.length ? (
+				<div className="report-doc-layout">
+					<div className="report-doc-main">
+						{docSections.map((section) => (
+							<ReportDocSection key={section.key} config={section} />
+						))}
+					</div>
+					<aside className="report-doc-anchor no-print">
+						<Anchor items={reportDocAnchorItems(docSections)} />
+					</aside>
+				</div>
 			) : (
 				<div className="center">
 					<IconLoader2 className="spin" />

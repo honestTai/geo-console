@@ -1,0 +1,51 @@
+.page {
+	min-width: 0;
+}
+
+.page-head {
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-start;
+	gap: 20px;
+	flex-wrap: wrap;
+	margin-bottom: 20px;
+}
+
+.page-head-text {
+	min-width: 0;
+	flex: 1 1 420px;
+}
+
+.page-breadcrumb {
+	margin-bottom: 6px;
+	font-size: 12.5px;
+}
+
+.page-crumb-current {
+	color: var(--brand);
+	font-weight: 650;
+}
+
+.page-title.ant-typography {
+	margin: 0 0 6px;
+	font-size: 22px;
+}
+
+.page-description.ant-typography {
+	margin: 0;
+	max-width: 760px;
+}
+
+.page-extra {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+	padding-top: 26px;
+}
+
+@media (max-width: 900px) {
+	.page-extra {
+		padding-top: 0;
+	}
+}

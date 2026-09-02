@@ -6,6 +6,7 @@ import { api } from "../api";
 import { type BatchSummary, type Project, shortDate, type Task, type TrendResponse } from "../types";
 import { percentage } from "../ui/primitives";
 import { LineTrendChart, MentionBarChart, overallMetric, overallPercent, perPlatformMention } from "./charts";
+import { Page } from "./Page";
 import { ScopeEditor } from "./ScopeEditor";
 
 export function OverviewKpis({ trends, tasks }: { trends: TrendResponse; tasks: Task[] }) {
@@ -156,12 +157,11 @@ export function Overview({ project, refresh }: { project: Project; refresh(): Pr
 		};
 	}, [project.id, latestId]);
 	return (
-		<section>
-			<div className="overview-head">
-				<div>
-					<span className="eyebrow">项目总览</span>
-					<h2>{project.name} · 可见度总览</h2>
-				</div>
+		<Page
+			breadcrumb={project.name}
+			eyebrow="项目总览"
+			title={`${project.name} · 可见度总览`}
+			extra={
 				<Button
 					permission="project.onboard"
 					variant="secondary"
@@ -170,7 +170,8 @@ export function Overview({ project, refresh }: { project: Project; refresh(): Pr
 				>
 					编辑监测范围
 				</Button>
-			</div>
+			}
+		>
 			{trendsLoading ? (
 				<div className="kpi-grid" aria-hidden="true">
 					{["skeleton-a", "skeleton-b", "skeleton-c", "skeleton-d", "skeleton-e"].map((key) => (
@@ -184,6 +185,6 @@ export function Overview({ project, refresh }: { project: Project; refresh(): Pr
 			) : null}
 			<OverviewTrendPanel latest={latest} trends={trends} loading={trendsLoading} />
 			{editingScope && <ScopeEditor project={project} onClose={() => setEditingScope(false)} refresh={refresh} />}
-		</section>
+		</Page>
 	);
 }

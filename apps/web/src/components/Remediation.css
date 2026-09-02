@@ -4,16 +4,21 @@
 	margin-bottom: 14px;
 }
 
-.task-top {
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	gap: 12px;
-	flex-wrap: wrap;
+.remediation-list {
+	display: grid;
+	gap: 14px;
 }
 
-.task-title {
+.remediation-item .task-title {
 	font-size: 15px;
+	font-weight: 650;
+}
+
+.task-detail {
+	margin: 0 0 12px;
+	line-height: 1.7;
+	color: var(--ink-2);
+	font-size: 13.5px;
 }
 
 .task-meta-row {

@@ -6,6 +6,7 @@ import { Button } from "../access";
 import { api, post } from "../api";
 import { type AttributionPayload, metricLabels, type Project, sourceLabels } from "../types";
 import { date, Empty, Pagination } from "../ui/primitives";
+import { Page } from "./Page";
 
 type AttributionEvent = AttributionPayload["events"][number];
 type AttributionImport = AttributionPayload["imports"][number];
@@ -87,14 +88,13 @@ export function Attribution({ project }: { project: Project }) {
 		}
 	}
 	return (
-		<section className="attribution-page">
-			<div className="overview-head">
-				<div>
-					<span className="eyebrow">业务归因</span>
-					<h2>业务数据与 GEO 指标并列观察</h2>
-					<p className="muted">导入 GA4、Search Console、表单、电话和业务台账；系统防重复计数，但不自动声称因果。</p>
-				</div>
-			</div>
+		<Page
+			className="attribution-page"
+			breadcrumb={project.name}
+			eyebrow="业务归因"
+			title="业务数据与 GEO 指标并列观察"
+			description="导入 GA4、Search Console、表单、电话和业务台账；系统防重复计数，但不自动声称因果。"
+		>
 			{error && <Alert type="error" showIcon message={error} />}
 			<div className="import-band">
 				<div>
@@ -170,6 +170,6 @@ export function Attribution({ project }: { project: Project }) {
 					/>
 				</>
 			)}
-		</section>
+		</Page>
 	);
 }

@@ -21,6 +21,7 @@ import { Button, usePermission } from "../access";
 import { api, post } from "../api";
 import type { ServiceLogFilters, ServiceLogLevel, ServiceLogResponse, ServiceLogRow } from "../types";
 import { date, Empty } from "../ui/primitives";
+import { Page } from "./Page";
 import "./ServiceLogs.css";
 
 const { RangePicker } = DatePicker;
@@ -210,19 +211,18 @@ export function ServiceLogs() {
 		void load(nextCursor);
 	}
 	return (
-		<section className="service-logs-view">
-			<div className="overview-head">
-				<div>
-					<span className="eyebrow">独立日志服务</span>
-					<h2>运行日志</h2>
-					<p className="muted">
-						{health?.status === "ok"
-							? `服务正常 · ${Number(health.storedLogs ?? 0).toLocaleString("zh-CN")} 条 · 保留 ${health.retentionDays} 天`
-							: health?.status === "unconfigured"
-								? "日志服务未配置"
-								: "日志服务暂不可用"}
-					</p>
-				</div>
+		<Page
+			className="service-logs-view"
+			eyebrow="独立日志服务"
+			title="运行日志"
+			description={
+				health?.status === "ok"
+					? `服务正常 · ${Number(health.storedLogs ?? 0).toLocaleString("zh-CN")} 条 · 保留 ${health.retentionDays} 天`
+					: health?.status === "unconfigured"
+						? "日志服务未配置"
+						: "日志服务暂不可用"
+			}
+			extra={
 				<div className="actions">
 					<Space size={8}>
 						<Switch size="small" checked={autoRefresh} onChange={setAutoRefresh} />
@@ -246,7 +246,8 @@ export function ServiceLogs() {
 						刷新
 					</Button>
 				</div>
-			</div>
+			}
+		>
 			<Space wrap size={8} className="service-log-counts">
 				{(["error", "warn", "info", "debug"] as const).map((level) => (
 					<AntdButton
@@ -367,6 +368,6 @@ export function ServiceLogs() {
 					]}
 				/>
 			)}
-		</section>
+		</Page>
 	);
 }
