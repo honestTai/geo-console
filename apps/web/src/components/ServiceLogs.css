@@ -7,3 +7,20 @@
 .service-log-message {
 	margin: 0;
 }
+
+.service-log-counts {
+	margin-bottom: 4px;
+}
+
+.service-log-counts .ant-btn {
+	display: inline-flex;
+	align-items: center;
+}
+
+.service-log-filters {
+	margin-bottom: 4px;
+}
+
+.service-log-retention {
+	margin-top: 14px;
+}

@@ -281,6 +281,7 @@ export function ServiceLogs() {
 					options={[{ value: "", label: "全部级别" }, ...LEVEL_OPTIONS]}
 				/>
 				<RangePicker
+					style={{ minWidth: 240 }}
 					value={rangeValue}
 					onChange={(values) =>
 						setDraftFilters({
