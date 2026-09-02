@@ -5,7 +5,8 @@ import { Button } from "../access";
 import { api, post } from "../api";
 import { usePaginated } from "../hooks/usePagination";
 import type { ManagedUser, Paginated, RoleRecord } from "../types";
-import { Pagination } from "../ui/primitives";
+import { Pagination, SectionTitle } from "../ui/primitives";
+import "./Members.css";
 import { Page } from "./Page";
 
 export function Members({ localBypass }: { localBypass: boolean }) {
@@ -16,13 +17,13 @@ export function Members({ localBypass }: { localBypass: boolean }) {
 			description="管理员维护机构成员、角色和访问状态；成员停用后其现有会话会被撤销。"
 		>
 			{localBypass ? (
-				<div className="settings-band member-mode-note">
-					<div>
-						<IconKey size={24} />
-						<h3>本机免登录开发模式</h3>
-						<p>配置 GEO_ADMIN_EMAIL 和 GEO_ADMIN_PASSWORD 后重启，即可启用管理员、分析师和只读成员管理。</p>
-					</div>
-				</div>
+				<Alert
+					type="info"
+					showIcon
+					icon={<IconKey size={18} />}
+					message="本机免登录开发模式"
+					description="配置 GEO_ADMIN_EMAIL 和 GEO_ADMIN_PASSWORD 后重启，即可启用管理员、分析师和只读成员管理。"
+				/>
 			) : (
 				<UserManagement />
 			)}
@@ -80,8 +81,10 @@ export function UserManagement() {
 	return (
 		<div className="user-management">
 			{error && <Alert type="error" showIcon message={error} />}
-			<Form form={form} layout="inline" onFinish={(values) => void create(values)}>
+			<SectionTitle title="添加成员" description="初始密码至少 12 位；成员首次登录后可自行修改。" />
+			<Form form={form} layout="vertical" className="member-form" onFinish={(values) => void create(values)}>
 				<Form.Item
+					label="邮箱"
 					name="email"
 					rules={[
 						{ required: true, message: "请输入邮箱" },
@@ -90,13 +93,14 @@ export function UserManagement() {
 				>
 					<Input type="email" placeholder="邮箱" />
 				</Form.Item>
-				<Form.Item name="displayName" rules={[{ required: true, message: "请输入姓名" }]}>
+				<Form.Item label="姓名" name="displayName" rules={[{ required: true, message: "请输入姓名" }]}>
 					<Input placeholder="姓名" />
 				</Form.Item>
-				<Form.Item name="roleId" rules={[{ required: true, message: "请选择角色" }]}>
+				<Form.Item label="角色" name="roleId" rules={[{ required: true, message: "请选择角色" }]}>
 					<Select placeholder="选择角色" options={roles.map((role) => ({ value: role.id, label: role.name }))} />
 				</Form.Item>
 				<Form.Item
+					label="初始密码"
 					name="password"
 					rules={[
 						{ required: true, message: "请输入初始密码" },
@@ -105,14 +109,15 @@ export function UserManagement() {
 				>
 					<Input.Password placeholder="至少12位初始密码" />
 				</Form.Item>
-				<Form.Item>
-					<Button permission="members.manage" type="submit">
+				<Form.Item label=" " className="member-form-submit">
+					<Button permission="members.manage" htmlType="submit">
 						添加成员
 					</Button>
 				</Form.Item>
 			</Form>
+			<SectionTitle title="成员列表" count={users.total || undefined} />
 			<Table
-				size="small"
+				size="middle"
 				rowKey="id"
 				loading={users.loading}
 				pagination={false}
@@ -135,11 +140,14 @@ export function UserManagement() {
 					{
 						title: "状态",
 						key: "status",
-						render: (_, member) => (member.disabled_at ? <Tag>已停用</Tag> : <Tag>有效</Tag>),
+						width: 100,
+						render: (_, member) => (member.disabled_at ? <Tag>已停用</Tag> : <Tag className="tag-success">有效</Tag>),
 					},
 					{
-						title: "操作",
+						title: "",
 						key: "actions",
+						width: 90,
+						align: "right",
 						render: (_, member) => (
 							<Popconfirm
 								title={`停用「${member.display_name}」？`}

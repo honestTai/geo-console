@@ -1,11 +1,12 @@
 import { IconSearch } from "@tabler/icons-react";
 import { Alert, Collapse, Descriptions, Progress, Table, type TableProps, Tag } from "antd";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Button, useAgentRunPolling } from "../access";
 import { api, post } from "../api";
 import { usePaginated } from "../hooks/usePagination";
-import type { AgentRun, Finding, Paginated, Project } from "../types";
-import { BatchPicker, Empty, Pagination } from "../ui/primitives";
+import type { AgentRun, EvidenceIndexEntry, Finding, Paginated, Project, ReportPayload } from "../types";
+import { useWorkspaceNavigation } from "../ui/navigation";
+import { BatchPicker, Empty, EvidenceRef, Pagination, SectionTitle } from "../ui/primitives";
 import "./Diagnosis.css";
 import { Page } from "./Page";
 
@@ -145,6 +146,22 @@ export function Diagnosis({ project, refresh }: { project: Project; refresh(): P
 		[project.id, selected],
 	);
 	const agentRuns = agentRunsPage.items;
+	const navigation = useWorkspaceNavigation();
+	const [evidenceIndex, setEvidenceIndex] = useState<EvidenceIndexEntry[]>([]);
+	useEffect(() => {
+		if (!selected) return;
+		let current = true;
+		api<ReportPayload>(`/api/batches/${selected}/report`)
+			.then((payload) => {
+				if (current) setEvidenceIndex(payload.analysis?.evidenceIndex ?? []);
+			})
+			.catch(() => {
+				if (current) setEvidenceIndex([]);
+			});
+		return () => {
+			current = false;
+		};
+	}, [selected]);
 	const [findingPage, setFindingPage] = useState(1);
 	const findings = project.findings.filter((item) => item.batch_id === selected);
 	const visibleFindings = findings.slice((findingPage - 1) * 10, findingPage * 10);
@@ -164,7 +181,11 @@ export function Diagnosis({ project, refresh }: { project: Project; refresh(): P
 		}
 	}
 	if (!project.batches.length)
-		return <Empty title="尚不能诊断" detail="诊断必须基于成功采集的真实回答。请先建立基线。" />;
+		return (
+			<Page breadcrumb={project.name} eyebrow="差距诊断" title="证据定位的可整改差距">
+				<Empty title="尚不能诊断" detail="诊断必须基于成功采集的真实回答。请先建立基线。" />
+			</Page>
+		);
 	return (
 		<Page
 			breadcrumb={project.name}
@@ -189,10 +210,22 @@ export function Diagnosis({ project, refresh }: { project: Project; refresh(): P
 			}
 		>
 			{error && <Alert type="error" showIcon message={error} />}
-			{agentRuns.map((run) => (
-				<AgentRunCard key={run.id} run={run} agentRunsPage={agentRunsPage} refresh={refresh} />
-			))}
-			<Pagination {...agentRunsPage} onPage={(page) => void agentRunsPage.reload(page)} />
+			{agentRuns.length > 0 && (
+				<>
+					<SectionTitle title="Agent 诊断草稿" count={agentRunsPage.total} />
+					<div className="agent-draft-list">
+						{agentRuns.map((run) => (
+							<AgentRunCard key={run.id} run={run} agentRunsPage={agentRunsPage} refresh={refresh} />
+						))}
+					</div>
+					<Pagination {...agentRunsPage} onPage={(page) => void agentRunsPage.reload(page)} />
+				</>
+			)}
+			<SectionTitle
+				title="规则诊断结果"
+				count={findings.length || undefined}
+				description="由确定性证据规则计算，可直接转为整改任务。"
+			/>
 			{findings.length === 0 ? (
 				<Empty
 					title="这个批次还没有诊断"
@@ -216,7 +249,15 @@ export function Diagnosis({ project, refresh }: { project: Project; refresh(): P
 									{
 										key: "evidence",
 										label: "关联证据",
-										children: finding.evidence_ids.join("、") || "-",
+										children: finding.evidence_ids.length ? (
+											<EvidenceRef
+												ids={finding.evidence_ids}
+												index={evidenceIndex}
+												onOpen={(captureId) => navigation.openEvidence(captureId, selected)}
+											/>
+										) : (
+											"-"
+										),
 									},
 								]}
 							/>

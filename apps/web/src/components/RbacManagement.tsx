@@ -1,6 +1,6 @@
 import { IconPlus, IconTrash } from "@tabler/icons-react";
-import { Alert, App, Checkbox, Input, List, Popconfirm, Switch, Table, Tabs, Typography } from "antd";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, App, Checkbox, Input, List, Popconfirm, Switch, Table, Tabs, Tree, Typography } from "antd";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "../access";
 import { api, post, put } from "../api";
 import type { ManagedUser, Paginated, PermissionRecord, ProjectSummary, RoleRecord, UserIdentity } from "../types";
@@ -8,6 +8,14 @@ import { Pagination } from "../ui/primitives";
 import { Page } from "./Page";
 import "./RbacManagement.css";
 
+type PermissionTreeNode = {
+	key: string;
+	title: ReactNode;
+	children?: PermissionTreeNode[];
+	selectable?: false;
+};
+
+/** 菜单 → 按钮权限树：勾选菜单带上其下全部按钮；勾选按钮自动带上所属菜单；取消菜单同时取消按钮。 */
 export function PermissionChecklist({
 	permissions,
 	selected,
@@ -17,47 +25,138 @@ export function PermissionChecklist({
 	selected: string[];
 	onChange(keys: string[]): void;
 }) {
-	const groups = useMemo(() => {
-		const values = new Map<string, PermissionRecord[]>();
-		for (const permission of permissions) {
-			const group = values.get(permission.group_label) ?? [];
-			group.push(permission);
-			values.set(permission.group_label, group);
+	const { tree, parentOf, childrenOf, groupKeys } = useMemo(() => {
+		const pages = permissions.filter((permission) => permission.kind === "page");
+		const actions = permissions.filter((permission) => permission.kind === "action");
+		const parentOf = new Map<string, string>();
+		const childrenOf = new Map<string, string[]>();
+		const orphanActions: PermissionRecord[] = [];
+		for (const action of actions) {
+			const parent = action.parent_key && pages.some((page) => page.key === action.parent_key) ? action.parent_key : null;
+			if (!parent) {
+				orphanActions.push(action);
+				continue;
+			}
+			parentOf.set(action.key, parent);
+			childrenOf.set(parent, [...(childrenOf.get(parent) ?? []), action.key]);
 		}
-		return [...values.entries()];
+		const groups = new Map<string, PermissionRecord[]>();
+		for (const page of pages) groups.set(page.group_label, [...(groups.get(page.group_label) ?? []), page]);
+		const groupKeys = new Map<string, string[]>();
+		const tree: PermissionTreeNode[] = [...groups.entries()].map(([group, items]) => {
+			const keys = items.flatMap((page) => [page.key, ...(childrenOf.get(page.key) ?? [])]);
+			groupKeys.set(`group:${group}`, keys);
+			return {
+				key: `group:${group}`,
+				selectable: false,
+				title: <span className="permission-tree-group">{group}</span>,
+				children: items.map((page) => ({
+					key: page.key,
+					selectable: false,
+					title: (
+						<span className="permission-tree-page">
+							{page.label}
+							<Typography.Text type="secondary">菜单</Typography.Text>
+						</span>
+					),
+					children: (childrenOf.get(page.key) ?? []).map((actionKey) => {
+						const action = actions.find((item) => item.key === actionKey);
+						return {
+							key: actionKey,
+							selectable: false,
+							title: (
+								<span className="permission-tree-action">
+									{action?.label ?? actionKey}
+									<Typography.Text type="secondary">按钮</Typography.Text>
+								</span>
+							),
+						};
+					}),
+				})),
+			};
+		});
+		if (orphanActions.length) {
+			const keys = orphanActions.map((action) => action.key);
+			groupKeys.set("group:其他功能", keys);
+			tree.push({
+				key: "group:其他功能",
+				selectable: false,
+				title: <span className="permission-tree-group">其他功能</span>,
+				children: orphanActions.map((action) => ({
+					key: action.key,
+					selectable: false,
+					title: (
+						<span className="permission-tree-action">
+							{action.label}
+							<Typography.Text type="secondary">按钮</Typography.Text>
+						</span>
+					),
+				})),
+			});
+		}
+		return { tree, parentOf, childrenOf, groupKeys };
 	}, [permissions]);
-	const toggleGroup = (groupKeys: string[], keys: string[]) =>
-		onChange([...selected.filter((key) => !groupKeys.includes(key)), ...keys]);
+	const allKeys = permissions.map((permission) => permission.key);
+	const selectedSet = new Set(selected.filter((key) => allKeys.includes(key)));
+	// 分组节点：全部子项选中时勾选。
+	const checkedKeys = [
+		...selectedSet,
+		...[...groupKeys.entries()].filter(([, keys]) => keys.length && keys.every((key) => selectedSet.has(key))).map(([key]) => key),
+	];
+	const halfCheckedKeys = [
+		...[...childrenOf.entries()]
+			.filter(([page, children]) => selectedSet.has(page) && children.some((key) => selectedSet.has(key)) && !children.every((key) => selectedSet.has(key)))
+			.map(([page]) => page),
+		...[...groupKeys.entries()]
+			.filter(([key, keys]) => !checkedKeys.includes(key) && keys.some((item) => selectedSet.has(item)))
+			.map(([key]) => key),
+	];
+	function toggle(key: string, checked: boolean) {
+		const next = new Set(selectedSet);
+		const apply = (target: string, on: boolean) => {
+			if (on) {
+				next.add(target);
+				const parent = parentOf.get(target);
+				if (parent) next.add(parent);
+			} else {
+				next.delete(target);
+				for (const child of childrenOf.get(target) ?? []) next.delete(child);
+			}
+		};
+		if (key.startsWith("group:")) for (const item of groupKeys.get(key) ?? []) apply(item, checked);
+		else {
+			apply(key, checked);
+			if (checked) for (const child of childrenOf.get(key) ?? []) next.add(child);
+		}
+		onChange(allKeys.filter((item) => next.has(item)));
+	}
+	const total = allKeys.length;
 	return (
-		<div className="permission-groups">
-			{groups.map(([group, items]) => {
-				const groupKeys = items.map((permission) => permission.key);
-				const checkedCount = items.filter((permission) => selected.includes(permission.key)).length;
-				return (
-					<section className="permission-group" key={group}>
-						<header className="permission-group-head">
-							<h4>{group}</h4>
-							<span>
-								已选 {checkedCount}/{items.length}
-							</span>
-						</header>
-						<Checkbox.Group
-							className="permission-checkboxes"
-							value={selected.filter((key) => groupKeys.includes(key))}
-							onChange={(keys) => toggleGroup(groupKeys, keys as string[])}
-							options={items.map((permission) => ({
-								value: permission.key,
-								label: (
-									<span>
-										{permission.label}{" "}
-										<Typography.Text type="secondary">{permission.kind === "page" ? "页面" : "功能"}</Typography.Text>
-									</span>
-								),
-							}))}
-						/>
-					</section>
-				);
-			})}
+		<div className="permission-tree">
+			<div className="permission-tree-toolbar">
+				<span>
+					已选 {selectedSet.size}/{total}
+				</span>
+				<Button variant="link" size="small" onClick={() => onChange(allKeys)}>
+					全选
+				</Button>
+				<Button variant="link" size="small" onClick={() => onChange([])}>
+					清空
+				</Button>
+			</div>
+			<Tree
+				checkable
+				checkStrictly
+				selectable={false}
+				defaultExpandAll
+				blockNode
+				treeData={tree}
+				checkedKeys={{ checked: checkedKeys, halfChecked: halfCheckedKeys }}
+				onCheck={(_, info) => {
+					const key = String(info.node.key);
+					toggle(key, info.checked);
+				}}
+			/>
 		</div>
 	);
 }

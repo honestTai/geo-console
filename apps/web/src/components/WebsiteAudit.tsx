@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Button } from "../access";
 import { post } from "../api";
 import type { AuditCheck, Project } from "../types";
-import { date, Empty } from "../ui/primitives";
+import { date, Empty, IdChip, SectionTitle } from "../ui/primitives";
 import { Page } from "./Page";
 import "./WebsiteAudit.css";
 
@@ -93,7 +93,8 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 				<div className="audit-hero-text">
 					<Tag>{verdictLabel}</Tag>
 					<p className="muted">
-						最近审计：{date(audit.result.checkedAt)} · {audit.result.checks.length} 项检查 · 审计证据 ID {audit.id}
+						最近审计：{date(audit.result.checkedAt)} · {audit.result.checks.length} 项检查{" "}
+						<IdChip value={audit.id} label="审计证据" />
 					</p>
 				</div>
 			</div>
@@ -105,6 +106,7 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 						message="HTTPS 校验失败，普通浏览器方式仍能读取页面。系统用可访问内容完成结构检查；这不代表 HTTPS 或机器人访问问题已通过。"
 					/>
 				)}
+			<SectionTitle title="首页读取结果" />
 			<Descriptions
 				bordered
 				size="small"
@@ -131,12 +133,11 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 					{ key: "jsonld", label: "JSON-LD", children: `${audit.result.homepage.structuredDataTypes.length || 0} 类` },
 				]}
 			/>
-			<header className="audit-checks-head">
-				<h3>审计项目</h3>
-				<span className="muted">
-					通过 {passCount} / 共 {audit.result.checks.length} 项
-				</span>
-			</header>
+			<SectionTitle
+				title="审计项目"
+				count={`通过 ${passCount} / ${audit.result.checks.length}`}
+				description="失败与警告项排在前面；参考项不影响得分。"
+			/>
 			<div className="audit-check-grid">
 				{sortedChecks.map((check) => (
 					<article className={`audit-check-card ${check.status}`} key={check.id}>

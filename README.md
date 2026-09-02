@@ -42,3 +42,11 @@ corepack pnpm license-check
 服务器 Docker、S3 兼容存储、HTTPS、备份与回滚见 [部署文档](docs/deployment.md)。`bash deploy/package.sh` 在 Windows/macOS/Linux 发布机本地生成目标 Linux 的服务端依赖/源码 artifact 和 Web dist，再封装 `.run`；服务器只用 `FROM` + `ADD/COPY` 重构应用镜像并重启，不运行 pnpm、apt、Playwright 下载或 Web build。系统边界见 [架构文档](docs/architecture.md)，五平台契约见 [适配器文档](docs/search-provider-adapters.md)，故障处理见 [运维文档](docs/operations.md)。
 
 本项目为专有闭源软件，未经书面授权不得使用、复制、修改或分发；具体条款见 [LICENSE](LICENSE.md)。第三方许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+## 本次能力更新（2026-09）
+
+- AI 工作台：输入“跑基线/跑快审/生成报告/生成优化文章”等自然语言指令，内置 Pi Agent 确认问题集后自动建批次、等待采集、核验、官网审计、规则诊断、报告叙述/质检/冻结/PDF 并生成优化文章；会话可挂起并自动续跑，自动批准可按会话开关。
+- 优化文章：按已批准报告的每条 GEO 建议生成 Markdown 草稿，可编辑、预览、改状态、填写发布地址、重新生成。
+- 报告引用可读化：证据统一编号 `[n]`，附平台、问题、采样、时间与引用网址，PDF/Word/CSV 同步。
+- 模型配置：平台设置里下拉选择 HRouter GPT 模型与内置 Agent 思考强度。
+- 工作台 UI 重做：侧栏分组、单一页面标题、统一间距/按钮/分页/表单原语。

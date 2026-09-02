@@ -1,0 +1,148 @@
+/* 优化文章：列表 + 编辑抽屉（侧栏来源建议 / 表单 / 预览） */
+.article-generate {
+	min-width: 200px;
+}
+
+.article-cell {
+	display: grid;
+	gap: 3px;
+	min-width: 0;
+}
+
+.article-cell small {
+	color: var(--ink-4);
+	font-size: 12px;
+}
+
+.article-title {
+	all: unset;
+	cursor: pointer;
+	font-weight: 600;
+	color: var(--ink);
+}
+
+.article-title:hover {
+	color: var(--brand-strong);
+}
+
+.article-summary {
+	color: var(--ink-3);
+	font-size: 12.5px;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.article-status.ant-tag {
+	margin: 0;
+	border-color: transparent;
+	background: var(--surface-2);
+	color: var(--ink-3);
+}
+
+.article-status.reviewing {
+	background: var(--warning-soft);
+	color: var(--warning-strong);
+}
+
+.article-status.published {
+	background: var(--brand-soft);
+	color: var(--brand-strong);
+}
+
+.article-actions {
+	display: inline-flex;
+	gap: 2px;
+}
+
+.article-drawer-actions {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+}
+
+.article-editor {
+	display: grid;
+	grid-template-columns: 240px minmax(0, 1fr);
+	gap: var(--space-6);
+}
+
+.article-editor-side {
+	display: grid;
+	gap: var(--space-2);
+	align-content: start;
+	font-size: 13px;
+}
+
+.article-editor-side h4 {
+	margin: var(--space-3) 0 0;
+	font-size: 12px;
+	color: var(--ink-4);
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+}
+
+.article-editor-side h4:first-child {
+	margin-top: 0;
+}
+
+.article-source-title {
+	margin: 0;
+	font-weight: 600;
+	line-height: 1.6;
+}
+
+.article-source-action {
+	margin: 0;
+	color: var(--ink-3);
+	line-height: 1.6;
+}
+
+.article-outline,
+.article-gaps {
+	margin: 0;
+	padding-left: 18px;
+	color: var(--ink-2);
+	line-height: 1.6;
+}
+
+.article-meta {
+	margin: 0;
+	color: var(--ink-3);
+}
+
+.article-form-grid {
+	display: grid;
+	grid-template-columns: minmax(0, 2fr) 140px minmax(0, 1.4fr);
+	gap: 0 var(--space-4);
+}
+
+.article-textarea {
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 13px;
+	line-height: 1.7;
+}
+
+.article-preview {
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	padding: var(--space-5) var(--space-6);
+	max-width: 820px;
+	line-height: 1.8;
+}
+
+.article-preview .formatted-answer h2 {
+	margin-top: var(--space-4);
+	font-size: 20px;
+}
+
+@media (max-width: 900px) {
+	.article-editor {
+		grid-template-columns: 1fr;
+	}
+
+	.article-form-grid {
+		grid-template-columns: 1fr;
+	}
+}

@@ -1,13 +1,25 @@
-import type { Database } from "@geo/core";
-import { readEncryptedCredential, writeEncryptedCredential } from "@geo/core";
+import type { AgentThinkingLevel, Database } from "@geo/core";
+import { agentThinkingLevels, readEncryptedCredential, writeEncryptedCredential } from "@geo/core";
 import { z } from "zod";
 import { parseJsonColumn } from "./utils";
 
 const DEFAULT_BASE_URL = "https://hrouter.net/v1";
+const DEFAULT_THINKING_LEVEL: AgentThinkingLevel = "low";
 
-export type HRouterConfig = { baseUrl: string; model: string | null; configured: boolean };
+export type HRouterConfig = {
+	baseUrl: string;
+	model: string | null;
+	thinkingLevel: AgentThinkingLevel;
+	configured: boolean;
+};
 
 const hrouterSettingsKey = (organizationId: string): string => `organization:${organizationId}:hrouter_config`;
+
+function normalizeThinkingLevel(value: unknown): AgentThinkingLevel {
+	return typeof value === "string" && (agentThinkingLevels as string[]).includes(value)
+		? (value as AgentThinkingLevel)
+		: DEFAULT_THINKING_LEVEL;
+}
 
 export async function getHRouterConfig(database: Database, organizationId = "default"): Promise<HRouterConfig> {
 	const row = (
@@ -20,6 +32,7 @@ export async function getHRouterConfig(database: Database, organizationId = "def
 	return {
 		baseUrl: typeof value.baseUrl === "string" ? value.baseUrl.replace(/\/$/, "") : DEFAULT_BASE_URL,
 		model: typeof value.model === "string" ? value.model : null,
+		thinkingLevel: normalizeThinkingLevel(value.thinkingLevel),
 		configured: Boolean(await readEncryptedCredential(database, "hrouter_api_key", organizationId)),
 	};
 }
@@ -60,6 +73,9 @@ const hrouterSettingsSchema = z.object({
 		.string()
 		.trim()
 		.regex(/^gpt(?:-|\.)/i, "报告与 Agent 模型必须是 GPT 系列"),
+	thinkingLevel: z
+		.enum(agentThinkingLevels as [AgentThinkingLevel, ...AgentThinkingLevel[]])
+		.default(DEFAULT_THINKING_LEVEL),
 	apiKey: z.string().trim().min(10).optional(),
 });
 
@@ -73,7 +89,11 @@ export async function saveHRouterConfig(database: Database, input: unknown, orga
 		 ON CONFLICT (key) DO UPDATE SET value=excluded.value,updated_at=now()`,
 		[
 			hrouterSettingsKey(organizationId),
-			JSON.stringify({ baseUrl: data.baseUrl.replace(/\/$/, ""), model: data.model }),
+			JSON.stringify({
+				baseUrl: data.baseUrl.replace(/\/$/, ""),
+				model: data.model,
+				thinkingLevel: data.thinkingLevel,
+			}),
 		],
 	);
 }

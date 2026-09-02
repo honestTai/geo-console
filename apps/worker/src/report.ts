@@ -74,6 +74,8 @@ export type ReportAnalysis = {
 		question: string;
 		platform: string;
 	}>;
+	/** 证据编号索引：把 UUID 映射为普通读者可理解的 [n] 平台·问题·采样·时间。 */
+	evidenceIndex: EvidenceIndexEntry[];
 	topicCoverage: Array<{
 		promptId: string;
 		question: string;
@@ -89,6 +91,110 @@ export type ReportAnalysis = {
 	websiteAudit: { id: string; result: WebsiteAuditResult } | null;
 };
 
+export type EvidenceIndexEntry = {
+	n: number;
+	id: string;
+	kind: "capture" | "snapshot" | "audit";
+	platform: string | null;
+	platformLabel: string | null;
+	question: string | null;
+	attempt: number | null;
+	status: string | null;
+	capturedAt: string | null;
+	sourceUrls: string[];
+	url: string | null;
+	title: string | null;
+};
+
+const platformLabels: Record<string, string> = {
+	deepseek_api: "DeepSeek 联网 API",
+	kimi_api: "Kimi 联网 API",
+	doubao_api: "豆包联网 API",
+	qwen_api: "通义千问联网 API",
+	yuanbao_api: "元宝+混元",
+	deepseek: "DeepSeek",
+	kimi: "Kimi",
+};
+
+export const evidencePlatformLabel = (platform: string | null | undefined): string | null =>
+	platform ? (platformLabels[platform] ?? platform) : null;
+
+/** 去掉来源 URL 上供应商附带的追踪片段（如 #ws_call_id=...），只保留可访问地址。 */
+export function stripTrackingFragment(url: string): string {
+	return url.replace(/#(?:ws_call_id|call_id|ref|utm_[a-z]+)=[^#]*$/i, "").replace(/#$/, "");
+}
+
+export function buildEvidenceIndex(
+	captures: QueryCapture[],
+	webEvidence: DiagnosisWebEvidence[] = [],
+	websiteAudit: { id: string; result: WebsiteAuditResult } | null = null,
+): EvidenceIndexEntry[] {
+	const entries: EvidenceIndexEntry[] = [];
+	const sorted = [...captures].sort((left, right) => left.capturedAt.localeCompare(right.capturedAt));
+	for (const capture of sorted)
+		entries.push({
+			n: entries.length + 1,
+			id: capture.captureId,
+			kind: "capture",
+			platform: capture.engine,
+			platformLabel: evidencePlatformLabel(capture.engine),
+			question: capture.prompt,
+			attempt: capture.attempt,
+			status: capture.status,
+			capturedAt: capture.capturedAt,
+			sourceUrls: [...new Set(capture.sources.map((source) => stripTrackingFragment(source.url)))].slice(0, 12),
+			url: null,
+			title: null,
+		});
+	for (const page of webEvidence)
+		entries.push({
+			n: entries.length + 1,
+			id: page.id,
+			kind: "snapshot",
+			platform: null,
+			platformLabel:
+				page.role === "customer" ? "客户官网快照" : page.role === "competitor" ? "竞品页面快照" : "引用页面快照",
+			question: null,
+			attempt: null,
+			status: null,
+			capturedAt: null,
+			sourceUrls: [],
+			url: page.url,
+			title: page.title,
+		});
+	if (websiteAudit)
+		entries.push({
+			n: entries.length + 1,
+			id: websiteAudit.id,
+			kind: "audit",
+			platform: null,
+			platformLabel: "官网 AI 可读性审计",
+			question: null,
+			attempt: null,
+			status: null,
+			capturedAt: (websiteAudit.result as { checkedAt?: string }).checkedAt ?? null,
+			sourceUrls: [],
+			url: null,
+			title: null,
+		});
+	return entries;
+}
+
+/** 模型在联网回答里夹带的英文推理草稿（"Let me search more"）不是面向用户的表述，不能当作品牌描述引用。 */
+export function isReasoningScratch(sentence: string): boolean {
+	const trimmed = sentence.trim();
+	if (!trimmed) return true;
+	const hasCjk = /[\u3400-\u9fff]/.test(trimmed);
+	const scratchPattern =
+		/^(?:i |i'|let me|let's|i'll|i will|i need|i found|i should|now i|okay|ok,|searching|search for|looking up|the user|based on my search)/i;
+	const scratchKeywords =
+		/(search more|verify the details|let me (?:also )?(?:check|search|do|verify)|do more searches|i found good info)/i;
+	if (scratchPattern.test(trimmed)) return true;
+	if (scratchKeywords.test(trimmed)) return true;
+	if (!hasCjk && /\b(let me|i'll|search)\b/i.test(trimmed)) return true;
+	return false;
+}
+
 const normalizeDomain = (value: string): string =>
 	value
 		.trim()
@@ -103,6 +209,7 @@ function bestPosition(captures: QueryCapture[], brandId: string): number | null 
 	return positions.length ? Math.min(...positions) : null;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Sentence filtering applies alias, scratch and length rules in one pass.
 function perceptionExcerpts(captures: QueryCapture[], aliases: string[]): ReportAnalysis["perceptionExcerpts"] {
 	const values: ReportAnalysis["perceptionExcerpts"] = [];
 	const seen = new Set<string>();
@@ -114,7 +221,9 @@ function perceptionExcerpts(captures: QueryCapture[], aliases: string[]): Report
 			.filter(Boolean);
 		for (const sentence of sentences) {
 			if (!aliases.some((alias) => sentence.toLowerCase().includes(alias.toLowerCase()))) continue;
-			const text = sentence.slice(0, 260);
+			if (isReasoningScratch(sentence)) continue;
+			const text = sentence.replace(/^[#*\-\d.\s]+/, "").slice(0, 260);
+			if (text.length < 8) continue;
 			if (seen.has(text)) continue;
 			seen.add(text);
 			values.push({ text, captureId: capture.captureId, question: capture.prompt, platform: capture.engine });
@@ -408,6 +517,7 @@ export function buildReportAnalysis(input: {
 		promptRows,
 		sourceDomains: buildSourceDomains(complete, input.config),
 		perceptionExcerpts: perceptionExcerpts(complete, input.config.project.aliases),
+		evidenceIndex: buildEvidenceIndex(input.captures, webEvidence, input.websiteAudit),
 		topicCoverage: buildTopicCoverage(input.config, webEvidence),
 		webEvidenceSummary: {
 			customerPages: webEvidence.filter((item) => item.role === "customer").length,

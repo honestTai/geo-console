@@ -10,7 +10,6 @@ import {
 	Button as AntdButton,
 	App,
 	Checkbox,
-	Collapse,
 	Form,
 	Popover,
 	Progress,
@@ -40,7 +39,7 @@ import {
 	providerShortLabel,
 	type TrendResponse,
 } from "../types";
-import { date, Empty, Pagination, percentage } from "../ui/primitives";
+import { batchStatusLabel, date, Empty, Pagination, percentage, SectionTitle, shortDate } from "../ui/primitives";
 import { BatchMetrics, TrendChart } from "./charts";
 import "./Monitoring.css";
 import { Page } from "./Page";
@@ -71,10 +70,28 @@ export function runActivityStatus(status: string, active: boolean, captured: num
 	return captured > 0 ? `采集中 · 已写入 ${captured} 条证据` : "任务已创建 · 等待 Capture Worker";
 }
 
+const captureStatusLabels: Record<string, string> = {
+	complete: "回答与原始响应已存证",
+	login_required: "需要登录",
+	captcha_required: "需要安全验证",
+	auth_required: "鉴权失败",
+	rate_limited: "触发限流",
+	timeout: "请求超时",
+	model_unavailable: "模型不可用",
+	protocol_changed: "协议已变化",
+	search_not_triggered: "未触发联网搜索",
+	failed: "采集失败",
+};
+
 export function captureLogMessage(capture: Capture): string {
-	if (capture.status === "complete") return "回答与原始响应已存证";
-	return `${capture.status}${capture.failureMessage ? ` · ${capture.failureMessage}` : ""}`;
+	if (capture.status === "complete") return captureStatusLabels.complete;
+	const label = captureStatusLabels[capture.status] ?? capture.status;
+	return capture.failureMessage && capture.failureMessage !== label ? `${label} · ${capture.failureMessage}` : label;
 }
+
+const costOperationLabels: Record<string, string> = {
+	hrouter_gpt: "GPT 分析",
+};
 
 export function RunCaptureLog({ captures, active }: { captures: Capture[]; active: boolean }) {
 	if (!captures.length)
@@ -356,14 +373,14 @@ export function Monitoring({ project, refresh }: { project: Project; refresh(): 
 			{error && <Alert className="monitor-error" type="error" showIcon message={error} />}
 			{pendingAlerts.length > 0 && (
 				<div className="monitor-alert-section">
-					<div className="section-head compact">
-						<div>
-							<h3>
+					<SectionTitle
+						title={
+							<>
 								<IconAlertTriangle size={16} /> 待处理漂移告警
-							</h3>
-						</div>
-						<span>{pendingAlerts.length} 条</span>
-					</div>
+							</>
+						}
+						count={pendingAlerts.length}
+					/>
 					<Table<DriftAlert>
 						rowKey="id"
 						size="small"
@@ -375,86 +392,96 @@ export function Monitoring({ project, refresh }: { project: Project; refresh(): 
 				</div>
 			)}
 			{costs.length > 0 && (
-				<div className="cost-strip">
-					{costs.map((group) => (
-						<div key={`${group.providerId}-${group.operation}`}>
-							<span>{providerLabel(group.providerId)}</span>
-							<b>
-								{group.requests} 次请求 · {group.totalTokens.toLocaleString("zh-CN")} Token
-							</b>
-							<small>
-								{group.costKnownRequests === group.requests
-									? `已知费用 $${(group.knownCostMicros / 1_000_000).toFixed(4)}`
-									: "供应商未返回完整费用"}
-							</small>
-						</div>
-					))}
-				</div>
+				<>
+					<SectionTitle title="调用成本" description="按平台与用途汇总的请求次数与 Token；供应商未返回费用时不估算。" />
+					<div className="cost-strip">
+						{costs.map((group) => (
+							<div key={`${group.providerId}-${group.operation}`}>
+								<span>
+									{costOperationLabels[group.providerId] ?? providerLabel(group.providerId)}
+									{group.operation && group.operation !== "capture"
+										? ` · ${group.operation.replace("agent:", "")}`
+										: ""}
+								</span>
+								<b>
+									{group.requests} 次请求 · {group.totalTokens.toLocaleString("zh-CN")} Token
+								</b>
+								<small>
+									{group.costKnownRequests === group.requests
+										? `已知费用 $${(group.knownCostMicros / 1_000_000).toFixed(4)}`
+										: "供应商未返回完整费用"}
+								</small>
+							</div>
+						))}
+					</div>
+				</>
 			)}
-			<Collapse
-				className="schedule-section"
-				defaultActiveKey={scheduleEnabled ? ["schedule"] : []}
-				items={[
-					{
-						key: "schedule",
-						label: (
-							<span className="schedule-summary">
-								<IconChartLine size={18} /> 周期监测 <Tag>{scheduleEnabled ? "已启用" : "未启用"}</Tag> · 下一次运行{" "}
-								{date(project.monitoringSchedule?.next_run_at)}
-							</span>
-						),
-						children: (
-							<>
-								<p className="schedule-hint">
-									<Switch
-										checked={scheduleEnabled}
-										checkedChildren="启用"
-										unCheckedChildren="停用"
-										onChange={setScheduleEnabled}
-									/>
-									云端 Worker 到期后冻结范围和平台配置，按时间窗口调用已启用 API。
-								</p>
-								<Form layout="inline" className="schedule-form">
-									<Form.Item label="运行周期">
-										<Select
-											style={{ width: 110 }}
-											value={frequencyDays}
-											onChange={setFrequencyDays}
-											options={[
-												{ value: 1, label: "每天" },
-												{ value: 7, label: "每周" },
-												{ value: 14, label: "每两周" },
-												{ value: 30, label: "每月" },
-											]}
-										/>
-									</Form.Item>
-									<Form.Item label="重复次数">
-										<Select
-											style={{ width: 100 }}
-											value={scheduleRepeats}
-											onChange={setScheduleRepeats}
-											options={[1, 2, 3, 5].map((value) => ({ value, label: `${value} 次` }))}
-										/>
-									</Form.Item>
-									<Form.Item label="监测平台">
-										<PlatformCheckboxes value={schedulePlatforms} onChange={setSchedulePlatforms} />
-									</Form.Item>
-									<Form.Item>
-										<Button
-											permission="monitor.schedule"
-											variant="secondary"
-											busy={busy}
-											disabled={!schedulePlatforms.length}
-											onClick={saveSchedule}
-										>
-											保存计划
-										</Button>
-									</Form.Item>
-								</Form>
-							</>
-						),
-					},
-				]}
+			<SectionTitle
+				title={
+					<>
+						<IconChartLine size={16} /> 周期监测
+					</>
+				}
+				description="云端 Worker 到期后冻结范围和平台配置，按时间窗口调用已启用 API。"
+				extra={
+					<span className="schedule-summary">
+						<Tag>{scheduleEnabled ? "已启用" : "未启用"}</Tag>
+						下一次运行 {date(project.monitoringSchedule?.next_run_at)}
+					</span>
+				}
+			/>
+			<div className="schedule-section">
+				<p className="schedule-hint">
+					<Switch
+						checked={scheduleEnabled}
+						checkedChildren="启用"
+						unCheckedChildren="停用"
+						onChange={setScheduleEnabled}
+					/>
+					{scheduleEnabled ? "已启用自动监测" : "启用后按周期自动创建复测批次"}
+				</p>
+				<Form layout="inline" className="schedule-form">
+					<Form.Item label="运行周期">
+						<Select
+							className="schedule-select"
+							value={frequencyDays}
+							onChange={setFrequencyDays}
+							options={[
+								{ value: 1, label: "每天" },
+								{ value: 7, label: "每周" },
+								{ value: 14, label: "每两周" },
+								{ value: 30, label: "每月" },
+							]}
+						/>
+					</Form.Item>
+					<Form.Item label="重复次数">
+						<Select
+							className="schedule-select"
+							value={scheduleRepeats}
+							onChange={setScheduleRepeats}
+							options={[1, 2, 3, 5].map((value) => ({ value, label: `${value} 次` }))}
+						/>
+					</Form.Item>
+					<Form.Item label="监测平台">
+						<PlatformCheckboxes value={schedulePlatforms} onChange={setSchedulePlatforms} />
+					</Form.Item>
+					<Form.Item>
+						<Button
+							permission="monitor.schedule"
+							variant="secondary"
+							busy={busy}
+							disabled={!schedulePlatforms.length}
+							onClick={saveSchedule}
+						>
+							保存计划
+						</Button>
+					</Form.Item>
+				</Form>
+			</div>
+			<SectionTitle
+				title="批次记录"
+				count={project.batches.length || undefined}
+				description="选择批次查看指标与趋势；复测只能以正式基线为锚点。"
 			/>
 			{project.batches.length === 0 ? (
 				<Empty title="还没有采集批次" detail="先在平台设置中配置并启用至少一个联网 API，再运行售前快审或正式基线。" />
@@ -473,8 +500,8 @@ export function Monitoring({ project, refresh }: { project: Project; refresh(): 
 								}}
 							>
 								<span>{batchKindLabel(item.kind)}</span>
-								<strong>{date(item.created_at)}</strong>
-								<small className={`status ${item.status}`}>{item.status}</small>
+								<strong>{shortDate(item.created_at)}</strong>
+								<small className={`status ${item.status}`}>{batchStatusLabel(item.status)}</small>
 							</button>
 						))}
 					</div>

@@ -59,8 +59,14 @@ export function Onboarding({ project, refresh }: { project: Project; refresh(): 
 	}
 	if (project.status === "draft" && !manualReview)
 		return (
-			<section className="onboarding">
-				<Steps size="small" current={0} items={STEPS} />
+			<Page
+				className="onboarding"
+				breadcrumb={project.name}
+				eyebrow="客户建档"
+				title="读取客户的真实官网"
+				description="建档分三步：抓取官网 → 人工确认监测范围 → 建立基线。"
+			>
+				<Steps size="small" current={0} items={STEPS} className="onboarding-steps" />
 				<div className="action-panel">
 					<IconWorldSearch size={34} />
 					<h2>读取客户的真实官网</h2>
@@ -83,26 +89,26 @@ export function Onboarding({ project, refresh }: { project: Project; refresh(): 
 						</Button>
 					</div>
 				</div>
-			</section>
+			</Page>
 		);
 	return (
-		<section className="onboarding">
-			<Steps size="small" current={1} items={STEPS} />
-			<Page
-				breadcrumb={project.name}
-				eyebrow="客户建档"
-				title="审核监测范围"
-				description={
-					manualReview
-						? "直接填写真实品牌别名、竞品和购买问题。确认前不会创建采集任务。"
-						: "删除不真实的竞品，修改问题后再确认。确认前不会创建采集任务。"
-				}
-				extra={
-					<Button permission="project.onboard" busy={busy} icon={<IconCheck size={17} />} onClick={confirm}>
-						确认并启用项目
-					</Button>
-				}
-			/>
+		<Page
+			className="onboarding"
+			breadcrumb={project.name}
+			eyebrow="客户建档"
+			title="审核监测范围"
+			description={
+				manualReview
+					? "直接填写真实品牌别名、竞品和购买问题。确认前不会创建采集任务。"
+					: "删除不真实的竞品，修改问题后再确认。确认前不会创建采集任务。"
+			}
+			extra={
+				<Button permission="project.onboard" busy={busy} icon={<IconCheck size={17} />} onClick={confirm}>
+					确认并启用项目
+				</Button>
+			}
+		>
+			<Steps size="small" current={1} items={STEPS} className="onboarding-steps" />
 			{error && <Alert type="error" showIcon message={error} />}
 			<EditableList joined title="品牌别名" items={aliases} onChange={setAliases} placeholder="多个别名用逗号分隔" />
 			<EditableList
@@ -121,6 +127,6 @@ export function Onboarding({ project, refresh }: { project: Project; refresh(): 
 				makeNew={() => ({ question: "", intent: "购买决策", topic: "", persona: "", tags: [] })}
 				indexed
 			/>
-		</section>
+		</Page>
 	);
 }

@@ -1,11 +1,12 @@
 import { IconRoute, IconUpload } from "@tabler/icons-react";
 import type { TableProps } from "antd";
-import { Alert, Button as AntdButton, App, Card, Select, Spin, Statistic, Table, Typography, Upload } from "antd";
+import { Alert, Button as AntdButton, App, Select, Spin, Table, Upload } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../access";
 import { api, post } from "../api";
 import { type AttributionPayload, metricLabels, type Project, sourceLabels } from "../types";
-import { date, Empty, Pagination } from "../ui/primitives";
+import { date, Empty, KpiCard, KpiGrid, Pagination, SectionTitle } from "../ui/primitives";
+import "./Attribution.css";
 import { Page } from "./Page";
 
 type AttributionEvent = AttributionPayload["events"][number];
@@ -96,18 +97,22 @@ export function Attribution({ project }: { project: Project }) {
 			description="导入 GA4、Search Console、表单、电话和业务台账；系统防重复计数，但不自动声称因果。"
 		>
 			{error && <Alert type="error" showIcon message={error} />}
+			<SectionTitle
+				title={
+					<>
+						<IconRoute size={16} />
+						导入真实 CSV
+					</>
+				}
+				description="支持 GA4/GSC 常见宽表，或 observed_at、metric、value、landing_url 标准列；相同文件不会重复计数。"
+			/>
 			<div className="import-band">
-				<div>
-					<IconRoute size={25} />
-					<h3>导入真实 CSV</h3>
-					<p>支持 GA4/GSC 常见宽表，或 observed_at、metric、value、landing_url 标准列；相同文件不会重复计数。</p>
-				</div>
 				<div className="import-controls">
 					{/* biome-ignore lint/a11y/noLabelWithoutControl: antd Select 不渲染原生 input，用包围标签承载标题 */}
 					<label>
 						数据来源
 						<Select
-							style={{ width: "100%" }}
+							className="import-source"
 							value={sourceType}
 							options={Object.entries(sourceLabels).map(([value, label]) => ({ value, label }))}
 							onChange={setSourceType}
@@ -147,27 +152,25 @@ export function Attribution({ project }: { project: Project }) {
 				/>
 			) : (
 				<>
-					<div className="attribution-kpis">
+					<SectionTitle title="业务指标汇总" />
+					<KpiGrid columns={Math.min(4, Math.max(2, data.summary.length))}>
 						{data.summary.map((item) => (
-							<Card size="small" key={`${item.source_type}-${item.metric}`}>
-								<Statistic
-									title={`${sourceLabels[item.source_type] ?? item.source_type} · ${metricLabels[item.metric] ?? item.metric}`}
-									value={item.value}
-								/>
-								<Typography.Text type="secondary" style={{ fontSize: 12 }}>
-									{item.observations} 条观察 · 至 {date(item.last_observed_at)}
-								</Typography.Text>
-							</Card>
+							<KpiCard
+								key={`${item.source_type}-${item.metric}`}
+								label={`${sourceLabels[item.source_type] ?? item.source_type} · ${metricLabels[item.metric] ?? item.metric}`}
+								value={item.value.toLocaleString("zh-CN")}
+								hint={`${item.observations} 条观察 · 至 ${date(item.last_observed_at)}`}
+							/>
 						))}
-					</div>
+					</KpiGrid>
 					<div className="attribution-columns">
 						<div>
-							<h3>最近业务观察</h3>
-							<Table size="small" rowKey="id" pagination={false} dataSource={data.events} columns={EVENT_COLUMNS} />
+							<SectionTitle title="最近业务观察" />
+							<Table size="middle" rowKey="id" pagination={false} dataSource={data.events} columns={EVENT_COLUMNS} />
 						</div>
 						<aside>
-							<h3>导入记录</h3>
-							<Table size="small" rowKey="id" pagination={false} dataSource={data.imports} columns={IMPORT_COLUMNS} />
+							<SectionTitle title="导入记录" />
+							<Table size="middle" rowKey="id" pagination={false} dataSource={data.imports} columns={IMPORT_COLUMNS} />
 						</aside>
 					</div>
 					<Pagination

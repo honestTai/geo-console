@@ -1,7 +1,11 @@
 /* 项目首页：antd Card 网格 + 新建占位卡 + 建档弹窗表单 */
 .project-home-search {
 	max-width: 340px;
-	margin-top: 18px;
+}
+
+.project-home-count {
+	font-size: 13px;
+	color: var(--ink-3);
 }
 
 .project-home-card {

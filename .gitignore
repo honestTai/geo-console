@@ -17,3 +17,6 @@ output/
 .tmp-webbridge/
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
+
+# Claude Code local settings
+.claude/settings.local.json

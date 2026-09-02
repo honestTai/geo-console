@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { applicationPermissions, type Database, legacyRolePermissionPresets } from "@geo/core";
+import { applicationPermissions, type Database, legacyRolePermissionPresets, permissionParentKey } from "@geo/core";
 import { z } from "zod";
 import { type Paginated, type PaginationInput, paginated } from "./pagination";
 
@@ -130,7 +130,10 @@ export async function getRbacCatalog(database: Database, organizationId: string)
 			[organizationId],
 		),
 	]);
-	return { permissions: catalog.rows, organizationPermissionKeys: grants.rows.map((row) => row.permission_key) };
+	return {
+		permissions: catalog.rows.map((row) => ({ ...row, parent_key: permissionParentKey(String(row.key)) })),
+		organizationPermissionKeys: grants.rows.map((row) => row.permission_key),
+	};
 }
 
 export async function listRoles(

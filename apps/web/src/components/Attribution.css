@@ -1,0 +1,40 @@
+/* 业务归因：导入表单 + KPI + 双栏表格 */
+.import-band {
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	padding: var(--space-4) var(--space-5);
+	margin-bottom: var(--space-4);
+}
+
+.import-controls {
+	display: grid;
+	grid-template-columns: 200px auto auto;
+	gap: var(--space-4);
+	align-items: end;
+}
+
+.import-controls label {
+	display: grid;
+	gap: 4px;
+	font-size: 12.5px;
+	color: var(--ink-3);
+}
+
+.import-source {
+	width: 100%;
+}
+
+.attribution-columns {
+	display: grid;
+	grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+	gap: var(--space-5);
+	align-items: start;
+}
+
+@media (max-width: 900px) {
+	.import-controls,
+	.attribution-columns {
+		grid-template-columns: 1fr;
+	}
+}

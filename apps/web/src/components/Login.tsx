@@ -61,7 +61,7 @@ export function Login({ error, onLogin }: { error: string | null; onLogin(user: 
 					<Input autoComplete="organization" />
 				</Form.Item>
 				{message && <Alert type="error" message={message} showIcon />}
-				<Button type="submit" busy={busy}>
+				<Button htmlType="submit" busy={busy} block>
 					登录
 				</Button>
 			</Form>

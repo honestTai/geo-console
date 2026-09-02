@@ -1,5 +1,13 @@
 export const applicationPermissions = [
 	{
+		key: "page.workbench",
+		kind: "page",
+		group: "客户工作台",
+		label: "AI 工作台",
+		navigationKey: "workbench",
+		iconKey: "sparkles",
+	},
+	{
 		key: "page.overview",
 		kind: "page",
 		group: "客户工作台",
@@ -62,6 +70,14 @@ export const applicationPermissions = [
 		label: "复测报告",
 		navigationKey: "report",
 		iconKey: "report",
+	},
+	{
+		key: "page.articles",
+		kind: "page",
+		group: "客户工作台",
+		label: "优化文章",
+		navigationKey: "articles",
+		iconKey: "article",
 	},
 	{
 		key: "page.knowledge",
@@ -131,7 +147,9 @@ export const applicationPermissions = [
 	{ key: "diagnosis.run", kind: "action", group: "分析", label: "生成规则诊断" },
 	{ key: "agent.run", kind: "action", group: "Agent", label: "运行 Agent 草稿" },
 	{ key: "agent.approve", kind: "action", group: "Agent", label: "批准或拒绝 Agent 草稿" },
+	{ key: "workbench.run", kind: "action", group: "Agent", label: "使用 AI 工作台运行全流程" },
 	{ key: "remediation.manage", kind: "action", group: "整改", label: "管理整改任务与验收" },
+	{ key: "articles.manage", kind: "action", group: "整改", label: "生成与编辑优化文章" },
 	{ key: "attribution.import", kind: "action", group: "归因", label: "导入业务归因数据" },
 	{ key: "report.generate", kind: "action", group: "报告", label: "生成报告与文档" },
 	{ key: "report.share", kind: "action", group: "报告", label: "创建和撤销报告分享" },
@@ -189,3 +207,30 @@ export const legacyRolePermissionPresets = {
 			!applicationPermissions.find((item) => item.key === permission && "systemOnly" in item),
 	),
 } satisfies Record<"admin" | "analyst" | "viewer", ApplicationPermission[]>;
+
+/** 功能权限归属的菜单页面：权限配置以“菜单 → 按钮”树展示，勾选按钮时自动带上所属菜单。 */
+export const actionParentPages: Record<string, string> = {
+	"project.create": "page.overview",
+	"project.onboard": "page.overview",
+	"workbench.run": "page.workbench",
+	"monitor.run": "page.monitor",
+	"monitor.schedule": "page.monitor",
+	"audit.run": "page.audit",
+	"diagnosis.run": "page.diagnosis",
+	"agent.run": "page.diagnosis",
+	"agent.approve": "page.report",
+	"remediation.manage": "page.remediation",
+	"articles.manage": "page.articles",
+	"attribution.import": "page.attribution",
+	"report.generate": "page.report",
+	"report.share": "page.report",
+	"knowledge.manage": "page.knowledge",
+	"settings.manage": "page.settings",
+	"members.manage": "page.members",
+	"logs.export": "page.service_logs",
+	"logs.retention": "page.service_logs",
+	"rbac.manage": "page.rbac",
+	"organization.manage": "page.organizations",
+};
+
+export const permissionParentKey = (key: string): string | null => actionParentPages[key] ?? null;

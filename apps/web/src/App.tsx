@@ -1,5 +1,6 @@
 import {
 	IconActivity,
+	IconArticle,
 	IconBook2,
 	IconBuilding,
 	IconBuildingCommunity,
@@ -13,11 +14,13 @@ import {
 	IconSearch,
 	IconSettings,
 	IconShieldCheck,
+	IconSparkles,
 	IconUsers,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AccessContext, hasPermission } from "./access";
 import { ApiError, api, post } from "./api";
+import { Articles } from "./components/Articles";
 import { Attribution } from "./components/Attribution";
 import { AuditLogs } from "./components/AuditLogs";
 import { Diagnosis } from "./components/Diagnosis";
@@ -38,6 +41,7 @@ import { ServiceLogs } from "./components/ServiceLogs";
 import { Settings } from "./components/Settings";
 import { AppShell, type ShellNavigationItem } from "./components/Shell";
 import { WebsiteAudit } from "./components/WebsiteAudit";
+import { Workbench } from "./components/Workbench";
 import {
 	managementViews,
 	type NavigationItem,
@@ -47,8 +51,10 @@ import {
 	type UserIdentity,
 	type View,
 } from "./types";
+import { type EvidenceFocus, NavigationContext, type WorkspaceNavigation } from "./ui/navigation";
 
 const views: Array<{ id: View; label: string; icon: typeof IconActivity }> = [
+	{ id: "workbench", label: "AI 工作台", icon: IconSparkles },
 	{ id: "overview", label: "项目总览", icon: IconBuilding },
 	{ id: "monitor", label: "AI监测", icon: IconActivity },
 	{ id: "evidence", label: "证据中心", icon: IconDatabase },
@@ -57,6 +63,7 @@ const views: Array<{ id: View; label: string; icon: typeof IconActivity }> = [
 	{ id: "remediation", label: "整改中心", icon: IconClipboardCheck },
 	{ id: "attribution", label: "业务归因", icon: IconRoute },
 	{ id: "report", label: "复测报告", icon: IconReportAnalytics },
+	{ id: "articles", label: "优化文章", icon: IconArticle },
 	{ id: "knowledge", label: "问题知识库", icon: IconBook2 },
 	{ id: "settings", label: "平台设置", icon: IconSettings },
 	{ id: "members", label: "机构成员", icon: IconUsers },
@@ -67,6 +74,8 @@ const views: Array<{ id: View; label: string; icon: typeof IconActivity }> = [
 ];
 const navigationIcons: Record<string, typeof IconActivity> = {
 	activity: IconActivity,
+	article: IconArticle,
+	sparkles: IconSparkles,
 	book: IconBook2,
 	building: IconBuilding,
 	checklist: IconClipboardCheck,
@@ -82,6 +91,7 @@ const navigationIcons: Record<string, typeof IconActivity> = {
 	users: IconUsers,
 };
 const projectPagePermissions = [
+	"page.workbench",
 	"page.overview",
 	"page.monitor",
 	"page.evidence",
@@ -90,6 +100,7 @@ const projectPagePermissions = [
 	"page.remediation",
 	"page.attribution",
 	"page.report",
+	"page.articles",
 ];
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Top-level application state keeps authentication and project navigation transitions atomic.
@@ -112,16 +123,38 @@ export function App() {
 	const [creating, setCreating] = useState(false);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const [evidenceFocus, setEvidenceFocus] = useState<EvidenceFocus>(null);
+	const [workbenchDraft, setWorkbenchDraft] = useState<string | null>(null);
+	const workspaceNavigation = useMemo<WorkspaceNavigation>(
+		() => ({
+			openView: setView,
+			openEvidence: (captureId, batchId = null) => {
+				setEvidenceFocus({ captureId, batchId });
+				setView("evidence");
+			},
+			openWorkbench: (message) => {
+				setWorkbenchDraft(message ?? null);
+				setView("workbench");
+			},
+		}),
+		[],
+	);
 	const availableViews = useMemo(
 		() =>
 			navigation
 				.map((item) => {
 					const registered = views.find((viewItem) => viewItem.id === item.navigation_key);
-					return registered
-						? { ...registered, label: item.label, icon: navigationIcons[item.icon_key] ?? registered.icon }
+					const entry: ShellNavigationItem | null = registered
+						? {
+								...registered,
+								label: item.label,
+								icon: navigationIcons[item.icon_key] ?? registered.icon,
+								group: item.group_label,
+							}
 						: null;
+					return entry;
 				})
-				.filter((item): item is ShellNavigationItem => Boolean(item)),
+				.filter((item): item is ShellNavigationItem => item !== null),
 		[navigation],
 	);
 
@@ -281,54 +314,67 @@ export function App() {
 
 	return (
 		<AccessContext.Provider value={user}>
-			<AppShell
-				project={project}
-				view={view}
-				navigation={availableViews}
-				error={error}
-				account={<AccountControl user={user} onLogout={logoutUser} />}
-				onSwitchProject={() => {
-					setProjectId(null);
-					setProject(null);
-				}}
-				onSelectView={setView}
-			>
-				{!project ? (
-					<div className="center">
-						<IconLoader2 className="spin" />
-					</div>
-				) : project.status !== "active" && !managementViews.includes(view) ? (
-					<Onboarding
-						project={project}
-						refresh={async () => {
-							await loadProject();
-							await loadProjects();
-						}}
-					/>
-				) : (
-					<>
-						{view === "overview" && <Overview project={project} refresh={loadProject} />}
-						{view === "monitor" && <Monitoring project={project} refresh={loadProject} />}
-						{view === "evidence" && <Evidence project={project} />}
-						{view === "audit" && <WebsiteAudit project={project} refresh={loadProject} />}
-						{view === "diagnosis" && <Diagnosis project={project} refresh={loadProject} />}
-						{view === "remediation" && <Remediation project={project} refresh={loadProject} />}
-						{view === "attribution" && <Attribution project={project} />}
-						{view === "report" && <Report project={project} />}
-						{view === "knowledge" && (
-							<KnowledgeBase project={project} canWrite={hasPermission(user, "knowledge.manage")} />
-						)}
-						{view === "settings" && <Settings />}
-						{view === "members" && <Members localBypass={user.localBypass} />}
-						{view === "auditLogs" && <AuditLogs />}
-						{view === "serviceLogs" && <ServiceLogs />}
-						{view === "rbac" && <RbacManagement user={user} />}
-						{view === "organizations" && user.isSuperAdmin && (
-							<OrganizationManagement user={user} onIdentityChange={applyIdentity} />
-						)}
-					</>
-				)}
-			</AppShell>
+			<NavigationContext.Provider value={workspaceNavigation}>
+				<AppShell
+					project={project}
+					view={view}
+					navigation={availableViews}
+					error={error}
+					account={<AccountControl user={user} onLogout={logoutUser} />}
+					onSwitchProject={() => {
+						setProjectId(null);
+						setProject(null);
+					}}
+					onSelectView={setView}
+				>
+					{!project ? (
+						<div className="center">
+							<IconLoader2 className="spin" />
+						</div>
+					) : project.status !== "active" && !managementViews.includes(view) ? (
+						<Onboarding
+							project={project}
+							refresh={async () => {
+								await loadProject();
+								await loadProjects();
+							}}
+						/>
+					) : (
+						<>
+							{view === "workbench" && (
+								<Workbench
+									project={project}
+									initialMessage={workbenchDraft}
+									onConsumeInitial={() => setWorkbenchDraft(null)}
+									refresh={loadProject}
+								/>
+							)}
+							{view === "overview" && <Overview project={project} refresh={loadProject} />}
+							{view === "monitor" && <Monitoring project={project} refresh={loadProject} />}
+							{view === "evidence" && (
+								<Evidence project={project} focus={evidenceFocus} onConsumeFocus={() => setEvidenceFocus(null)} />
+							)}
+							{view === "audit" && <WebsiteAudit project={project} refresh={loadProject} />}
+							{view === "diagnosis" && <Diagnosis project={project} refresh={loadProject} />}
+							{view === "remediation" && <Remediation project={project} refresh={loadProject} />}
+							{view === "attribution" && <Attribution project={project} />}
+							{view === "report" && <Report project={project} />}
+							{view === "articles" && <Articles project={project} />}
+							{view === "knowledge" && (
+								<KnowledgeBase project={project} canWrite={hasPermission(user, "knowledge.manage")} />
+							)}
+							{view === "settings" && <Settings />}
+							{view === "members" && <Members localBypass={user.localBypass} />}
+							{view === "auditLogs" && <AuditLogs />}
+							{view === "serviceLogs" && <ServiceLogs />}
+							{view === "rbac" && <RbacManagement user={user} />}
+							{view === "organizations" && user.isSuperAdmin && (
+								<OrganizationManagement user={user} onIdentityChange={applyIdentity} />
+							)}
+						</>
+					)}
+				</AppShell>
+			</NavigationContext.Provider>
 		</AccessContext.Provider>
 	);
 }

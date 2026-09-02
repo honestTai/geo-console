@@ -1,15 +1,130 @@
-/* 报告工作台：Page 页头在有边框的 workspace 卡片内需要内边距 */
+/* 报告工作台：工作流状态条 + 管理层摘要 + Agent 任务 + 交付资产 + 正文 */
+.report-workflow {
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	padding: var(--space-4) var(--space-5);
+	margin-bottom: var(--space-6);
+}
 
-.report-workspace > .page {
-	padding: 18px 18px 0;
+.report-executive-overview {
+	margin-bottom: var(--space-6);
+}
+
+.executive-summary {
+	display: flex;
+	justify-content: space-between;
+	gap: var(--space-5);
+	align-items: flex-start;
+}
+
+.executive-summary h2 {
+	margin: 0 0 var(--space-2);
+	font-size: 20px;
+	font-weight: 700;
+	line-height: 1.4;
+}
+
+.executive-summary p {
+	margin: 0;
+	color: var(--ink-2);
+	line-height: 1.7;
+	max-width: 900px;
+}
+
+.agent-activity,
+.approved-agent-report,
+.report-assets {
+	margin-bottom: var(--space-6);
+}
+
+.agent-activity-empty {
+	color: var(--ink-4);
+	font-size: 13px;
+	margin: 0;
+}
+
+.snapshot-meta {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	flex-wrap: wrap;
+}
+
+.reputation-signal {
+	display: grid;
+	gap: 4px;
+	padding: var(--space-3) 0;
+	border-top: 1px solid var(--line);
+}
+
+.reputation-signal p {
+	margin: 0;
+	line-height: 1.6;
+}
+
+.reputation-signal small {
+	color: var(--ink-3);
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px 8px;
+}
+
+.reputation-signal small a {
+	color: var(--brand-strong);
+	word-break: break-all;
+}
+
+.reputation-polarity.ant-tag {
+	justify-self: start;
+	margin: 0;
+	border-color: transparent;
+	background: var(--surface-2);
+	color: var(--ink-3);
+}
+
+.reputation-polarity.negative {
+	background: var(--danger-soft);
+	color: var(--danger-strong);
+}
+
+.recommendation-list {
+	margin: 0;
+	padding-left: 20px;
+	display: grid;
+	gap: var(--space-3);
+}
+
+.recommendation-list li b {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	font-weight: 650;
+}
+
+.recommendation-list li p {
+	margin: 4px 0;
+	line-height: 1.6;
+}
+
+.recommendation-list li small {
+	display: block;
+	color: var(--ink-3);
+	margin-bottom: 4px;
+}
+
+.report-finding-meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
 }
 
 /* 报告正文：左栏正文 + 右栏目录锚点（Anchor 默认 affix，随窗口吸附） */
-
 .report-doc-layout {
 	display: flex;
 	align-items: flex-start;
-	gap: 28px;
+	gap: var(--space-7);
 }
 
 .report-doc-main {
@@ -18,13 +133,17 @@
 }
 
 .report-doc-anchor {
-	flex: 0 0 160px;
-	width: 160px;
-	padding-top: 30px;
+	flex: 0 0 180px;
+	width: 180px;
+	padding-top: var(--space-5);
 }
 
 @media (max-width: 900px) {
 	.report-doc-anchor {
 		display: none;
+	}
+
+	.executive-summary {
+		flex-direction: column;
 	}
 }

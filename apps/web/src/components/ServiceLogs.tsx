@@ -20,7 +20,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button, usePermission } from "../access";
 import { api, post } from "../api";
 import type { ServiceLogFilters, ServiceLogLevel, ServiceLogResponse, ServiceLogRow } from "../types";
-import { date, Empty } from "../ui/primitives";
+import { date, Empty, FilterBar, IdChip, SectionTitle } from "../ui/primitives";
 import { Page } from "./Page";
 import "./ServiceLogs.css";
 
@@ -116,10 +116,10 @@ const logColumns: NonNullable<TableProps<ServiceLogRow>["columns"]> = [
 		key: "relation",
 		width: 200,
 		render: (_, log) => (
-			<Space direction="vertical" size={0}>
-				{log.trace_id && <code title="Trace ID">{log.trace_id}</code>}
-				{log.project_id && <small>项目 {log.project_id}</small>}
-				{log.organization_id === null && <small>系统日志</small>}
+			<Space direction="vertical" size={2}>
+				{log.trace_id && <IdChip value={log.trace_id} label="Trace" />}
+				{log.project_id && <IdChip value={log.project_id} label="项目" />}
+				{log.organization_id === null && <small className="muted">系统日志</small>}
 			</Space>
 		),
 	},
@@ -228,10 +228,9 @@ export function ServiceLogs() {
 						<span className="muted">自动刷新</span>
 					</Space>
 					{canExport && (
-						<a className="button secondary" href={`/api/service-logs/export.csv?${exportParams}`}>
-							<IconDownload size={16} />
-							CSV
-						</a>
+						<AntdButton icon={<IconDownload size={16} />} href={`/api/service-logs/export.csv?${exportParams}`}>
+							导出 CSV
+						</AntdButton>
 					)}
 					<Button
 						variant="secondary"
@@ -259,26 +258,26 @@ export function ServiceLogs() {
 							setFilters(next);
 						}}
 					>
-						<Tag style={{ marginInlineEnd: 4 }}>{level.toUpperCase()}</Tag>
+						<Tag className="service-log-level-tag">{level.toUpperCase()}</Tag>
 						{counts[level].toLocaleString("zh-CN")}
 					</AntdButton>
 				))}
 			</Space>
-			<Space wrap size={8} className="service-log-filters">
+			<FilterBar className="service-log-filters">
 				<Select
-					style={{ minWidth: 160 }}
+					className="service-log-select"
 					value={draftFilters.service}
 					onChange={(value) => setDraftFilters({ ...draftFilters, service: value })}
 					options={[{ value: "", label: "全部服务" }, ...SERVICE_OPTIONS]}
 				/>
 				<Select
-					style={{ minWidth: 120 }}
+					className="service-log-select narrow"
 					value={draftFilters.level}
 					onChange={(value) => setDraftFilters({ ...draftFilters, level: value })}
 					options={[{ value: "", label: "全部级别" }, ...LEVEL_OPTIONS]}
 				/>
 				<RangePicker
-					style={{ minWidth: 240 }}
+					className="service-log-range"
 					value={rangeValue}
 					onChange={(values) =>
 						setDraftFilters({
@@ -290,7 +289,6 @@ export function ServiceLogs() {
 				/>
 				<Input
 					allowClear
-					style={{ width: 240 }}
 					placeholder="消息、事件、Trace ID 或项目 ID"
 					value={draftFilters.search}
 					onChange={(event) => setDraftFilters({ ...draftFilters, search: event.target.value })}
@@ -305,7 +303,7 @@ export function ServiceLogs() {
 				>
 					重置
 				</Button>
-			</Space>
+			</FilterBar>
 			{error && <Alert type="error" showIcon message={error} />}
 			<Table<ServiceLogRow>
 				rowKey="id"
@@ -331,40 +329,29 @@ export function ServiceLogs() {
 				)}
 			/>
 			{canRetention && (
-				<Collapse
-					className="service-log-retention"
-					items={[
-						{
-							key: "retention",
-							label: "日志保留操作（仅清理当前机构的运行日志，业务审计和证据不受影响）",
-							children: (
-								<Space wrap size={12}>
-									<Select
-										style={{ minWidth: 120 }}
-										value={retentionDays}
-										onChange={setRetentionDays}
-										options={RETENTION_OPTIONS}
-									/>
-									<Checkbox
-										checked={retentionConfirmed}
-										onChange={(event) => setRetentionConfirmed(event.target.checked)}
-									>
-										确认清理
-									</Checkbox>
-									<Button
-										variant="danger"
-										icon={<IconTrash size={16} />}
-										busy={retentionBusy}
-										disabled={!retentionConfirmed}
-										onClick={() => void prune()}
-									>
-										清理过期日志
-									</Button>
-								</Space>
-							),
-						},
-					]}
-				/>
+				<div className="service-log-retention">
+					<SectionTitle title="日志保留" description="仅清理当前机构的运行日志，业务审计和证据不受影响。" />
+					<Space wrap size={12}>
+						<Select
+							className="service-log-select narrow"
+							value={retentionDays}
+							onChange={setRetentionDays}
+							options={RETENTION_OPTIONS}
+						/>
+						<Checkbox checked={retentionConfirmed} onChange={(event) => setRetentionConfirmed(event.target.checked)}>
+							确认清理
+						</Checkbox>
+						<Button
+							variant="danger"
+							icon={<IconTrash size={16} />}
+							busy={retentionBusy}
+							disabled={!retentionConfirmed}
+							onClick={() => void prune()}
+						>
+							清理过期日志
+						</Button>
+					</Space>
+				</div>
 			)}
 		</Page>
 	);

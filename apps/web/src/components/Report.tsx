@@ -28,6 +28,7 @@ import {
 	type AgentRun,
 	type Batch,
 	batchKindLabel,
+	type EvidenceIndexEntry,
 	metricLabels,
 	type Paginated,
 	type Project,
@@ -40,7 +41,20 @@ import {
 	type ReportWorkflowState,
 	sourceLabels,
 } from "../types";
-import { BatchPicker, date, downloadText, Empty, Notice, Pagination, percentage } from "../ui/primitives";
+import { useWorkspaceNavigation } from "../ui/navigation";
+import {
+	BatchPicker,
+	batchStatusLabel,
+	date,
+	downloadText,
+	Empty,
+	EvidenceRef,
+	IdChip,
+	Notice,
+	Pagination,
+	percentage,
+	SectionTitle,
+} from "../ui/primitives";
 import { BatchMetrics, ComparisonDeltaChart } from "./charts";
 import { Page } from "./Page";
 import "./Report.css";
@@ -59,9 +73,9 @@ export function ReportExecutiveOverview({
 	const overall = batch.metrics.overall;
 	return (
 		<section className="report-executive-overview">
+			<SectionTitle title="管理层摘要" />
 			<div className="executive-summary">
 				<div>
-					<span className="eyebrow">管理层摘要</span>
 					<h2>{analysis.executive.headline}</h2>
 					<p className="ds-sub">{analysis.executive.summary}</p>
 				</div>
@@ -127,8 +141,17 @@ export const agentStatusLabels: Record<AgentRun["status"], string> = {
 	failed: "执行失败",
 };
 
+const purposeLabels: Record<string, string> = {
+	report_narrative: "报告叙述",
+	quality_review: "质量检查",
+	diagnosis: "模型诊断",
+	remediation: "整改规划",
+	content_brief: "内容草稿",
+	optimization_article: "优化文章",
+};
+
 export function agentPurposeLabel(purpose: string): string {
-	return purpose === "report_narrative" ? "报告叙述" : purpose === "quality_review" ? "质量检查" : purpose;
+	return purposeLabels[purpose] ?? purpose;
 }
 
 export function agentRunPhase(run: AgentRun): string {
@@ -165,20 +188,55 @@ function formatDraftValue(value: unknown): string {
 	return text.length > 240 ? `${text.slice(0, 240)}…` : text;
 }
 
+/** 去掉平台附带的追踪片段（如 #ws_call_id=…），只显示可访问地址。 */
+export const cleanSourceUrl = (url: string): string =>
+	url.replace(/#(?:ws_call_id|call_id|ref|utm_[a-z]+)=[^#]*$/i, "").replace(/#$/, "");
+
+const priorityLabels: Record<string, string> = { high: "高优先级", medium: "中优先级", low: "低优先级" };
+const reputationLabels: Record<string, string> = {
+	positive: "正面为主",
+	mixed: "正负混合",
+	negative: "负面为主",
+	neutral: "中性",
+	not_observed: "未观察到口碑",
+};
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Purpose-specific approved schemas intentionally render in one auditable component.
-export function AgentDraftContent({ run }: { run: AgentRun }) {
+export function AgentDraftContent({
+	run,
+	evidenceIndex,
+	onOpenEvidence,
+}: {
+	run: AgentRun;
+	evidenceIndex?: EvidenceIndexEntry[];
+	onOpenEvidence?(captureId: string): void;
+}) {
 	if (!run.draft) return null;
+	const refs = (ids: unknown) =>
+		Array.isArray(ids) && ids.length ? (
+			<EvidenceRef ids={ids.map(String)} index={evidenceIndex} onOpen={onOpenEvidence} compact />
+		) : null;
 	if (run.purpose === "report_narrative") {
 		const limitations = Array.isArray(run.draft.limitations) ? run.draft.limitations.map(String) : [];
 		const reputation = (run.draft.reputation ?? {}) as {
 			overall?: string;
 			summary?: string;
-			positiveSignals?: Array<{ statement?: string; sourceUrls?: string[] }>;
-			negativeSignals?: Array<{ statement?: string; sourceUrls?: string[] }>;
+			positiveSignals?: Array<{ statement?: string; sourceUrls?: string[]; evidenceIds?: string[] }>;
+			negativeSignals?: Array<{ statement?: string; sourceUrls?: string[]; evidenceIds?: string[] }>;
 		};
 		const recommendations = Array.isArray(run.draft.geoRecommendations)
-			? (run.draft.geoRecommendations as Array<{ priority?: string; title?: string; action?: string }>)
+			? (run.draft.geoRecommendations as Array<{
+					priority?: string;
+					title?: string;
+					action?: string;
+					rationale?: string;
+					evidenceIds?: string[];
+				}>)
 			: [];
+		const signals = [
+			...(reputation.positiveSignals ?? []).map((signal) => ({ ...signal, polarity: "正面" })),
+			...(reputation.negativeSignals ?? []).map((signal) => ({ ...signal, polarity: "负面" })),
+		];
 		return (
 			<div className="agent-draft-content">
 				<div>
@@ -190,24 +248,48 @@ export function AgentDraftContent({ run }: { run: AgentRun }) {
 					<p>{String(run.draft.executiveSummary ?? "-")}</p>
 				</div>
 				<div className="agent-reputation-preview">
-					<span>AI 口碑 · {reputation.overall ?? "not_observed"}</span>
+					<span>AI 口碑 · {reputationLabels[reputation.overall ?? "not_observed"] ?? reputation.overall}</span>
 					<p>{reputation.summary ?? "-"}</p>
-					{[...(reputation.positiveSignals ?? []), ...(reputation.negativeSignals ?? [])].map((signal) => (
-						<p key={`${signal.statement}-${signal.sourceUrls?.join("|")}`}>
-							{signal.statement} · {signal.sourceUrls?.length ? signal.sourceUrls.join("、") : "平台未开放来源"}
-						</p>
-					))}
+					{signals.map((signal) => {
+						const urls = [...new Set((signal.sourceUrls ?? []).map(cleanSourceUrl))];
+						return (
+							<div className="reputation-signal" key={`${signal.statement}-${urls.join("|")}`}>
+								<Tag className={`reputation-polarity ${signal.polarity === "正面" ? "positive" : "negative"}`}>
+									{signal.polarity}
+								</Tag>
+								<p>
+									{signal.statement} {refs(signal.evidenceIds)}
+								</p>
+								<small>
+									来源：
+									{urls.length
+										? urls.map((url) => (
+												<a key={url} href={url} target="_blank" rel="noreferrer">
+													{url.replace(/^https?:\/\//, "").slice(0, 60)}
+												</a>
+											))
+										: "平台未开放来源"}
+								</small>
+							</div>
+						);
+					})}
 				</div>
 				{recommendations.length > 0 && (
 					<div>
 						<span>GEO 优化建议</span>
-						<ul>
+						<ol className="recommendation-list">
 							{recommendations.map((item) => (
 								<li key={`${item.title}-${item.action}`}>
-									{item.priority} · {item.title}：{item.action}
+									<b>
+										<Tag>{priorityLabels[item.priority ?? ""] ?? item.priority}</Tag>
+										{item.title}
+									</b>
+									<p>{item.action}</p>
+									{item.rationale && <small>{item.rationale}</small>}
+									{refs(item.evidenceIds)}
 								</li>
 							))}
-						</ul>
+						</ol>
 					</div>
 				)}
 				{limitations.length > 0 && (
@@ -503,8 +585,8 @@ const snapshotColumns: TableProps<ReportSnapshot>["columns"] = [
 			<>
 				<b>{snapshot.title}</b>
 				<br />
-				<small className="muted">
-					{date(snapshot.created_at)} · 哈希 {snapshot.payload_hash.slice(0, 12)}
+				<small className="muted snapshot-meta">
+					{date(snapshot.created_at)} <IdChip value={snapshot.payload_hash} label="版本指纹" length={10} />
 				</small>
 			</>
 		),
@@ -639,6 +721,7 @@ type ReportDocContext = {
 	analysis: ReportAnalysis;
 	report: ReportPayload;
 	baselineBatch: Batch | null;
+	openEvidence?(captureId: string): void;
 };
 
 type ReportDocColumnConfig = { number: string; title: string; content: ReactNode };
@@ -728,7 +811,7 @@ function buildReportDocSections(context: ReportDocContext): ReportDocSectionConf
 		<blockquote key={`${excerpt.captureId}-${excerpt.text}`}>
 			{excerpt.text}
 			<footer>
-				{excerpt.platform === "kimi" ? "Kimi" : "DeepSeek"} · 证据 {excerpt.captureId}
+				<EvidenceRef ids={[excerpt.captureId]} index={analysis.evidenceIndex} onOpen={context.openEvidence} />
 			</footer>
 		</blockquote>
 	));
@@ -910,8 +993,14 @@ function buildReportDocSections(context: ReportDocContext): ReportDocSectionConf
 								<b>{finding.title}</b>
 								<p>{finding.detail}</p>
 								<p className="report-recommendation">建议：{finding.recommendation}</p>
-								<small>
-									证据充分度 {Math.round(finding.confidence * 100)}% · 证据 {finding.evidence_ids.join("、")}
+								<small className="report-finding-meta">
+									证据充分度 {Math.round(finding.confidence * 100)}%
+									<EvidenceRef
+										ids={finding.evidence_ids}
+										index={analysis.evidenceIndex}
+										onOpen={context.openEvidence}
+										compact
+									/>
 								</small>
 							</div>
 						))
@@ -987,6 +1076,7 @@ function buildReportDocSections(context: ReportDocContext): ReportDocSectionConf
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: report composition intentionally mirrors the printed document
 export function Report({ project }: { project: Project }) {
 	const { selected, setSelected, batch } = useBatch(project);
+	const navigation = useWorkspaceNavigation();
 	const canGenerate = usePermission("report.generate");
 	const canShare = usePermission("report.share");
 	const [baselineBatch, setBaselineBatch] = useState<Batch | null>(null);
@@ -1177,9 +1267,13 @@ export function Report({ project }: { project: Project }) {
 	const reportReady = Boolean(latestSnapshot?.pdf_artifact_key && latestSnapshot.word_artifact_key);
 	const docSections =
 		batch && analysis && report
-			? buildReportDocSections({ batch, analysis, report, baselineBatch }).filter(
-					(section) => section.when?.({ batch, analysis, report, baselineBatch }) ?? true,
-				)
+			? buildReportDocSections({
+					batch,
+					analysis,
+					report,
+					baselineBatch,
+					openEvidence: (captureId) => navigation.openEvidence(captureId, selected),
+				}).filter((section) => section.when?.({ batch, analysis, report, baselineBatch }) ?? true)
 			: [];
 	const workflowLabel = awaitingApproval
 		? "等待人工审批"
@@ -1218,70 +1312,62 @@ export function Report({ project }: { project: Project }) {
 		if (!latestSnapshot) return;
 		void api(`/api/report-shares/${shareId}`, { method: "DELETE" }).then(() => loadShares(latestSnapshot.id));
 	};
+	const workflowSteps = [
+		{ title: "报告叙述", status: hasActiveAgentRuns ? "process" : approvedNarrative ? "finish" : "wait" },
+		{ title: "质量检查", status: approvedQuality ? "finish" : approvedNarrative ? "process" : "wait" },
+		{ title: "冻结版本", status: latestSnapshot ? "finish" : approvedQuality ? "process" : "wait" },
+		{ title: "PDF / Word", status: reportReady ? "finish" : latestSnapshot ? "process" : "wait" },
+	] as const;
 	return (
-		<section className="report">
-			<div className="report-workspace no-print">
-				<Page
-					breadcrumb={project.name}
-					eyebrow="报告工作台"
-					title="中文效果报告"
-					description={
-						batch ? `${batchKindLabel(batch.kind)} · ${date(batch.created_at)} · ${batch.status}` : "未选择批次"
-					}
-					extra={<BatchPicker project={project} selected={selected} setSelected={setSelected} />}
-				/>
-				<div className="report-command-bar report-workflow-command-bar">
-					<Space size="small" wrap>
-						<Button
-							permission="report.generate"
-							icon={<IconFileText size={17} />}
-							busy={reportBusy === "workflow" || workflowState === "documents_queued" || hasActiveAgentRuns}
-							disabled={
-								!batch || hasActiveAgentRuns || awaitingApproval || ["queued", "running"].includes(batch.status)
-							}
-							onClick={advanceReport}
-						>
-							{workflowLabel}
-						</Button>
-						{deliveryMenuItems.length > 0 && (
-							<Dropdown trigger={["click"]} menu={{ items: deliveryMenuItems, onClick: handleDeliveryMenuClick }}>
-								<AntdButton>
-									<Space size={4}>
-										交付
-										<IconChevronDown size={15} />
-									</Space>
-								</AntdButton>
-							</Dropdown>
-						)}
-					</Space>
-				</div>
-				<Steps
-					className="report-doc-steps"
-					size="small"
-					items={[
-						{ title: "叙述", status: hasActiveAgentRuns ? "process" : approvedNarrative ? "finish" : "wait" },
-						{ title: "质检", status: approvedQuality ? "finish" : approvedNarrative ? "process" : "wait" },
-						{ title: "冻结", status: latestSnapshot ? "finish" : approvedQuality ? "process" : "wait" },
-						{ title: "文档", status: reportReady ? "finish" : latestSnapshot ? "process" : "wait" },
-					]}
-				/>
+		<Page
+			className="report"
+			breadcrumb={project.name}
+			eyebrow="复测报告"
+			title="效果报告与交付"
+			description={
+				batch
+					? `${batchKindLabel(batch.kind)} · ${date(batch.created_at)} · ${batchStatusLabel(batch.status)} · 有效样本 ${batch.metrics.validSamples}/${batch.metrics.expectedSamples}`
+					: "选择一个已完成批次生成报告"
+			}
+			extra={
+				<>
+					<BatchPicker project={project} selected={selected} setSelected={setSelected} />
+					<Button
+						permission="report.generate"
+						icon={<IconFileText size={17} />}
+						busy={reportBusy === "workflow" || workflowState === "documents_queued" || hasActiveAgentRuns}
+						disabled={!batch || hasActiveAgentRuns || awaitingApproval || ["queued", "running"].includes(batch.status)}
+						onClick={advanceReport}
+					>
+						{workflowLabel}
+					</Button>
+					{deliveryMenuItems.length > 0 && (
+						<Dropdown trigger={["click"]} menu={{ items: deliveryMenuItems, onClick: handleDeliveryMenuClick }}>
+							<AntdButton icon={<IconChevronDown size={15} />} iconPosition="end">
+								交付
+							</AntdButton>
+						</Dropdown>
+					)}
+				</>
+			}
+		>
+			<div className="report-workflow no-print">
+				<Steps size="small" items={[...workflowSteps]} />
 			</div>
 			{reportError && <Alert type="error" showIcon message={reportError} />}
 			{batch && analysis ? (
 				<ReportExecutiveOverview batch={batch} analysis={analysis} baselineBatch={baselineBatch} />
 			) : null}
 			<section className="agent-activity no-print">
-				<header>
-					<div>
-						<span className="eyebrow">Agent 任务</span>
-						<h3>分析活动</h3>
-					</div>
-					<span>
-						{hasActiveAgentRuns
+				<SectionTitle
+					title="Agent 任务"
+					count={
+						hasActiveAgentRuns
 							? `${agentRuns.filter((run) => run.status === "queued" || run.status === "running").length} 个进行中`
-							: `${agentRuns.length} 条记录`}
-					</span>
-				</header>
+							: `${agentRuns.length} 条`
+					}
+					description="报告叙述与质量检查由内置 Agent 基于本批次证据生成；批准后自动进入下一步。"
+				/>
 				{agentRuns.length ? (
 					<div className="agent-run-list">
 						{agentRuns.slice(0, 8).map((run) => (
@@ -1309,23 +1395,20 @@ export function Report({ project }: { project: Project }) {
 			</section>
 			{approvedNarrative && (
 				<section className="approved-agent-report">
-					<header>
-						<div>
-							<span className="eyebrow">Pi Agent 已批准结论</span>
-							<h3>口碑检测与 GEO 优化意见</h3>
-						</div>
-						<span>{approvedQuality ? "质量校验通过" : "等待质量校验"}</span>
-					</header>
-					<AgentDraftContent run={approvedNarrative} />
+					<SectionTitle
+						title="口碑检测与 GEO 优化意见"
+						description="已批准的 Agent 结论；引用编号可点击跳转到证据中心核对原文。"
+						extra={<Tag>{approvedQuality ? "质量校验通过" : "等待质量校验"}</Tag>}
+					/>
+					<AgentDraftContent
+						run={approvedNarrative}
+						evidenceIndex={analysis?.evidenceIndex}
+						onOpenEvidence={(captureId) => navigation.openEvidence(captureId, selected)}
+					/>
 				</section>
 			)}
 			<section className="report-assets no-print">
-				<header>
-					<div>
-						<span className="eyebrow">交付资产</span>
-						<h3>报告版本与分享</h3>
-					</div>
-				</header>
+				<SectionTitle title="报告版本与分享" description="冻结版本不可修改；分享链接可设置过期并随时撤销。" />
 				{shareUrl && <Alert type="success" showIcon message={`分享链接已复制：${shareUrl}`} />}
 				<Tabs
 					className="report-assets-tabs"
@@ -1376,6 +1459,6 @@ export function Report({ project }: { project: Project }) {
 					正在从真实证据生成报告
 				</div>
 			)}
-		</section>
+		</Page>
 	);
 }

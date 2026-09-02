@@ -1,10 +1,44 @@
-import { IconArrowLeft, IconGlobe } from "@tabler/icons-react";
-import { Alert, ConfigProvider, Layout, Menu, Space, Tooltip } from "antd";
-import { type ReactNode, useMemo, useState } from "react";
+import { IconArrowLeft, IconGlobe, IconMenu2 } from "@tabler/icons-react";
+import { Alert, ConfigProvider, Drawer, Layout, Menu, type MenuProps, Tag, Tooltip } from "antd";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { Project, View } from "../types";
 import "./Shell.css";
 
-export type ShellNavigationItem = { id: View; label: string; icon: typeof IconGlobe };
+export type ShellNavigationItem = { id: View; label: string; icon: typeof IconGlobe; group?: string };
+
+const groupOrder = ["客户工作台", "机构管理", "系统管理"];
+
+function useNarrow(): boolean {
+	const [narrow, setNarrow] = useState(() => window.matchMedia("(max-width: 900px)").matches);
+	useEffect(() => {
+		const query = window.matchMedia("(max-width: 900px)");
+		const listener = (event: MediaQueryListEvent) => setNarrow(event.matches);
+		query.addEventListener("change", listener);
+		return () => query.removeEventListener("change", listener);
+	}, []);
+	return narrow;
+}
+
+function buildMenuItems(navigation: ShellNavigationItem[], collapsed: boolean): MenuProps["items"] {
+	const groups = new Map<string, ShellNavigationItem[]>();
+	for (const item of navigation) {
+		const group = item.group ?? "客户工作台";
+		groups.set(group, [...(groups.get(group) ?? []), item]);
+	}
+	const ordered = [...groups.entries()].sort(
+		([left], [right]) =>
+			(groupOrder.indexOf(left) === -1 ? 99 : groupOrder.indexOf(left)) -
+			(groupOrder.indexOf(right) === -1 ? 99 : groupOrder.indexOf(right)),
+	);
+	if (ordered.length <= 1 || collapsed)
+		return navigation.map((item) => ({ key: item.id, icon: <item.icon size={18} />, label: item.label }));
+	return ordered.map(([group, items]) => ({
+		type: "group" as const,
+		key: `group:${group}`,
+		label: group,
+		children: items.map((item) => ({ key: item.id, icon: <item.icon size={18} />, label: item.label })),
+	}));
+}
 
 export function AppShell({
 	project,
@@ -25,84 +59,111 @@ export function AppShell({
 	onSelectView(view: View): void;
 	children: ReactNode;
 }) {
+	const narrow = useNarrow();
 	const [collapsed, setCollapsed] = useState(false);
-	const menuItems = useMemo(
-		() => navigation.map((item) => ({ key: item.id, icon: <item.icon size={18} />, label: item.label })),
-		[navigation],
-	);
+	const [drawerOpen, setDrawerOpen] = useState(false);
+	const menuItems = useMemo(() => buildMenuItems(navigation, collapsed && !narrow), [navigation, collapsed, narrow]);
 	const currentView = navigation.find((item) => item.id === view);
-	return (
-		<Layout className="app-shell" style={{ minHeight: "100vh" }}>
-			<Layout.Sider
-				className="app-sider"
+	const menu = (
+		<ConfigProvider
+			theme={{
+				components: {
+					Menu: {
+						darkItemBg: "#101828",
+						darkSubMenuItemBg: "#101828",
+						darkItemColor: "rgba(255, 255, 255, 0.68)",
+						darkItemHoverBg: "rgba(255, 255, 255, 0.08)",
+						darkItemSelectedBg: "#16a34a",
+						darkItemSelectedColor: "#ffffff",
+						darkGroupTitleColor: "rgba(255, 255, 255, 0.38)",
+						itemMarginInline: 0,
+						itemHeight: 36,
+						iconMarginInlineEnd: 10,
+					},
+				},
+			}}
+		>
+			<Menu
+				className="app-sider-menu"
 				theme="dark"
-				width={236}
-				collapsedWidth={60}
-				collapsible
-				collapsed={collapsed}
-				onCollapse={setCollapsed}
-			>
-				<div className="app-sider-inner">
-					<div className="brand app-sider-brand">
-						<span className="brand-mark">Z</span>
-						{!collapsed && (
-							<div>
-								<strong>ZZ Geo</strong>
-								<small>真实 AI 可见度工作台</small>
-							</div>
-						)}
+				mode="inline"
+				inlineIndent={12}
+				selectedKeys={[view]}
+				items={menuItems}
+				onClick={({ key }) => {
+					onSelectView(key as View);
+					setDrawerOpen(false);
+				}}
+			/>
+		</ConfigProvider>
+	);
+	const siderBody = (
+		<div className="app-sider-inner">
+			<div className="brand app-sider-brand">
+				<span className="brand-mark">Z</span>
+				{(!collapsed || narrow) && (
+					<div>
+						<strong>ZZ Geo</strong>
+						<small>真实 AI 可见度工作台</small>
 					</div>
-					<Tooltip title={collapsed ? (project?.name ?? "客户项目") : undefined} placement="right">
-						<button type="button" className="project-switch app-sider-switch" onClick={onSwitchProject}>
-							<IconArrowLeft size={16} />
-							{!collapsed && <span>{project?.name ?? "客户项目"}</span>}
-						</button>
-					</Tooltip>
-					<ConfigProvider
-						theme={{
-							components: {
-								Menu: {
-									darkItemBg: "#101828",
-									darkItemColor: "rgba(255, 255, 255, 0.68)",
-									darkItemHoverBg: "rgba(255, 255, 255, 0.08)",
-									darkItemSelectedBg: "#16a34a",
-									darkItemSelectedColor: "#ffffff",
-								},
-							},
-						}}
-					>
-						<Menu
-							className="app-sider-menu"
-							theme="dark"
-							mode="inline"
-							selectedKeys={[view]}
-							items={menuItems}
-							onClick={({ key }) => onSelectView(key as View)}
-						/>
-					</ConfigProvider>
-					{!collapsed && (
-						<div className="app-sider-foot">
-							<span className="live-dot" />
-							真实采集模式
-						</div>
-					)}
-				</div>
-			</Layout.Sider>
+				)}
+			</div>
+			<Tooltip title={collapsed && !narrow ? (project?.name ?? "客户项目") : undefined} placement="right">
+				<button type="button" className="project-switch app-sider-switch" onClick={onSwitchProject}>
+					<IconArrowLeft size={16} />
+					{(!collapsed || narrow) && <span>{project?.name ?? "客户项目"}</span>}
+				</button>
+			</Tooltip>
+			{menu}
+		</div>
+	);
+	return (
+		<Layout className="app-shell">
+			{narrow ? (
+				<Drawer
+					className="app-sider-drawer"
+					placement="left"
+					open={drawerOpen}
+					onClose={() => setDrawerOpen(false)}
+					width={264}
+					styles={{ body: { padding: 0, background: "#101828" }, header: { display: "none" } }}
+				>
+					{siderBody}
+				</Drawer>
+			) : (
+				<Layout.Sider
+					className="app-sider"
+					theme="dark"
+					width={236}
+					collapsedWidth={64}
+					collapsible
+					collapsed={collapsed}
+					onCollapse={setCollapsed}
+				>
+					{siderBody}
+				</Layout.Sider>
+			)}
 			<Layout className="app-main">
-				<main className="workspace">
-					<header className="topbar">
-						<div>
-							<span className="eyebrow">{currentView?.label}</span>
-							<h1>{project?.name ?? "加载项目"}</h1>
+				<header className="topbar">
+					<div className="topbar-left">
+						{narrow && (
+							<button type="button" className="topbar-menu" onClick={() => setDrawerOpen(true)} aria-label="打开菜单">
+								<IconMenu2 size={20} />
+							</button>
+						)}
+						<div className="topbar-project">
+							<strong>{project?.name ?? "加载项目"}</strong>
+							{project?.domain && (
+								<Tag className="topbar-domain" icon={<IconGlobe size={13} />}>
+									{project.domain}
+								</Tag>
+							)}
 						</div>
-						<Space size="middle" align="center" wrap>
-							<span className="domain">
-								<IconGlobe size={16} />
-								{project?.domain ?? ""}
-							</span>
-							{account}
-						</Space>
-					</header>
+						{currentView && <span className="topbar-view">{currentView.label}</span>}
+					</div>
+					<div className="topbar-right">{account}</div>
+				</header>
+				<main className="workspace">
 					{error && <Alert className="app-shell-alert" type="error" message={error} showIcon />}
 					{children}
 				</main>

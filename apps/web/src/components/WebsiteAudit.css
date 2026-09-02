@@ -10,15 +10,16 @@
 	margin: 8px 0 0;
 }
 
-.audit-checks-head {
-	display: flex;
-	align-items: baseline;
-	gap: 12px;
-	margin: 16px 0 4px;
+.audit-hero .ant-statistic-content {
+	font-size: 34px;
+	font-weight: 700;
 }
 
-.audit-checks-head h3 {
-	margin: 0;
+.audit-hero-text p {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-wrap: wrap;
 }
 
 /* 检查卡内容列：类别小灰字 + 标题 + 描述 */

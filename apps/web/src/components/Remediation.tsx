@@ -1,5 +1,5 @@
 import { IconCheck, IconFileText, IconPlus, IconTrash } from "@tabler/icons-react";
-import { Alert, Card, Collapse, Descriptions, Input, Popconfirm, Select, Space, Tag } from "antd";
+import { Alert, Card, Descriptions, Input, Popconfirm, Select, Space, Tag } from "antd";
 import { useState } from "react";
 import { Button, useAgentRunPolling, usePermission } from "../access";
 import { api, patch, post } from "../api";
@@ -226,45 +226,39 @@ export function TaskItem({
 	const [url, setUrl] = useState(task.published_url ?? "");
 	const [owner, setOwner] = useState(task.owner ?? "");
 	const [dueDate, setDueDate] = useState(task.due_date ? task.due_date.slice(0, 10) : "");
+	const [expanded, setExpanded] = useState(false);
 	const priority = taskPriorityMeta(task.priority);
 	const canManage = usePermission("remediation.manage");
-	const collapseItems = [
-		{
-			key: "acceptance",
-			label: `验收标准 · 关联 ${task.target_prompt_ids.length} 个问题`,
-			children: <p className="task-acceptance">{task.acceptance_criteria}</p>,
-		},
-		...(task.content_brief
-			? [{ key: "brief", label: "内容简报", children: <pre className="task-pre">{task.content_brief}</pre> }]
-			: []),
-		...(task.draft_content
-			? [{ key: "draft", label: "内容初稿", children: <pre className="task-pre">{task.draft_content}</pre> }]
-			: []),
-	];
+	const dirty =
+		owner !== (task.owner ?? "") ||
+		dueDate !== (task.due_date ? task.due_date.slice(0, 10) : "") ||
+		url !== (task.published_url ?? "");
 	return (
 		<Card
 			size="small"
 			className="remediation-item"
 			title={
-				<Space size={8} wrap>
-					<Tag>{priority.label}</Tag>
+				<div className="task-head">
+					<Tag className={`task-priority ${priority.className}`}>{priority.label}</Tag>
 					<span className="task-title">{task.title}</span>
 					{task.verified_snapshot_id && (
-						<Tag icon={<IconCheck size={12} />}>已抓取验收 · 快照 {task.verified_snapshot_id}</Tag>
+						<Tag icon={<IconCheck size={12} />} className="task-verified">
+							已抓取验收
+						</Tag>
 					)}
-				</Space>
+				</div>
 			}
 			extra={
-				<Space size={8} wrap>
+				<Space size={4}>
 					<Select
 						aria-label="任务状态"
-						style={{ width: 110 }}
+						className="task-status"
+						size="small"
 						value={task.status}
 						disabled={!canManage}
 						options={STATUS_SELECT_OPTIONS}
 						onChange={(status) => act(() => patch(`/api/tasks/${task.id}`, { status }))}
 					/>
-					<Tag>{taskStatusLabels[task.status] ?? task.status}</Tag>
 					<Popconfirm
 						title="删除该整改任务？"
 						okText="删除"
@@ -275,7 +269,8 @@ export function TaskItem({
 							<Button
 								permission="remediation.manage"
 								variant="ghost"
-								icon={<IconTrash size={17} />}
+								size="small"
+								icon={<IconTrash size={16} />}
 								aria-label="删除整改任务"
 								title="删除整改任务"
 							/>
@@ -285,77 +280,128 @@ export function TaskItem({
 			}
 		>
 			<p className="task-detail">{task.detail}</p>
-			<Descriptions
-				size="small"
-				column={{ xs: 1, lg: 2 }}
-				items={[
-					{ key: "metric", label: "预期指标", children: task.expected_metric },
-					{ key: "published", label: "发布地址", children: task.published_url ?? "-" },
-				]}
-			/>
-			<div className="task-meta-row">
+			<dl className="task-facts">
+				<div>
+					<dt>预期指标</dt>
+					<dd>{task.expected_metric}</dd>
+				</div>
+				<div>
+					<dt>关联问题</dt>
+					<dd>{task.target_prompt_ids.length} 个</dd>
+				</div>
+				<div>
+					<dt>发布地址</dt>
+					<dd>
+						{task.published_url ? (
+							<a href={task.published_url} target="_blank" rel="noreferrer">
+								{task.published_url}
+							</a>
+						) : (
+							"待发布"
+						)}
+					</dd>
+				</div>
+			</dl>
+			<div className="task-form">
+				<div className="task-field">
+					<span>负责人</span>
+					<Input
+						aria-label="负责人"
+						placeholder="姓名"
+						disabled={!canManage}
+						value={owner}
+						onChange={(event) => setOwner(event.target.value)}
+					/>
+				</div>
+				<div className="task-field">
+					<span>截止日期</span>
+					<Input
+						aria-label="截止时间"
+						type="date"
+						disabled={!canManage}
+						value={dueDate}
+						onChange={(event) => setDueDate(event.target.value)}
+					/>
+				</div>
+				<div className="task-field task-form-url">
+					<span>真实发布地址</span>
+					<Input
+						aria-label="真实发布地址"
+						type="url"
+						placeholder="https://"
+						value={url}
+						disabled={!canManage}
+						onChange={(event) => setUrl(event.target.value)}
+					/>
+				</div>
+				<div className="task-form-actions">
+					<Button
+						permission="remediation.manage"
+						variant="secondary"
+						disabled={!dirty}
+						onClick={() =>
+							act(() =>
+								patch(`/api/tasks/${task.id}`, {
+									owner: owner || null,
+									dueDate: dueDate ? new Date(`${dueDate}T23:59:59+08:00`).toISOString() : null,
+									publishedUrl: url || null,
+								}),
+							)
+						}
+					>
+						保存
+					</Button>
+					<Button
+						permission="remediation.manage"
+						disabled={!url}
+						onClick={() =>
+							act(async () => {
+								await patch(`/api/tasks/${task.id}`, { publishedUrl: url, status: "published" });
+								await post(`/api/tasks/${task.id}/verify`);
+							})
+						}
+					>
+						抓取验收
+					</Button>
+				</div>
+			</div>
+			<div className="task-footer">
 				<Button
 					permission="agent.run"
 					variant="secondary"
+					size="small"
 					busy={busy}
-					icon={<IconFileText size={16} />}
+					icon={<IconFileText size={15} />}
 					onClick={() => act(() => post(`/api/tasks/${task.id}/content`))}
 				>
-					Pi Agent 生成待审批内容
+					Agent 生成内容草稿
 				</Button>
-				<Input
-					aria-label="负责人"
-					placeholder="负责人"
-					style={{ width: 130 }}
-					disabled={!canManage}
-					value={owner}
-					onChange={(event) => setOwner(event.target.value)}
-				/>
-				<Input
-					aria-label="截止时间"
-					type="date"
-					style={{ width: 150 }}
-					disabled={!canManage}
-					value={dueDate}
-					onChange={(event) => setDueDate(event.target.value)}
-				/>
-				<Button
-					permission="remediation.manage"
-					variant="secondary"
-					onClick={() =>
-						act(() =>
-							patch(`/api/tasks/${task.id}`, {
-								owner: owner || null,
-								dueDate: dueDate ? new Date(`${dueDate}T23:59:59+08:00`).toISOString() : null,
-							}),
-						)
-					}
-				>
-					保存责任人和日期
-				</Button>
-				<Input
-					aria-label="真实发布地址"
-					type="url"
-					placeholder="https://真实发布地址"
-					style={{ width: 230 }}
-					value={url}
-					disabled={!canManage}
-					onChange={(event) => setUrl(event.target.value)}
-				/>
-				<Button
-					permission="remediation.manage"
-					variant="secondary"
-					onClick={() =>
-						act(async () => {
-							await patch(`/api/tasks/${task.id}`, { publishedUrl: url, status: "published" });
-							await post(`/api/tasks/${task.id}/verify`);
-						})
-					}
-				>
-					抓取验收
+				<Button variant="link" size="small" onClick={() => setExpanded((value) => !value)}>
+					{expanded
+						? "收起详情"
+						: `查看验收标准${task.content_brief ? "、内容简报" : ""}${task.draft_content ? "与初稿" : ""}`}
 				</Button>
 			</div>
-			<Collapse size="small" items={collapseItems} />
+			{expanded && (
+				<div className="task-sections">
+					<section>
+						<h4>验收标准</h4>
+						<p className="task-acceptance">{task.acceptance_criteria}</p>
+					</section>
+					{task.content_brief && (
+						<section>
+							<h4>内容简报</h4>
+							<pre className="task-pre">{task.content_brief}</pre>
+						</section>
+					)}
+					{task.draft_content && (
+						<section>
+							<h4>内容初稿</h4>
+							<pre className="task-pre">{task.draft_content}</pre>
+						</section>
+					)}
+				</div>
+			)}
 		</Card>
 	);
 }

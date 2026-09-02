@@ -5,7 +5,7 @@ import { Button } from "../access";
 import { api, post, put } from "../api";
 import { usePaginated } from "../hooks/usePagination";
 import type { OrganizationSummary, Paginated, UserIdentity } from "../types";
-import { Pagination } from "../ui/primitives";
+import { FilterBar, IdChip, Pagination } from "../ui/primitives";
 import { Page } from "./Page";
 
 export function OrganizationManagement({
@@ -69,12 +69,11 @@ export function OrganizationManagement({
 			extra={
 				<div className="organization-create">
 					<Input
-						value={search}
-						onChange={(event) => setSearch(event.target.value)}
-						placeholder="搜索机构名称或 ID"
-						allowClear
+						value={name}
+						onChange={(event) => setName(event.target.value)}
+						placeholder="新机构名称"
+						onPressEnter={() => name.trim() && void create()}
 					/>
-					<Input value={name} onChange={(event) => setName(event.target.value)} placeholder="新机构名称" />
 					<Button icon={<IconPlus size={16} />} disabled={!name.trim()} onClick={() => void create()}>
 						创建机构
 					</Button>
@@ -82,12 +81,20 @@ export function OrganizationManagement({
 			}
 		>
 			{error && <Alert type="error" showIcon message={error} />}
+			<FilterBar extra={<span className="muted">{organizations.total ? `${organizations.total} 个机构` : ""}</span>}>
+				<Input
+					value={search}
+					onChange={(event) => setSearch(event.target.value)}
+					placeholder="搜索机构名称或 ID"
+					allowClear
+				/>
+			</FilterBar>
 			<div className="organization-list">
 				{organizations.items.map((organization) => (
 					<article className={organization.id === user.organizationId ? "active" : ""} key={organization.id}>
 						<div>
 							<h3>{organization.name}</h3>
-							<code>{organization.id}</code>
+							<IdChip value={organization.id} label="机构" length={12} />
 							<p>
 								{organization.project_count} 个项目 · {organization.user_count} 位有效成员
 							</p>

@@ -1,0 +1,21 @@
+/* 机构成员：新增表单网格 + 成员表格 */
+.member-form {
+	display: grid;
+	grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr) auto;
+	gap: 0 var(--space-4);
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	padding: var(--space-4) var(--space-5) 0;
+	margin-bottom: var(--space-4);
+}
+
+.member-form-submit .ant-form-item-label {
+	visibility: hidden;
+}
+
+@media (max-width: 900px) {
+	.member-form {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
