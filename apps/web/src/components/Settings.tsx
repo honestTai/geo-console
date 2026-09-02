@@ -10,6 +10,7 @@ import {
 	providerLogoPaths,
 	providerShortLabel,
 } from "../types";
+import { Page } from "./Page";
 import "./Settings.css";
 
 export function ProviderPanel({
@@ -179,19 +180,16 @@ export function Settings() {
 	const activeProvider = providers.find((provider) => provider.providerId === activeProviderId) ?? providers[0];
 	const activeDraft = activeProvider ? (drafts[activeProvider.providerId] ?? activeProvider) : null;
 	return (
-		<section>
-			<div className="overview-head">
-				<div>
-					<span className="eyebrow">平台设置</span>
-					<h2>平台与 GPT 设置</h2>
-					<p className="muted">
-						五个平台使用云端联网 API；HRouter GPT 与 Pi Agent 只生成待审批草稿。密钥以主密钥信封加密保存。
-					</p>
-				</div>
+		<Page
+			eyebrow="平台设置"
+			title="平台与 GPT 设置"
+			description="五个平台使用云端联网 API；HRouter GPT 与 Pi Agent 只生成待审批草稿。密钥以主密钥信封加密保存。"
+			extra={
 				<Button variant="secondary" icon={<IconRefresh size={17} />} onClick={() => void load()}>
 					刷新状态
 				</Button>
-			</div>
+			}
+		>
 			<div className="settings-band hrouter-settings">
 				<div>
 					<IconKey size={24} />
@@ -309,6 +307,6 @@ export function Settings() {
 					</div>
 				)}
 			</div>
-		</section>
+		</Page>
 	);
 }

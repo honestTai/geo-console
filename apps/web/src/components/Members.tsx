@@ -6,17 +6,15 @@ import { api, post } from "../api";
 import { usePaginated } from "../hooks/usePagination";
 import type { ManagedUser, Paginated, RoleRecord } from "../types";
 import { Pagination } from "../ui/primitives";
+import { Page } from "./Page";
 
 export function Members({ localBypass }: { localBypass: boolean }) {
 	return (
-		<section>
-			<div className="overview-head">
-				<div>
-					<span className="eyebrow">机构成员</span>
-					<h2>角色与访问状态</h2>
-					<p className="muted">管理员维护机构成员、角色和访问状态；成员停用后其现有会话会被撤销。</p>
-				</div>
-			</div>
+		<Page
+			eyebrow="机构成员"
+			title="角色与访问状态"
+			description="管理员维护机构成员、角色和访问状态；成员停用后其现有会话会被撤销。"
+		>
 			{localBypass ? (
 				<div className="settings-band member-mode-note">
 					<div>
@@ -28,7 +26,7 @@ export function Members({ localBypass }: { localBypass: boolean }) {
 			) : (
 				<UserManagement />
 			)}
-		</section>
+		</Page>
 	);
 }
 

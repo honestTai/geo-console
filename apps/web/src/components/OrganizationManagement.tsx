@@ -6,6 +6,7 @@ import { api, post, put } from "../api";
 import { usePaginated } from "../hooks/usePagination";
 import type { OrganizationSummary, Paginated, UserIdentity } from "../types";
 import { Pagination } from "../ui/primitives";
+import { Page } from "./Page";
 
 export function OrganizationManagement({
 	user,
@@ -60,13 +61,12 @@ export function OrganizationManagement({
 		}
 	}
 	return (
-		<section className="organization-management">
-			<div className="overview-head">
-				<div>
-					<span className="eyebrow">系统超管</span>
-					<h2>多租户管理</h2>
-					<p className="muted">每个机构拥有独立的项目、证据、模型凭据、问题库、报告、成员和审计日志。</p>
-				</div>
+		<Page
+			className="organization-management"
+			eyebrow="系统超管"
+			title="多租户管理"
+			description="每个机构拥有独立的项目、证据、模型凭据、问题库、报告、成员和审计日志。"
+			extra={
 				<div className="organization-create">
 					<Input
 						value={search}
@@ -79,7 +79,8 @@ export function OrganizationManagement({
 						创建机构
 					</Button>
 				</div>
-			</div>
+			}
+		>
 			{error && <Alert type="error" showIcon message={error} />}
 			<div className="organization-list">
 				{organizations.items.map((organization) => (
@@ -142,6 +143,6 @@ export function OrganizationManagement({
 					placeholder="填写封禁原因"
 				/>
 			</Modal>
-		</section>
+		</Page>
 	);
 }

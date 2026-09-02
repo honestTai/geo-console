@@ -43,6 +43,7 @@ import {
 import { date, Empty, Pagination, percentage } from "../ui/primitives";
 import { BatchMetrics, TrendChart } from "./charts";
 import "./Monitoring.css";
+import { Page } from "./Page";
 
 function formatClock(value: string): string {
 	return new Intl.DateTimeFormat("zh-CN", {
@@ -276,13 +277,12 @@ export function Monitoring({ project, refresh }: { project: Project; refresh(): 
 		},
 	];
 	return (
-		<section>
-			<div className="overview-head monitor-head">
-				<div>
-					<span className="eyebrow">AI监测</span>
-					<h2>五平台联网监测</h2>
-					<p className="muted">快审每题 1 次；正式基线默认分三个时间窗口采样。失败平台不进入品牌率分母。</p>
-				</div>
+		<Page
+			breadcrumb={project.name}
+			eyebrow="AI监测"
+			title="五平台联网监测"
+			description="快审每题 1 次；正式基线默认分三个时间窗口采样。失败平台不进入品牌率分母。"
+			extra={
 				<div className="monitor-head-actions">
 					<Popover
 						trigger="click"
@@ -338,7 +338,8 @@ export function Monitoring({ project, refresh }: { project: Project; refresh(): 
 						</Button>
 					</div>
 				</div>
-			</div>
+			}
+		>
 			<RunActivityPanel
 				batch={batch}
 				summary={selectedBatch}
@@ -489,6 +490,6 @@ export function Monitoring({ project, refresh }: { project: Project; refresh(): 
 					{trends && <TrendChart trends={trends} />}
 				</>
 			)}
-		</section>
+		</Page>
 	);
 }

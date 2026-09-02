@@ -3,19 +3,17 @@ import { api } from "../api";
 import { usePaginated } from "../hooks/usePagination";
 import type { AuditLogRow, Paginated } from "../types";
 import { date, Pagination } from "../ui/primitives";
+import { Page } from "./Page";
 
 export function AuditLogs() {
 	return (
-		<section>
-			<div className="overview-head">
-				<div>
-					<span className="eyebrow">审计日志</span>
-					<h2>写操作与审批记录</h2>
-					<p className="muted">查看机构成员的写操作、审批、成员变更与平台设置记录。</p>
-				</div>
-			</div>
+		<Page
+			eyebrow="审计日志"
+			title="写操作与审批记录"
+			description="查看机构成员的写操作、审批、成员变更与平台设置记录。"
+		>
 			<AuditLogPanel />
-		</section>
+		</Page>
 	);
 }
 

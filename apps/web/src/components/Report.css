@@ -1,0 +1,30 @@
+/* 报告工作台：Page 页头在有边框的 workspace 卡片内需要内边距 */
+
+.report-workspace > .page {
+	padding: 18px 18px 0;
+}
+
+/* 报告正文：左栏正文 + 右栏目录锚点（Anchor 默认 affix，随窗口吸附） */
+
+.report-doc-layout {
+	display: flex;
+	align-items: flex-start;
+	gap: 28px;
+}
+
+.report-doc-main {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.report-doc-anchor {
+	flex: 0 0 160px;
+	width: 160px;
+	padding-top: 30px;
+}
+
+@media (max-width: 900px) {
+	.report-doc-anchor {
+		display: none;
+	}
+}

@@ -5,6 +5,7 @@ import { Button, useBatch } from "../access";
 import { type Capture, type Project, providerIds, providerLabel } from "../types";
 import { BatchPicker, csvCell, date, downloadText, Empty, Notice, Pagination } from "../ui/primitives";
 import "./Evidence.css";
+import { Page } from "./Page";
 
 export function Evidence({ project }: { project: Project }) {
 	const { selected, setSelected, batch } = useBatch(project);
@@ -78,13 +79,12 @@ export function Evidence({ project }: { project: Project }) {
 	if (!project.batches.length)
 		return <Empty title="还没有证据" detail="完成至少一个真实采集批次后，回答、来源和原始 API 响应会出现在这里。" />;
 	return (
-		<section>
-			<div className="overview-head evidence-head">
-				<div>
-					<span className="eyebrow">证据中心</span>
-					<h2>回答原文存证</h2>
-					<p className="muted">原始回答与 API 响应写入后不可修改；派生指标可以按新规则重算。</p>
-				</div>
+		<Page
+			breadcrumb={project.name}
+			eyebrow="证据中心"
+			title="回答原文存证"
+			description="原始回答与 API 响应写入后不可修改；派生指标可以按新规则重算。"
+			extra={
 				<div className="filters">
 					<BatchPicker
 						project={project}
@@ -99,7 +99,8 @@ export function Evidence({ project }: { project: Project }) {
 						导出证据 CSV
 					</Button>
 				</div>
-			</div>
+			}
+		>
 			<div className="evidence-filter">
 				<Segmented options={platformOptions} value={platform} onChange={(value) => pickPlatform(String(value))} />
 			</div>
@@ -137,7 +138,7 @@ export function Evidence({ project }: { project: Project }) {
 					{activeCapture && <EvidenceDetail capture={activeCapture} />}
 				</>
 			)}
-		</section>
+		</Page>
 	);
 }
 

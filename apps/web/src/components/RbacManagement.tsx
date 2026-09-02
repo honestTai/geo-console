@@ -5,6 +5,7 @@ import { Button } from "../access";
 import { api, post, put } from "../api";
 import type { ManagedUser, Paginated, PermissionRecord, ProjectSummary, RoleRecord, UserIdentity } from "../types";
 import { Pagination } from "../ui/primitives";
+import { Page } from "./Page";
 import "./RbacManagement.css";
 
 export function PermissionChecklist({
@@ -221,14 +222,12 @@ export function RbacManagement({ user }: { user: UserIdentity }) {
 	}
 
 	return (
-		<section className="rbac-management">
-			<div className="overview-head">
-				<div>
-					<span className="eyebrow">动态 RBAC</span>
-					<h2>机构、角色、用户与客户范围</h2>
-					<p className="muted">最终权限 = 机构授权上限 ∩ 用户全部角色的权限并集，并继续受客户范围限制。</p>
-				</div>
-			</div>
+		<Page
+			className="rbac-management"
+			eyebrow="动态 RBAC"
+			title="机构、角色、用户与客户范围"
+			description="最终权限 = 机构授权上限 ∩ 用户全部角色的权限并集，并继续受客户范围限制。"
+		>
 			{error && <Alert type="error" showIcon message={error} />}
 			<Tabs
 				activeKey={tab}
@@ -411,6 +410,6 @@ export function RbacManagement({ user }: { user: UserIdentity }) {
 					},
 				]}
 			/>
-		</section>
+		</Page>
 	);
 }

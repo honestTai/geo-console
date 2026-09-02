@@ -5,6 +5,7 @@ import { Button } from "../access";
 import { post } from "../api";
 import type { Competitor, Project, Prompt } from "../types";
 import { type EditableField, EditableList } from "./EditableList";
+import { Page } from "./Page";
 
 const STEPS = [{ title: "抓取官网" }, { title: "人工确认" }, { title: "建立基线" }];
 
@@ -87,19 +88,21 @@ export function Onboarding({ project, refresh }: { project: Project; refresh(): 
 	return (
 		<section className="onboarding">
 			<Steps size="small" current={1} items={STEPS} />
-			<div className="section-head view-head">
-				<div>
-					<h2>审核监测范围</h2>
-					<p>
-						{manualReview
-							? "直接填写真实品牌别名、竞品和购买问题。确认前不会创建采集任务。"
-							: "删除不真实的竞品，修改问题后再确认。确认前不会创建采集任务。"}
-					</p>
-				</div>
-				<Button permission="project.onboard" busy={busy} icon={<IconCheck size={17} />} onClick={confirm}>
-					确认并启用项目
-				</Button>
-			</div>
+			<Page
+				breadcrumb={project.name}
+				eyebrow="客户建档"
+				title="审核监测范围"
+				description={
+					manualReview
+						? "直接填写真实品牌别名、竞品和购买问题。确认前不会创建采集任务。"
+						: "删除不真实的竞品，修改问题后再确认。确认前不会创建采集任务。"
+				}
+				extra={
+					<Button permission="project.onboard" busy={busy} icon={<IconCheck size={17} />} onClick={confirm}>
+						确认并启用项目
+					</Button>
+				}
+			/>
 			{error && <Alert type="error" showIcon message={error} />}
 			<EditableList joined title="品牌别名" items={aliases} onChange={setAliases} placeholder="多个别名用逗号分隔" />
 			<EditableList

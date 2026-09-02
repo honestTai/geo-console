@@ -6,6 +6,7 @@ import { api, post } from "../api";
 import { usePaginated } from "../hooks/usePagination";
 import type { LibraryQuestion, Paginated, Project } from "../types";
 import { date, Empty, Pagination } from "../ui/primitives";
+import { Page } from "./Page";
 
 export function KnowledgeBase({
 	project,
@@ -52,13 +53,13 @@ export function KnowledgeBase({
 		}
 	}
 	return (
-		<section className="knowledge-base">
-			<div className="overview-head">
-				<div>
-					<span className="eyebrow">机构知识资产</span>
-					<h2>行业问题知识库</h2>
-					<p className="muted">新客户官网分析会自动合并同机构、同行业的问题；新增内容只由成员维护。</p>
-				</div>
+		<Page
+			className="knowledge-base"
+			breadcrumb={project?.name}
+			eyebrow="机构知识资产"
+			title="行业问题知识库"
+			description="新客户官网分析会自动合并同机构、同行业的问题；新增内容只由成员维护。"
+			extra={
 				<Input
 					className="knowledge-industry-filter"
 					style={{ width: 220 }}
@@ -68,7 +69,8 @@ export function KnowledgeBase({
 					value={industry}
 					onChange={(event) => setIndustry(event.target.value)}
 				/>
-			</div>
+			}
+		>
 			{error && <Alert type="error" showIcon message={error} />}
 			{!canWrite && <Alert type="info" showIcon message="当前为只读角色，可以查看知识库，但不能新增或归档问题。" />}
 			<Form layout="inline" className="knowledge-create">
@@ -159,6 +161,6 @@ export function KnowledgeBase({
 				onPage={(page) => void questionsPage.reload(page)}
 				onPageSize={questionsPage.setPageSize}
 			/>
-		</section>
+		</Page>
 	);
 }
