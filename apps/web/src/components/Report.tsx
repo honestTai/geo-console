@@ -148,17 +148,6 @@ export function agentRunPhase(run: AgentRun): string {
 	return "正在整理结构化草稿";
 }
 
-export function agentRunProgress(run: AgentRun): number {
-	if (["awaiting_approval", "approved", "rejected"].includes(run.status)) return 100;
-	if (run.status === "failed") return Math.max(12, run.tool_trace.filter((item) => item.type === "end").length * 24);
-	if (run.status === "queued") return 4;
-	const completedTools = new Set(
-		run.tool_trace.filter((item) => item.type === "end" && !item.isError).map((item) => item.tool),
-	);
-	const currentBonus = run.tool_trace.at(-1)?.type === "start" ? 10 : 0;
-	return Math.min(92, 8 + completedTools.size * 22 + currentBonus);
-}
-
 export function agentRunDuration(run: AgentRun): string {
 	const seconds = Math.max(
 		0,
@@ -310,16 +299,6 @@ export function ReportAgentRun({
 					</small>
 				</header>
 				<p className="agent-phase">{agentRunPhase(run)}</p>
-				<div
-					className="agent-progress"
-					role="progressbar"
-					aria-label="任务进度"
-					aria-valuemin={0}
-					aria-valuemax={100}
-					aria-valuenow={agentRunProgress(run)}
-				>
-					<span style={{ width: `${agentRunProgress(run)}%` }} />
-				</div>
 				<details className="agent-run-details" open={run.status === "failed"}>
 					<summary>
 						<IconChevronDown size={15} />

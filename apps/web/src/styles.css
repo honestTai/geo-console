@@ -1504,9 +1504,8 @@ input[type="radio"] {
 .evidence-level {
 	text-align: center;
 	border-radius: var(--radius-l);
-	border-top: 4px solid var(--brand);
+	border: 1px solid var(--line);
 	background: var(--surface);
-	box-shadow: var(--shadow-1);
 	padding: 16px 8px;
 }
 
@@ -1523,14 +1522,6 @@ input[type="radio"] {
 .evidence-level strong {
 	font-size: 30px;
 	margin-top: 3px;
-}
-
-.evidence-level.level-中 {
-	border-color: #d9a62c;
-}
-
-.evidence-level.level-低 {
-	border-color: var(--danger);
 }
 
 .validity-note {
@@ -2202,19 +2193,8 @@ input[type="radio"] {
 	border-radius: 50%;
 	display: grid;
 	place-items: center;
-	background: var(--warning-soft);
-	color: var(--warning);
-}
-
-.agent-run-awaiting_approval .agent-run-status-icon,
-.agent-run-approved .agent-run-status-icon {
-	background: var(--success-soft);
-	color: var(--brand-strong);
-}
-
-.agent-run-failed .agent-run-status-icon {
-	background: var(--danger-soft);
-	color: var(--danger-strong);
+	background: var(--surface-2);
+	color: var(--ink-3);
 }
 
 .agent-run-main {
@@ -2245,29 +2225,9 @@ input[type="radio"] {
 	border-radius: 999px;
 	padding: 2px 9px;
 	font-size: 12px;
-	font-weight: 700;
-}
-
-.agent-status.status-queued,
-.agent-status.status-running {
-	background: var(--warning-soft);
-	color: var(--warning);
-}
-
-.agent-status.status-awaiting_approval,
-.agent-status.status-approved {
-	background: var(--success-soft);
-	color: var(--brand-strong);
-}
-
-.agent-status.status-failed {
-	background: var(--danger-soft);
-	color: var(--danger-strong);
-}
-
-.agent-status.status-rejected {
-	background: #eef0f3;
-	color: var(--ink-3);
+	font-weight: 650;
+	background: var(--surface-2);
+	color: var(--ink-2);
 }
 
 .agent-phase {
@@ -2275,31 +2235,6 @@ input[type="radio"] {
 	font-size: 13px;
 	line-height: 1.5;
 	color: var(--ink-2);
-}
-
-.agent-progress {
-	width: 100%;
-	height: 5px;
-	overflow: hidden;
-	background: #eceef1;
-	border-radius: 999px;
-}
-
-.agent-progress span {
-	display: block;
-	height: 100%;
-	background: #caa53d;
-	border-radius: 999px;
-	transition: width 240ms ease;
-}
-
-.agent-run-awaiting_approval .agent-progress span,
-.agent-run-approved .agent-progress span {
-	background: var(--brand);
-}
-
-.agent-run-failed .agent-progress span {
-	background: var(--danger);
 }
 
 .agent-run-actions {
@@ -2864,7 +2799,7 @@ input[type="radio"] {
 }
 
 .chart-delta-fill.neg {
-	background: var(--danger);
+	background: var(--ink-4);
 }
 
 .chart-bar-value {
@@ -3412,9 +3347,9 @@ textarea:focus {
 	gap: 10px;
 	margin: 14px 0;
 	padding: 16px 20px;
-	background: var(--sidebar-bg);
+	background: var(--surface);
+	border: 1px solid var(--line);
 	border-radius: var(--radius-l);
-	box-shadow: var(--shadow-1);
 }
 
 .ds-darkstrip .dm {
@@ -3423,13 +3358,13 @@ textarea:focus {
 }
 
 .ds-darkstrip span {
-	font-size: 11px;
-	color: var(--ink-4);
+	font-size: 12px;
+	color: var(--ink-3);
 }
 
 .ds-darkstrip b {
 	font-size: 20px;
-	color: #fff;
+	color: var(--ink);
 	font-variant-numeric: tabular-nums;
 }
 
