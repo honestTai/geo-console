@@ -27,8 +27,9 @@
 
 ## 发布包
 
-- 在开发机运行仓库四项检查，再用 Bash 执行 `deploy/package.sh`。
+- 在带 Git 元数据的开发机源码工作区运行仓库四项检查，再用 Bash 执行 `deploy/package.sh`；不得把仓库同步到服务器后在那里打包。
 - 记录 commit、release ID、打包时间、工作区是否 dirty。
+- 检查 manifest 包含 `PACKAGE_MODE=local-source-bundle` 和 `SERVER_IMAGE_ACTION=rebuild`，服务器 payload 不包含 `deploy/package.sh`，且包含本地生成的 `apps/web/dist/index.html`。
 - 检查 bundle 不含 `.env`、顶层 `secrets`、数据库、artifacts、backups 或无关大文件。
 - 由于项目 skill 中含 demo SSH 密码，bundle 是敏感产物，只能进入同一 demo 管理边界。
 - 本地与服务器分别校验 SHA-256；校验失败不得执行。
@@ -36,6 +37,7 @@
 ## 上线前退出条件
 
 - `docker compose config --quiet` 通过。
+- 服务器只校验并解压本地 `.run`，再以 `docker compose build` 重构镜像；服务器上不得执行 `deploy/package.sh` 或 Web 应用构建命令。
 - 旧实例已有包含全部租户/问题库/RBAC/业务审计/运行日志的最新数据库与对象成对备份；S3 模式已抽查原始证据、PDF 和 Word 对象版本。
 - `log-service` 只在 Compose 内网 3020，`GEO_LOG_RETENTION_DAYS` 在 7-3650 范围，Log Service token 不出现在 `.env` 或日志中。
 - 明确 migration 只能向前和可接受的停机窗口。

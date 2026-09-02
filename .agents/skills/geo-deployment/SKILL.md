@@ -46,14 +46,15 @@ corepack pnpm geo start
 - Demo 低并发基线：2 vCPU、4 GB RAM、50 GB SSD、2 GB Swap、`GEO_CAPTURE_CONCURRENCY=1`。持续监测建议至少 4 vCPU、8 GB RAM、80 GB SSD。
 - 只有 Caddy 暴露 80/443。Log Service 3020、API、Capture Worker、Agent Worker、Report Worker 与 PostgreSQL 只在 Compose 网络内。
 - 同一域名根路径发布静态官网，`/app/` 发布业务工作台；官网示意数据与 API、数据库和证据链隔离。
-- 服务器从闭源 `.run` bundle 中的源码构建 Web/Worker 镜像；不依赖公开 Git 仓库。
+- 发布机本地执行 `deploy/package.sh` 生成闭源 `.run` bundle；服务器不得执行打包脚本，只校验/解压该 bundle 并从其中内容重构 Web/Worker 镜像，不依赖公开 Git 仓库。
 - 安装根为 `/opt/geo-console`：`releases/<id>` 保存不可变版本，`current` 指向当前版本，`shared/.env` 与 `shared/secrets` 跨升级保留。
 - PostgreSQL password、32 字节 Base64 master key、bootstrap admin password 和 Log Service token 使用 owner-only Docker Secret 文件。S3 凭据当前保存在 owner-only `shared/.env`；有实例角色时优先省略静态 Access Key。
 - Provider 与 HRouter Key 必须登录平台设置后保存并信封加密，不得写入 image、Compose、release bundle 或普通环境文件。
 
 ## 发布边界
 
-- 本地打包前检查 `git status`。工作区不干净会生成带 `dev-<UTC>` 的 release ID，并把未忽略的未跟踪文件一起打包。
+- 只能在带 Git 元数据的本地源码工作区运行 `deploy/package.sh`。脚本使用 `corepack pnpm` 构建 Web 产物并写入本地打包标记；工作区不干净会生成带 `dev-<UTC>` 的 release ID，并把未忽略的未跟踪文件一起打包。
+- 服务器 payload 不包含 `deploy/package.sh`。`deploy/install.sh` 和 `deploy/geo-console prepare` 必须先验证本地打包标记、服务器镜像重构标记和 Web `dist`，再执行 `docker compose build`；不得通过 SSH 在服务器源码目录重新生成 `.run`。
 - 当前 `deploy/package.sh` 会打包仓库内的 `.agents/skills`，所以包含本文件中的 demo 凭据。将生成的 bundle 与仓库本身视为敏感资产；不得发送到 demo 管理范围之外。
 - 桌面客户端使用独立 Tauri 签名链。私钥只能在发布机 owner-only 文件或受控 CI Secret 中，绝不能打入服务器 `.run`、Git 或 `latest.json`；客户端只保存公钥。
 - bundle 不应包含 `.env`、`secrets/`、数据库、证据或备份；脚本会拒绝顶层 `.env` 和 `secrets`，仍要检查产物清单和 SHA-256。

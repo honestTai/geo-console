@@ -40,7 +40,7 @@ usage() {
 Usage: geo-console <command> [arguments]
 
 Commands:
-  deploy                 Build and start the complete stack in migration-safe order
+  deploy                 Rebuild images and start the complete stack in migration-safe order
   status                 Show service state and the public health response
   doctor                 Validate Compose, service health, HTTPS, and backups
   logs [service]         Follow logs for all services or one service
@@ -133,8 +133,15 @@ run_backup() {
 }
 
 build_images() {
+	if [[ -f "$APP_DIR/.geo-release" ]]; then
+		[[ "$(awk -F= '$1 == "PACKAGE_MODE" { print $2; exit }' "$APP_DIR/.geo-release")" == "local-source-bundle" ]] || fail "release was not packaged locally"
+		[[ "$(awk -F= '$1 == "SERVER_IMAGE_ACTION" { print $2; exit }' "$APP_DIR/.geo-release")" == "rebuild" ]] || fail "release does not allow server image reconstruction"
+		[[ ! -e "$APP_DIR/deploy/package.sh" ]] || fail "local packaging command must not exist in a server release"
+		[[ -s "$APP_DIR/apps/web/dist/index.html" ]] || fail "locally built Web assets are missing"
+	fi
 	dc config --quiet
 	dc pull postgres caddy
+	log "Reconstructing application images from the locally packaged release"
 	dc build --pull api web
 }
 

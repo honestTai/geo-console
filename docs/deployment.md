@@ -66,7 +66,7 @@ curl -fsS https://www.honesttai.com/desktop/latest.json
 
 ### 本地生成闭源发布包
 
-发布包通过 SSH/SCP 私下传输，不依赖公开 Git 仓库，也不包含 Git 历史、`.env`、Secret、数据库、证据、备份或 `apps/desktop`。它只包含构建服务器镜像所需的当前源码；桌面客户端走独立签名发布，服务器安装目录仅 root 可进入。
+发布包只能在带 Git 元数据的开发机源码工作区生成，再通过 SSH/SCP 私下传输；不得在服务器上执行打包脚本。它不依赖公开 Git 仓库，也不包含 Git 历史、`.env`、Secret、数据库、证据、备份、`apps/desktop` 或仅供本地使用的 `deploy/package.sh`。它包含服务器重构镜像所需的当前源码和本地生成的 Web `dist`；桌面客户端走独立签名发布，服务器安装目录仅 root 可进入。
 
 在开发机仓库中执行：
 
@@ -74,7 +74,7 @@ curl -fsS https://www.honesttai.com/desktop/latest.json
 bash deploy/package.sh
 ```
 
-命令在 `dist/` 生成单文件 `geo-console-<版本>.run` 和对应的 SHA-256 文件。工作区干净时版本号使用 Git commit；包含未提交开发改动时会加入 `dev` 和 UTC 时间戳。
+命令使用 `corepack pnpm` 在本地构建 Web，并在 `dist/` 生成单文件 `geo-console-<版本>.run` 和对应的 SHA-256 文件。工作区干净时版本号使用 Git commit；包含未提交开发改动时会加入 `dev` 和 UTC 时间戳。manifest 会标记本地打包和服务器镜像重构模式，安装器会在服务器重构镜像前验证这些标记、Web `dist` 以及 payload 中不存在 `deploy/package.sh`。
 
 打包器会把 Windows 工作树中的部署 shell 入口规范化为 LF，确保自解压安装器和 `geo-console` 管理命令可在 Linux 执行。
 
@@ -124,9 +124,9 @@ sudo geo-console show-admin-password
 sudo geo-console upgrade /tmp/geo-console-<新版本>.run
 ```
 
-新镜像会在旧版本仍在线时构建。切换前自动备份 PostgreSQL 与本地证据，之后停止应用服务、切换 `current` 软链接、按顺序运行迁移并启动新版本。旧 release 目录会保留，但迁移只向前执行，不会自动回滚数据库。
+服务器先校验并解压本地生成的 `.run`，再在旧版本仍在线时重构新镜像；服务器不执行 `deploy/package.sh` 或 Web 应用构建。切换前自动备份 PostgreSQL 与本地证据，之后停止应用服务、切换 `current` 软链接、按顺序运行迁移并启动新版本。旧 release 目录会保留，但 migration 只向前执行，不会自动回滚数据库。
 
-镜像构建在服务器上从 bundle 源码执行；Web 静态产物由发布机本地构建（`deploy/package.sh` 运行 `pnpm --filter @geo/web build` 并把 dist 打进 bundle),Web 镜像只复制 dist;Worker 镜像构建的 pnpm/corepack 走 npmmirror、Playwright 浏览器下载走 npmmirror CDN(lockfile 完整性校验不变），国内服务器升级不再直连 npmjs.org。
+应用发布包只在本地生成；服务器从 bundle 重构 Docker 镜像。Web 静态产物由发布机本地构建（`deploy/package.sh` 运行 `corepack pnpm --filter @geo/web build` 并把 dist 放进 bundle），Web 镜像只复制 dist；Worker 镜像重构的 pnpm/corepack 走 npmmirror、Playwright 浏览器下载走 npmmirror CDN（lockfile 完整性校验不变），国内服务器升级不再直连 npmjs.org。
 
 常用管理命令：
 

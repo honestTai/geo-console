@@ -26,9 +26,9 @@ corepack pnpm desktop:build
 
 产物位于 `dist/geo-console-<release>.run` 和对应 `.sha256`。clean worktree 使用 12 位 commit；dirty worktree 使用 `<commit>-dev-<UTC>`。
 
-脚本通过 `git ls-files --cached --others --exclude-standard` 收集服务器文件并明确排除 `apps/desktop`。不要假定只有已提交文件会进入 bundle；桌面客户端必须走独立签名产物流程。
+脚本只能在带 Git 元数据的本地源码工作区运行，通过 `git ls-files --cached --others --exclude-standard` 收集服务器文件，并明确排除 `apps/desktop` 和仅供本地使用的 `deploy/package.sh`。不要假定只有已提交文件会进入 bundle；桌面客户端必须走独立签名产物流程。
 
-打包器必须把 `deploy/install.sh`、`deploy/package.sh` 和 `deploy/geo-console` 规范化为 LF。生成后检查 bundle 启动器与 payload shell 文件不含 CRLF，避免 Linux 在 `set -o pipefail` 或 shebang 处失败。
+打包器必须把 `deploy/install.sh` 和 `deploy/geo-console` 规范化为 LF，并在 manifest 写入 `PACKAGE_MODE=local-source-bundle` 与 `SERVER_IMAGE_ACTION=rebuild`。生成后检查 bundle 启动器与 payload shell 文件不含 CRLF，避免 Linux 在 `set -o pipefail` 或 shebang 处失败。
 
 ## 2. 连接 Demo
 
@@ -103,9 +103,9 @@ geo-console backup
 geo-console upgrade /tmp/geo-console-<release>.run
 ```
 
-upgrade 会构建新镜像、再次创建切换前备份、停止应用服务、切换 `current` 并激活。PostgreSQL 与 Caddy 数据卷保持不变。
+upgrade 会验证 bundle 确实来自本地打包且包含本地 Web 产物，在服务器重构新镜像、再次创建切换前备份、停止应用服务、切换 `current` 并激活。PostgreSQL 与 Caddy 数据卷保持不变。
 
-镜像构建在服务器本地执行，但 Web 静态产物由发布机本地构建（`deploy/package.sh` 自动运行 `pnpm --filter @geo/web build` 并把 `apps/web/dist` 打进 bundle)，Web 镜像只复制 dist、不再在构建期安装依赖；Worker 镜像的 corepack/pnpm registry 与 Playwright 浏览器下载走 npmmirror，且镜像构建会松弛 minimumReleaseAge/trustPolicy 元数据检查（`--frozen-lockfile` 的 sha512 完整性校验保留，策略检查仍以发布机本地安装为准）。慢速外网或 SSH 断连时，可用 `nohup geo-console upgrade ... > /tmp/upgrade-<id>.log 2>&1 &` 挂后台再轮询日志。
+应用发布包只能在发布机本地生成，服务器 payload 没有 `deploy/package.sh`。Web 静态产物由本地 `deploy/package.sh` 通过 `corepack pnpm --filter @geo/web build` 生成并放入 bundle；服务器只校验/解压 bundle，再用 `docker compose build` 重构 Web/Worker 镜像，Web 镜像只复制 dist、不运行应用构建。Worker 镜像重构时的 corepack/pnpm registry 与 Playwright 浏览器下载走 npmmirror，且会松弛 minimumReleaseAge/trustPolicy 元数据检查（`--frozen-lockfile` 的 sha512 完整性校验保留，策略检查仍以发布机本地安装为准）。慢速外网或 SSH 断连时，可用 `nohup geo-console upgrade ... > /tmp/upgrade-<id>.log 2>&1 &` 挂后台再轮询日志。
 
 升级后验证：
 
