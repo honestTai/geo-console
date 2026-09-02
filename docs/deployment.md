@@ -64,9 +64,11 @@ sudo geo-console desktop-publish /tmp/latest.json /tmp/zz-geo-0.2.0-darwin-aarch
 curl -fsS https://www.honesttai.com/desktop/latest.json
 ```
 
-### 本地生成闭源发布包
+### 本地构建服务器发布包
 
-发布包只能在带 Git 元数据的开发机源码工作区生成，再通过 SSH/SCP 私下传输；不得在服务器上执行打包脚本。它不依赖公开 Git 仓库，也不包含 Git 历史、`.env`、Secret、数据库、证据、备份、`apps/desktop` 或仅供本地使用的 `deploy/package.sh`。它包含服务器重构镜像所需的当前源码和本地生成的 Web `dist`；桌面客户端走独立签名发布，服务器安装目录仅 root 可进入。
+发布机可以是 Windows、macOS 或 Linux。`deploy/package.sh` 使用本地 Docker Buildx 的目标 Linux 容器安装服务端依赖，把依赖、后端源码和 migration 导出为跨宿主系统的 `server-runtime.tar`；Web dist 同样在本地生成。不能把 Windows/macOS `node_modules` 直接复制到 Linux。
+
+release 使用明确 allowlist，不包含 `.agents` 与 Demo 凭据、Git 历史、`.env`、Secret、数据库、证据、备份、宿主机 node_modules、`apps/desktop` 或本地打包脚本。生产 `.env` 与 Secret 始终只保存在服务器 `/opt/geo-console/shared`。
 
 在开发机仓库中执行：
 
@@ -74,7 +76,9 @@ curl -fsS https://www.honesttai.com/desktop/latest.json
 bash deploy/package.sh
 ```
 
-命令使用 `corepack pnpm` 在本地构建 Web，并在 `dist/` 生成单文件 `geo-console-<版本>.run` 和对应的 SHA-256 文件。工作区干净时版本号使用 Git commit；包含未提交开发改动时会加入 `dev` 和 UTC 时间戳。manifest 会标记本地打包和服务器镜像重构模式，安装器会在服务器重构镜像前验证这些标记、Web `dist` 以及 payload 中不存在 `deploy/package.sh`。
+命令要求本地 Node/corepack pnpm、Docker 和 Buildx，默认生成 `linux/amd64` server artifact；ARM64 服务器明确设置 `GEO_SERVER_PLATFORM=linux/arm64`。脚本在 `dist/` 生成 `geo-console-<版本>.run` 和 SHA-256。工作区干净时版本号使用 Git commit；有未提交改动时加入 `dev` 和 UTC 时间戳。
+
+服务器使用已经验证的 `geo-console-worker-base:node24-playwright1234` 提供 Node、Playwright Chromium、中文字体和系统库。每个 release 的 Dockerfile 只有 `FROM`、`ADD/COPY`、`ENV` 和 `CMD`：Worker 镜像加入本地 `server-runtime.tar`，Web 镜像复制本地 dist/landing。服务器不运行 pnpm、apt、Playwright 下载或 Web build。
 
 打包器会把 Windows 工作树中的部署 shell 入口规范化为 LF，确保自解压安装器和 `geo-console` 管理命令可在 Linux 执行。
 
@@ -98,7 +102,8 @@ sudo bash ./geo-console-<版本>.run \
 
 安装器会：
 
-- 从 Docker 官方 APT 仓库安装 Docker Engine、Buildx 和 Compose 插件（已有则复用）。
+- 从 Docker 官方 APT 仓库安装 Docker Engine 和 Compose 插件（已有则复用）。
+- 校验本地生成的 Linux server artifact，并从服务器已有基础镜像重构应用镜像。
 - 在无 Swap 的服务器创建 `/swapfile` 2 GB；可用 `--no-swap` 关闭。
 - 创建 `/opt/geo-console/releases/<版本>` 和持久的 `/opt/geo-console/shared`。
 - 生成 owner-only 的 PostgreSQL 密码、32 字节 Base64 主密钥、系统超管初始密码和 Log Service 内部令牌。
@@ -124,9 +129,7 @@ sudo geo-console show-admin-password
 sudo geo-console upgrade /tmp/geo-console-<新版本>.run
 ```
 
-服务器先校验并解压本地生成的 `.run`，再在旧版本仍在线时重构新镜像；服务器不执行 `deploy/package.sh` 或 Web 应用构建。切换前自动备份 PostgreSQL 与本地证据，之后停止应用服务、切换 `current` 软链接、按顺序运行迁移并启动新版本。旧 release 目录会保留，但 migration 只向前执行，不会自动回滚数据库。
-
-应用发布包只在本地生成；服务器从 bundle 重构 Docker 镜像。Web 静态产物由发布机本地构建（`deploy/package.sh` 运行 `corepack pnpm --filter @geo/web build` 并把 dist 放进 bundle），Web 镜像只复制 dist；Worker 镜像重构的 pnpm/corepack 走 npmmirror、Playwright 浏览器下载走 npmmirror CDN（lockfile 完整性校验不变），国内服务器升级不再直连 npmjs.org。
+服务器先在旧版本在线时验证 `server-runtime.tar` 哈希、目标平台、Compose、固定 Worker base/PostgreSQL/Caddy 镜像以及 Dockerfile 不含 `RUN`。随后仅以 `FROM` + `ADD/COPY` 从本地产物重构 Worker/Web 镜像，不执行 `docker pull`、pnpm、apt、Playwright 下载或 Web build。切换前自动备份 PostgreSQL 与本地证据，之后停止应用服务、切换 `current` 并按顺序启动新容器。旧 release 目录会保留，但 migration 只向前执行，不会自动回滚数据库。
 
 常用管理命令：
 

@@ -1,10 +1,22 @@
 # GEO Console Release Workflow
 
-## 1. 本地验证与打包
+## 1. 单一发布流程
 
-从仓库根目录执行：
+每次发布都执行同一条链路：
+
+1. 发布机本地安装/校验依赖并运行仓库检查。
+2. `deploy/package.sh` 在本地 Docker Buildx 的目标 Linux 容器中安装服务端依赖，连同后端源码和 migration 导出为 `server-runtime.tar`；同时在宿主机本地构建 Web dist。
+3. `.run` 只携带上述两个本地产物、landing、Compose/Caddy 和安装/管理脚本。
+4. 服务器校验并替换 release，用无 `RUN` Dockerfile 执行 `FROM` + `ADD/COPY` 重构 Worker/Web 镜像，然后备份、切换并重启容器。
+
+服务器不得运行 pnpm、apt、Playwright 下载、Web build 或 `docker pull`。生产 `.env` 与 Secret 永远只保存在 `/opt/geo-console/shared`，不由 Windows/macOS/Linux 发布机生成或打入 bundle。
+
+## 2. 本地验证与打包
+
+发布机需要 Node 24、corepack pnpm 11、Docker Engine/Desktop 和 Buildx。Windows 使用 Git Bash 或 WSL 运行 Bash 脚本；服务端 artifact 始终由 Linux BuildKit 容器生成，不能复制 Windows `node_modules`。
 
 ```bash
+corepack pnpm install --frozen-lockfile
 corepack pnpm check-types
 corepack pnpm test
 corepack pnpm build
@@ -12,47 +24,43 @@ corepack pnpm lint
 bash deploy/package.sh
 ```
 
-服务器 `.run` 与桌面客户端是两套产物。需要发布桌面版本时额外执行：
+Demo 默认目标为 `linux/amd64`；只有目标服务器明确为 ARM64 时设置 `GEO_SERVER_PLATFORM=linux/arm64`。发布机需要代理时，可为单次 BuildKit 构建设置 `GEO_BUILD_PROXY=http://<host>:<port>`；该值不进入 artifact、manifest 或服务器配置。
 
-```bash
-export TAURI_SIGNING_PRIVATE_KEY="$HOME/.tauri/zz-geo.key"
-export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
-corepack pnpm desktop:build
+产物：
+
+```text
+dist/geo-console-<release>.run
+dist/geo-console-<release>.run.sha256
 ```
 
-私钥不能进入 bundle 或仓库。上传 Tauri 平台产物、对应 `.sig` 与完整 `latest.json` 到受控 HTTPS 更新位置；先用内置公钥验证签名，再更新清单。更新清单不能包含不存在的平台占位记录。
+clean worktree 使用 12 位 commit；dirty worktree 使用 `<commit>-dev-<UTC>`。manifest 必须记录：
 
-服务器使用 `geo-console desktop-publish <latest.json> <update-asset...>` 原子发布到跨应用升级保留的 `shared/desktop`。先发布版本化资产，最后替换清单；命令保留上一份清单，不删除旧资产。
-
-产物位于 `dist/geo-console-<release>.run` 和对应 `.sha256`。clean worktree 使用 12 位 commit；dirty worktree 使用 `<commit>-dev-<UTC>`。
-
-脚本只能在带 Git 元数据的本地源码工作区运行，通过 `git ls-files --cached --others --exclude-standard` 收集服务器文件，并明确排除 `apps/desktop` 和仅供本地使用的 `deploy/package.sh`。不要假定只有已提交文件会进入 bundle；桌面客户端必须走独立签名产物流程。
-
-打包器必须把 `deploy/install.sh` 和 `deploy/geo-console` 规范化为 LF，并在 manifest 写入 `PACKAGE_MODE=local-source-bundle` 与 `SERVER_IMAGE_ACTION=rebuild`。生成后检查 bundle 启动器与 payload shell 文件不含 CRLF，避免 Linux 在 `set -o pipefail` 或 shebang 处失败。
-
-## 2. 连接 Demo
-
-连接参数在父级 `SKILL.md`。使用标准 SSH/SCP 的交互式密码提示，不使用 `sshpass`、URL 密码或禁用 host-key 校验。
-
-首次连接：
-
-```bash
-ssh root@geo.example.com
+```text
+PACKAGE_MODE=local-server-artifacts
+SERVER_IMAGE_ACTION=reconstruct
+SERVER_PLATFORM=linux/amd64
+SERVER_ARTIFACT=server-runtime.tar
+SERVER_ARTIFACT_SHA256=<sha256>
+WORKER_BASE_IMAGE=geo-console-worker-base:node24-playwright1234
 ```
 
-记录服务端展示的 host-key fingerprint，确认后再继续。先执行只读检查：
+payload 不得包含 `.agents`/Demo 凭据、Git、desktop、宿主机 node_modules、`.env`、Secret、数据库、证据、备份或本地打包脚本。
+
+## 3. 固定 Worker Base
+
+服务器保留 `geo-console-worker-base:node24-playwright1234`，其中只有 Node 运行环境、Playwright Chromium、中文字体和系统库。普通 release 不改变它；Node、Playwright 或系统库升级需要单独评审、构建和验证新的 base tag，再更新 `GEO_WORKER_BASE_IMAGE` 生成 release。
+
+从旧协议切换到本流程时，可把当前已验证的 Worker 镜像标记为 base：
 
 ```bash
-test -f /opt/geo-console/shared/.env && sed -n '/^GEO_DOMAIN=/p;/^GEO_ADMIN_EMAIL=/p' /opt/geo-console/shared/.env
-test -L /opt/geo-console/current && readlink -f /opt/geo-console/current
-command -v geo-console >/dev/null && geo-console version
+docker tag geo-console-worker:<current-release> geo-console-worker-base:node24-playwright1234
 ```
 
-只读取非 Secret 配置。不要输出完整 `.env` 或 `shared/secrets`。
+只允许对已经运行并通过 PDF/中文字体检查的当前镜像执行该一次性标记。
 
-## 3. 上传与校验
+## 4. 上传与预检
 
-开发机：
+使用标准 SSH/SCP 交互密码，不使用 `sshpass` 或关闭 host-key 校验：
 
 ```bash
 scp dist/geo-console-<release>.run \
@@ -60,81 +68,43 @@ scp dist/geo-console-<release>.run \
     root@geo.example.com:/tmp/
 ```
 
-服务器：
+服务器先只读检查当前版本、八个服务、备份和磁盘，再在 `/tmp` 用明确文件名执行 `sha256sum -c`。`geo-console prepare` 必须在旧服务在线时完成：
+
+- 外层 bundle 与内层 `server-runtime.tar` 哈希正确。
+- artifact 平台匹配服务器。
+- Worker base、PostgreSQL 和 Caddy 镜像已存在且平台匹配。
+- Compose 有效，服务器 Dockerfile 没有 `RUN`。
+- `docker compose build api web` 只读取本地 base/artifact/dist，不使用 `--pull`。
+
+## 5. 安装与升级
+
+首次安装：
 
 ```bash
-cd /tmp
-sha256sum -c geo-console-<release>.run.sha256
-```
-
-使用明确文件名，不通过 glob 执行未知 bundle。
-
-## 4. 首次安装
-
-只有确认域名和管理员邮箱后执行：
-
-```bash
-bash /tmp/geo-console-<release>.run \
+sudo bash /tmp/geo-console-<release>.run \
   --domain <confirmed-domain> \
   --admin-email <confirmed-admin-email> \
   --capture-concurrency 1
 ```
 
-默认安装到 `/opt/geo-console`，备份到 `/var/backups/geo-console`。可用 `--backup-dir <absolute-path>` 指定已确认位置。只有明确不需要安装 Docker 或 Swap 时才用 `--skip-docker-install` / `--no-swap`。
-
-安装完成后：
+已有实例：
 
 ```bash
-geo-console doctor
-geo-console status
-geo-console show-admin-password
+sudo geo-console backup
+sudo geo-console upgrade /tmp/geo-console-<release>.run
 ```
 
-只向授权用户显示一次 bootstrap password。立即离线备份 `/opt/geo-console/shared/secrets/master_key`，再登录 UI 配置 Provider/HRouter。
+新镜像在旧版本在线时由本地产物重构。切换前再次创建 PostgreSQL/evidence 成对备份，然后停止应用服务、原子切换 `current`，按 PostgreSQL -> Log Service -> API -> Workers -> Web/Caddy 顺序启动。Log Service/API 启动时继续执行向前 migration。
 
-## 5. 已有实例升级
+升级日志中出现 pnpm、apt、Playwright download、Web build 或远程 image pull 都属于协议失败，应在切换前停止。
 
-先确认版本和备份：
+## 6. 上线验证与回滚
 
-```bash
-geo-console version
-geo-console doctor
-geo-console backup
-geo-console upgrade /tmp/geo-console-<release>.run
-```
+升级后执行 `geo-console version/status/doctor`，并验证 HTTPS 根路径、`/app/`、`/api/health`、Log Service、migration、结构化日志、对象读写、Provider 连接和中文 PDF。
 
-upgrade 会验证 bundle 确实来自本地打包且包含本地 Web 产物，在服务器重构新镜像、再次创建切换前备份、停止应用服务、切换 `current` 并激活。PostgreSQL 与 Caddy 数据卷保持不变。
+- 构建或 pre-switch 失败保持旧版本在线。
+- 切换后失败且 migration 兼容时，重新激活旧 release；保留旧应用镜像和 Worker base 到回滚窗口结束。
+- migration 不兼容时，用切换前 dump 与 evidence/S3 版本恢复到新建空数据库和隔离对象位置，不能覆盖唯一数据库。
+- 部署窗口结束后按明确文件名清理 `/tmp` 的 `.run`/checksum，不使用 glob。
 
-应用发布包只能在发布机本地生成，服务器 payload 没有 `deploy/package.sh`。Web 静态产物由本地 `deploy/package.sh` 通过 `corepack pnpm --filter @geo/web build` 生成并放入 bundle；服务器只校验/解压 bundle，再用 `docker compose build` 重构 Web/Worker 镜像，Web 镜像只复制 dist、不运行应用构建。Worker 镜像重构时的 corepack/pnpm registry 与 Playwright 浏览器下载走 npmmirror，且会松弛 minimumReleaseAge/trustPolicy 元数据检查（`--frozen-lockfile` 的 sha512 完整性校验保留，策略检查仍以发布机本地安装为准）。慢速外网或 SSH 断连时，可用 `nohup geo-console upgrade ... > /tmp/upgrade-<id>.log 2>&1 &` 挂后台再轮询日志。
-
-升级后验证：
-
-```bash
-geo-console version
-geo-console doctor
-geo-console status
-geo-console logs api
-geo-console logs log-service
-```
-
-同时在浏览器或使用有界 HTTP 请求验证：
-
-- `https://<domain>/` 返回产品官网。
-- `https://<domain>/app` 重定向到 `/app/`。
-- `https://<domain>/app/` 返回工作台，并可进入登录流程。
-- 官网“进入工作台”链接指向同域 `/app`。
-- `/api/health` 中 `logService.status=ok`，容器内 `log-service:3020/health` 可用，工作台管理员可看到当前机构结构化日志。
-- 浏览器调试入口和已签名桌面客户端返回相同动态导航；桌面“检查更新”只能接受 GEO 公钥验证的包。
-
-`geo-console logs` 会持续跟随；只需有界日志时改用当前 release 下的 `docker compose --env-file .env logs --tail=200 <service>`。
-
-## 6. 回滚/恢复
-
-- 若新 release 构建或 pre-switch 检查失败，保持旧 `current` 在线，不执行切换。
-- 若切换后失败且没有不兼容 migration，可在确认后重新激活旧 release；管理脚本没有内置 rollback 命令，不要临时改软链接后跳过验证。
-- 若 migration 不兼容，使用升级前 dump 和 evidence/S3 版本恢复到新建空 PostgreSQL 与隔离对象位置，验证旧 release 的健康、登录、样本证据、Log Service 和 PDF 后，再切换流量。
-- 不要把 dump 直接恢复覆盖唯一数据库，也不要只回滚应用而忽略 schema。
-
-## 7. 清理
-
-上传到 `/tmp` 的 bundle 含源码和 demo skill 凭据。部署与回滚窗口结束、确认不再需要后，按用户授权精确删除对应 `.run` 和 `.sha256` 文件；不要使用宽泛 glob。保留 `/opt/geo-console/releases` 中的受控 release，直到备份和回滚窗口结束。
+桌面客户端继续使用独立 Tauri 签名发布链，不进入服务器 bundle。

@@ -10,7 +10,7 @@ docker compose ps
 docker compose logs --tail=200 log-service api capture-worker agent-worker report-worker
 ```
 
-服务器离线发布包安装后优先使用：
+服务器 release 安装后优先使用：
 
 ```bash
 sudo geo-console doctor
@@ -20,6 +20,8 @@ sudo geo-console logs capture-worker
 sudo geo-console logs agent-worker
 sudo geo-console logs report-worker
 ```
+
+`geo-console upgrade` 只允许服务器从 release 内本地构建的 Linux artifact/dist 重构镜像；日志中出现 pnpm、apt、Playwright download、Web build 或远程 pull 都表示发布协议错误。`restart` 只按顺序重启已有镜像，不重新构建。
 
 健康响应会标识数据库类型、对象存储模式、HRouter 配置状态、云端采集模式和 Log Service 健康，不暴露 Key 或完整模型配置。
 
@@ -75,7 +77,7 @@ Provider/HRouter 凭据继续按机构隔离；环境变量 Key 只对默认机�
 
 本机备份前停止 `pnpm geo start`，再运行 `corepack pnpm geo backup`。服务器使用 `docker compose --profile backup run --rm backup`。数据库与本地证据卷必须同一时间点恢复；S3 模式应先验证对象版本仍存在。
 
-恢复必须进入新建空 PGlite/PostgreSQL，运行健康与证据抽查后再切换。不要直接覆盖唯一实例。服务器发布包在 `/opt/geo-console/releases/` 保留历史应用版本，但仅切换应用软链接不能撤销不兼容数据库迁移。
+恢复必须进入新建空 PGlite/PostgreSQL，运行健康与证据抽查后再切换。不要直接覆盖唯一实例。服务器 release 与应用镜像至少保留到回滚窗口结束，但仅切换应用版本不能撤销不兼容数据库迁移。
 
 ## 证据保留
 
