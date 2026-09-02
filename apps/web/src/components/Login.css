@@ -1,0 +1,4 @@
+/* 登录表单切到 antd Form 后的间距微调 */
+.login-panel .ant-form-item {
+	margin-bottom: 0;
+}

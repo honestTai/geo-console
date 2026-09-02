@@ -1,0 +1,52 @@
+.monitor-head-actions {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.monitor-config-form {
+	width: 264px;
+}
+
+.monitor-config-form .ant-form-item:last-child {
+	margin-bottom: 0;
+}
+
+.monitor-error {
+	margin: 12px 0;
+}
+
+.monitor-alert-section {
+	margin: 14px 0;
+}
+
+.monitor-alert-section .section-head.compact h3 {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin: 0;
+}
+
+.monitor-alert-section .pagination-bar {
+	margin-top: 10px;
+}
+
+.schedule-section {
+	margin: 14px 0;
+}
+
+.schedule-summary {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.schedule-hint {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 0 0 8px;
+	font-size: 13px;
+}

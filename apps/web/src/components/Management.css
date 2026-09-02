@@ -1,0 +1,20 @@
+/* 管理视图二级导航（antd Tabs 接管原 .management-nav 的位置） */
+.management-tabs {
+	padding: 8px 28px 0;
+	background: var(--surface);
+	border-bottom: 1px solid var(--line);
+}
+
+.management-tabs .ant-tabs-nav {
+	margin-bottom: 0;
+}
+
+.management-tabs .ant-tabs-nav::before {
+	border-bottom: none;
+}
+
+.management-tab {
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+}

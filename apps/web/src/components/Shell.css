@@ -1,0 +1,60 @@
+/* 深色侧边栏（antd Sider / Menu 之上的一层薄壳样式） */
+.app-sider .ant-layout-sider-children {
+	display: flex;
+	flex-direction: column;
+}
+
+.app-sider-inner {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	padding: 20px 12px 12px;
+	overflow-y: auto;
+}
+
+.app-sider .app-sider-brand {
+	padding: 2px 10px 18px;
+}
+
+.app-sider .app-sider-brand strong {
+	color: #ffffff;
+}
+
+.app-sider .app-sider-brand small {
+	color: rgba(255, 255, 255, 0.55);
+}
+
+.app-sider .app-sider-switch {
+	margin: 0 0 14px;
+	background: rgba(255, 255, 255, 0.06);
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	color: rgba(255, 255, 255, 0.85);
+}
+
+.app-sider .app-sider-switch:hover {
+	background: rgba(255, 255, 255, 0.12);
+	border-color: rgba(255, 255, 255, 0.22);
+}
+
+.app-sider .app-sider-menu {
+	flex: 1;
+	min-height: 0;
+	background: transparent;
+	border-inline-end: none;
+}
+
+.app-sider .app-sider-menu .ant-menu-item {
+	border-radius: 8px;
+}
+
+.app-sider-foot {
+	margin-top: auto;
+	border-top: 1px solid rgba(255, 255, 255, 0.12);
+	padding: 14px 10px 2px;
+	font-size: 12px;
+	color: rgba(255, 255, 255, 0.45);
+}
+
+.app-shell-alert {
+	margin-bottom: 16px;
+}

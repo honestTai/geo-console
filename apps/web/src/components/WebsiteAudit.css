@@ -1,0 +1,25 @@
+.audit-hero {
+	display: flex;
+	align-items: center;
+	gap: 24px;
+	flex-wrap: wrap;
+}
+
+.audit-hero-text p {
+	margin: 8px 0 0;
+}
+
+.audit-facts {
+	margin: 16px 0;
+}
+
+.audit-checks-head {
+	display: flex;
+	align-items: baseline;
+	gap: 12px;
+	margin: 16px 0 4px;
+}
+
+.audit-checks-head h3 {
+	margin: 0;
+}

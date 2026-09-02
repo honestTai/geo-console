@@ -1,0 +1,111 @@
+/* 项目首页：antd Card 网格 + 新建占位卡 + 建档弹窗表单 */
+.project-home-search {
+	max-width: 340px;
+	margin-top: 18px;
+}
+
+.project-home-card {
+	cursor: pointer;
+	transition:
+		box-shadow var(--ease),
+		transform var(--ease),
+		border-color var(--ease);
+}
+
+.project-home-card .ant-card-body {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-height: 196px;
+	padding: 20px;
+}
+
+.project-home-card:hover {
+	border-color: var(--brand-line);
+	box-shadow: var(--shadow-2);
+	transform: translateY(-2px);
+}
+
+.project-home-card-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.project-home-card-head .card-arrow {
+	color: var(--ink-4);
+	transition:
+		color var(--ease),
+		transform var(--ease);
+}
+
+.project-home-card:hover .card-arrow {
+	color: var(--brand);
+	transform: translateX(3px);
+}
+
+.project-home-card .project-home-card-name {
+	margin: 8px 0 0;
+}
+
+.project-home-card-stats {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 8px;
+	margin-top: auto;
+	padding-top: 12px;
+	border-top: 1px solid var(--line);
+}
+
+.project-home-card-stats span {
+	display: block;
+	font-size: 12px;
+	color: var(--ink-4);
+}
+
+.project-home-card-stats b {
+	display: block;
+	margin-top: 2px;
+	font-size: 12.5px;
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.project-home-card-new {
+	border-style: dashed;
+	background: transparent;
+}
+
+.project-home-card-new:hover {
+	color: var(--brand);
+	border-color: var(--brand);
+}
+
+.project-home-card-new .ant-card-body {
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	color: var(--ink-3);
+}
+
+.project-home-modal-title {
+	margin-top: 4px;
+	font-size: 18px;
+	font-weight: 650;
+}
+
+.create-project-form {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	column-gap: 16px;
+}
+
+.create-project-form .ant-form-item {
+	margin-bottom: 14px;
+}
+
+.form-item-wide {
+	grid-column: 1 / -1;
+}
