@@ -10,3 +10,4 @@ server-backups
 dist
 .DS_Store
 *.log
+!apps/web/dist

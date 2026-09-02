@@ -14,10 +14,22 @@ timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 release_id="$commit"
 if [[ -n "$(git -C "$REPO_DIR" status --porcelain)" ]]; then release_id="$commit-dev-$timestamp"; fi
 
+# Web 静态产物在发布机本地构建，服务器镜像只复制 dist，不在构建期安装前端依赖。
+printf 'Building web assets locally...\n'
+(
+	cd "$REPO_DIR"
+	pnpm --filter @geo/web build
+)
+[[ -d "$REPO_DIR/apps/web/dist" ]] || { printf 'web dist missing after build\n' >&2; exit 1; }
+
 (
 	cd "$REPO_DIR"
 	git ls-files --cached --others --exclude-standard -z -- . ':(exclude)apps/desktop/**' | COPYFILE_DISABLE=1 tar --null -T - -cf -
 ) | tar -xf - -C "$stage_dir/payload"
+
+# apps/web/dist 被 .gitignore 排除，不在 git ls-files 中，需显式补进 payload。
+mkdir -p "$stage_dir/payload/apps/web"
+cp -r "$REPO_DIR/apps/web/dist" "$stage_dir/payload/apps/web/dist"
 
 # Windows checkouts may use CRLF. Release entrypoints run under Linux and must be LF.
 for script in deploy/install.sh deploy/package.sh deploy/geo-console; do
