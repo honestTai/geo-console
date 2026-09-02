@@ -13,7 +13,7 @@
 | PostgreSQL | 业务、队列和证据索引 | 生产唯一数据库 |
 | local/S3 store | raw response、网页、PDF、Word | 写入必须不可覆盖 |
 
-服务器管理命令位于 `/usr/local/bin/geo-console`，实际 release 在 `/opt/geo-console/current`，共享配置和 Secret 在 `/opt/geo-console/shared`。
+服务器管理命令位于 `/usr/local/bin/geo-console`，实际 release 在 `/opt/geo-console/current`，共享配置和 Secret 在 `/opt/geo-console/shared`。每次 release 携带发布机本地生成的 Linux server artifact 和 Web dist；服务器只以 `FROM` + `ADD/COPY` 重构镜像，普通 restart 只重启已有镜像。
 
 本机 PGlite 是不同拓扑：API 内组合运行三个队列 Worker，Log Service 使用独立日志 PGlite。若看到 PGlite mutex/abort，先停止所有手工 Worker，只用 `corepack pnpm geo start` 重启；不要复制或同时打开运行中的数据库目录。
 
@@ -22,6 +22,7 @@
 - API：`curl -fsS https://<domain>/api/health`。检查 `database`、`objectStore.mode`、`analysisConfigured` 和 `logService.status`。
 - Log Service：容器内或本机请求 `http://127.0.0.1:3020/health`；检查 stored logs、latest time、retention days 和 token Secret。
 - 服务：`sudo geo-console status` 或 `docker compose ps`。Worker 没有独立 HTTP health，必须结合进程状态、日志和队列推进判断。
+- 发布：manifest 的目标平台、server artifact SHA-256 和 Worker base 必须匹配服务器。重构日志不得出现 pnpm、apt、Playwright download、Web build 或远程 pull。
 - 磁盘：检查 PostgreSQL volume、evidence volume、Caddy data 和 backup filesystem；磁盘满可同时表现为数据库、对象和 PDF 故障。
 - 时间：租约、schedule、分享过期都依赖服务器时间；检查 NTP 和时区漂移。
 

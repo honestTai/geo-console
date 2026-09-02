@@ -52,7 +52,7 @@ Tauri 2 桌面客户端加载同一个工作台 URL，是所有角色的正式�
 | 本机 CLI | `scripts/geo.ts` | setup/start/doctor/backup |
 | 本机组合 Worker | `apps/worker/src/local-workers.ts` | 仅 `GEO_LOCAL_COMBINED=true`；生产禁用 |
 | 防飘逸检查 | `scripts/check-skill-drift.mjs`、`references/drift-control.md` | 重大功能变更交付 |
-| 服务器发布 | `deploy/package.sh`（仅发布机本地打包）、`deploy/install.sh`、`deploy/geo-console`、`compose.yaml`、`docker/`（服务器镜像重构，Web dist 已在本地生成） | installer/management command |
+| 服务器发布 | `deploy/package.sh`（本地 Linux server artifact + Web dist）、`install.sh`、`geo-console`、`compose.yaml`、`docker/Dockerfile.artifacts`（本地构建）、`docker/Dockerfile`（服务器仅 ADD/COPY） | installer/management command |
 
 ## 业务数据流
 

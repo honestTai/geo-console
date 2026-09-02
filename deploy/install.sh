@@ -133,12 +133,19 @@ extract_release() {
 	tail -n +"$archive_line" "$0" | tar -xzf - -C "$stage_dir"
 	local manifest="$stage_dir/payload/.geo-release"
 	[[ -f "$manifest" ]] || fail "release manifest is missing"
-	[[ "$(env_value "$manifest" PACKAGE_MODE)" == "local-source-bundle" ]] || fail "release was not packaged by the local release workflow"
-	[[ "$(env_value "$manifest" SERVER_IMAGE_ACTION)" == "rebuild" ]] || fail "release does not authorize server image reconstruction"
+	[[ "$(env_value "$manifest" PACKAGE_MODE)" == "local-server-artifacts" ]] || fail "release does not contain locally built server artifacts"
+	[[ "$(env_value "$manifest" SERVER_IMAGE_ACTION)" == "reconstruct" ]] || fail "release does not authorize image reconstruction"
+	[[ "$(env_value "$manifest" SERVER_PLATFORM)" =~ ^linux/(amd64|arm64)$ ]] || fail "release server platform is invalid"
+	[[ "$(env_value "$manifest" SERVER_ARTIFACT)" == "server-runtime.tar" ]] || fail "release server artifact path is invalid"
+	[[ "$(env_value "$manifest" SERVER_ARTIFACT_SHA256)" =~ ^[0-9a-f]{64}$ ]] || fail "release server artifact checksum is invalid"
+	[[ "$(env_value "$manifest" WORKER_BASE_IMAGE)" =~ ^[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+$ ]] || fail "release worker base image is invalid"
 	[[ -f "$stage_dir/payload/compose.yaml" ]] || fail "release compose.yaml is missing"
 	[[ -x "$stage_dir/payload/deploy/geo-console" ]] || fail "release management command is missing"
 	[[ ! -e "$stage_dir/payload/deploy/package.sh" ]] || fail "server payload must not contain the local packaging command"
 	[[ -s "$stage_dir/payload/apps/web/dist/index.html" ]] || fail "locally built Web assets are missing"
+	[[ -s "$stage_dir/payload/server-runtime.tar" ]] || fail "locally built Linux server artifact is missing"
+	[[ -f "$stage_dir/payload/docker/Dockerfile" ]] || fail "server reconstruction Dockerfile is missing"
+	[[ -d "$stage_dir/payload/landing" && -d "$stage_dir/payload/docker/caddy" ]] || fail "Web reconstruction assets are missing"
 }
 
 install_base_dependencies() {

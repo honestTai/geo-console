@@ -10,7 +10,7 @@
 ## 主机
 
 - Linux 为受支持的 Ubuntu/Debian，root/sudo 可用。
-- Docker Engine、Buildx、Compose plugin 已安装，或允许安装器从 Docker 官方 APT 仓库安装。
+- Docker Engine、Buildx 与 Compose plugin 已安装，或允许安装器从 Docker 官方 APT 仓库安装。
 - Demo 至少 2 CPU、约 4 GB RAM、30 GB 可用空间；目标为 50 GB SSD。没有 Swap 时确认是否允许创建 `/swapfile` 2 GB。
 - 系统时间同步；云安全组只开放 80/443，SSH 只允许管理来源；3010 与 5432 不映射公网。
 - domain 已解析到目标 IP，80/443 未被其他服务占用，Caddy 可访问 ACME。
@@ -25,19 +25,18 @@
 - Provider/HRouter 环境变量或 Secret 文件只允许作为默认机构 bootstrap fallback。确认每个新增租户将在其活动机构内保存独立加密凭据，不共享默认机构密钥。
 - local object mode 确认 evidence volume 与备份同盘风险；S3 mode 确认 private bucket、versioning、encryption、endpoint、region、path style、恢复负责人和实例角色/Key。
 
-## 发布包
+## 本地 Server Artifact 与 Release
 
-- 在带 Git 元数据的开发机源码工作区运行仓库四项检查，再用 Bash 执行 `deploy/package.sh`；不得把仓库同步到服务器后在那里打包。
-- 记录 commit、release ID、打包时间、工作区是否 dirty。
-- 检查 manifest 包含 `PACKAGE_MODE=local-source-bundle` 和 `SERVER_IMAGE_ACTION=rebuild`，服务器 payload 不包含 `deploy/package.sh`，且包含本地生成的 `apps/web/dist/index.html`。
-- 检查 bundle 不含 `.env`、顶层 `secrets`、数据库、artifacts、backups 或无关大文件。
-- 由于项目 skill 中含 demo SSH 密码，bundle 是敏感产物，只能进入同一 demo 管理边界。
-- 本地与服务器分别校验 SHA-256；校验失败不得执行。
+- 发布机可为 Windows、macOS 或 Linux，但必须有 Git、Node/corepack pnpm 和支持目标平台的 Docker Buildx。Demo 目标固定为 `linux/amd64`。
+- 本地先执行四项检查，再运行 `deploy/package.sh`；Docker artifact builder 在本地 Linux 容器内执行锁定依赖安装，不能把 Windows/macOS `node_modules` 直接打包。
+- manifest 必须包含 `PACKAGE_MODE=local-server-artifacts`、`SERVER_IMAGE_ACTION=reconstruct`、目标平台、`server-runtime.tar` SHA-256 和批准的 Worker base image。
+- release 必须包含 server artifact、Web dist、landing、Compose/Caddy、安装器和服务器 Dockerfile；服务器 Dockerfile 只能 `FROM`/`ADD`/`COPY`，不得有 `RUN` 或远程 ADD。
+- release 不得包含 `.agents`、Demo 凭据、Git、desktop、宿主机 node_modules、`.env`、secrets、数据库、证据、备份或本地打包脚本。
 
 ## 上线前退出条件
 
 - `docker compose config --quiet` 通过。
-- 服务器只校验并解压本地 `.run`，再以 `docker compose build` 重构镜像；服务器上不得执行 `deploy/package.sh` 或 Web 应用构建命令。
+- `geo-console prepare` 在旧服务在线时验证 artifact 哈希/平台、Compose、固定 Worker base、PostgreSQL/Caddy 镜像和无 `RUN` Dockerfile，再从本地 artifact 重构应用镜像。服务器不得执行 pnpm、apt、Playwright 下载、Web build 或 `docker pull`。
 - 旧实例已有包含全部租户/问题库/RBAC/业务审计/运行日志的最新数据库与对象成对备份；S3 模式已抽查原始证据、PDF 和 Word 对象版本。
 - `log-service` 只在 Compose 内网 3020，`GEO_LOG_RETENTION_DAYS` 在 7-3650 范围，Log Service token 不出现在 `.env` 或日志中。
 - 明确 migration 只能向前和可接受的停机窗口。

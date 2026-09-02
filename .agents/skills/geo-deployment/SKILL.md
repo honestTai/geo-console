@@ -46,20 +46,21 @@ corepack pnpm geo start
 - Demo 低并发基线：2 vCPU、4 GB RAM、50 GB SSD、2 GB Swap、`GEO_CAPTURE_CONCURRENCY=1`。持续监测建议至少 4 vCPU、8 GB RAM、80 GB SSD。
 - 只有 Caddy 暴露 80/443。Log Service 3020、API、Capture Worker、Agent Worker、Report Worker 与 PostgreSQL 只在 Compose 网络内。
 - 同一域名根路径发布静态官网，`/app/` 发布业务工作台；官网示意数据与 API、数据库和证据链隔离。
-- 发布机本地执行 `deploy/package.sh` 生成闭源 `.run` bundle；服务器不得执行打包脚本，只校验/解压该 bundle 并从其中内容重构 Web/Worker 镜像，不依赖公开 Git 仓库。
+- 发布机可为 Windows、macOS 或 Linux；`deploy/package.sh` 通过本地 Docker Buildx 生成目标 Linux 平台的 `server-runtime.tar`，并本地构建 Web dist。`.run` 上传后，服务器只用无 `RUN` 指令的 Dockerfile 通过 `FROM` + `ADD/COPY` 重构 Worker/Web 镜像，不执行 pnpm、apt、Playwright 下载或应用构建。
 - 安装根为 `/opt/geo-console`：`releases/<id>` 保存不可变版本，`current` 指向当前版本，`shared/.env` 与 `shared/secrets` 跨升级保留。
 - PostgreSQL password、32 字节 Base64 master key、bootstrap admin password 和 Log Service token 使用 owner-only Docker Secret 文件。S3 凭据当前保存在 owner-only `shared/.env`；有实例角色时优先省略静态 Access Key。
 - Provider 与 HRouter Key 必须登录平台设置后保存并信封加密，不得写入 image、Compose、release bundle 或普通环境文件。
 
 ## 发布边界
 
-- 只能在带 Git 元数据的本地源码工作区运行 `deploy/package.sh`。脚本使用 `corepack pnpm` 构建 Web 产物并写入本地打包标记；工作区不干净会生成带 `dev-<UTC>` 的 release ID，并把未忽略的未跟踪文件一起打包。
-- 服务器 payload 不包含 `deploy/package.sh`。`deploy/install.sh` 和 `deploy/geo-console prepare` 必须先验证本地打包标记、服务器镜像重构标记和 Web `dist`，再执行 `docker compose build`；不得通过 SSH 在服务器源码目录重新生成 `.run`。
-- 当前 `deploy/package.sh` 会打包仓库内的 `.agents/skills`，所以包含本文件中的 demo 凭据。将生成的 bundle 与仓库本身视为敏感资产；不得发送到 demo 管理范围之外。
+- 每次 release 只运行 `deploy/package.sh`。它要求本地 Git、Node/corepack pnpm、Docker/Buildx；默认在本地 Linux `amd64` 构建容器中安装锁定的服务端依赖并导出 `/opt/geo-app` tar，再构建 Web dist。
+- 服务器使用固定 `geo-console-worker-base:node24-playwright1234`，它只承载 Node、Playwright Chromium、中文字体和系统库。基础镜像升级是独立维护动作；普通 release 不能在服务器安装或下载这些内容。
+- release payload 必须包含 `server-runtime.tar`、Web dist、landing、Compose/Caddy 和无网络重构 Dockerfile；不含 `.agents`/Demo 凭据、Git、desktop、宿主机 node_modules、Secret、`.env`、数据库、证据、备份或本地打包脚本。
+- `deploy/install.sh` 和 `geo-console prepare` 必须在停止旧服务前验证 `local-server-artifacts`/`reconstruct` 标记、目标平台、artifact SHA-256、基础镜像及 Dockerfile 没有 `RUN` 指令；随后才允许 `docker compose build api web`，且不得 `--pull`。
 - 桌面客户端使用独立 Tauri 签名链。私钥只能在发布机 owner-only 文件或受控 CI Secret 中，绝不能打入服务器 `.run`、Git 或 `latest.json`；客户端只保存公钥。
-- bundle 不应包含 `.env`、`secrets/`、数据库、证据或备份；脚本会拒绝顶层 `.env` 和 `secrets`，仍要检查产物清单和 SHA-256。
+- 外层 release bundle 必须在本地与服务器分别校验 SHA-256，内层 server artifact 由 manifest SHA-256 在重构前再次校验。
 - 首次安装会创建 Secret、可选 2 GB Swap，按 PostgreSQL -> Log Service -> API -> Workers -> Web/Caddy 顺序启动，并创建首份数据库/本地 evidence 成对备份。
-- 升级会在切换前自动备份旧 release 的 PostgreSQL 与本地 evidence，然后停止应用、切换 `current`、运行向前 migration 并启动新版本。
+- 升级会在旧版本在线时用本地产物重构新镜像，切换前自动备份 PostgreSQL 与本地 evidence，然后停止应用、切换 `current` 并重启新镜像；Log Service/API 启动时继续执行向前 migration。
 - 管理命令没有自动数据库 rollback。只有 migration 兼容时才可单纯使用旧应用版本；不兼容时必须把升级前备份恢复到新建空 PostgreSQL/对象位置，验证后切换。
 - 不部署浏览器登录档案、Collector node 或页面 adapter；当前云架构只使用五家联网 API。
 

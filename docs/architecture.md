@@ -48,7 +48,7 @@ Tauri 2 桌面客户端是所有用户的正式产品壳，正式版加载同域
 - 总览和监测图表只渲染 API 返回的真实、可比批次数据；没有数据时显示空状态，不内置示例客户或指标。
 - AI 监测运行面板以批次状态、预期样本数和 `query_captures` 生成真实进度与采集日志；重新运行会创建实际批次，不使用前端动画伪造后台结果。
 - 复测报告先显示管理摘要、核心指标和整改前后对比，再进入证据、叙述与导出等详细内容。
-- 官网与工作台共用一个 Web 镜像但目录隔离：`/srv` 是官网，`/srv/app` 是 Vite 工作台产物。官网“进入工作台”只导航到 `/app/`。
+- 官网与工作台共用一个 Web 镜像但目录隔离：`/srv` 是官网，本地生成的 Vite dist 位于 `/srv/app`。官网“进入工作台”只导航到 `/app/`。
 - 官网演示与工作台使用相同菜单顺序和浅色信息架构；官网数据仍显式标注为演示数据。演示菜单、运行操作、设置、成员与日志视图在窄屏下保持可滚动或单列操作。
 
 ## 核心流程
@@ -89,7 +89,7 @@ DeepSeek、Kimi、豆包和通义是官方联网 API 结果。元宝平台固定
 
 ## 安全边界
 
-- 服务器仅暴露 Caddy 80/443；API、Worker 与 PostgreSQL 留在 Compose 网络。`.run` 只能由发布机本地源码工作区生成，服务器 payload 不携带打包脚本；服务器校验并解压 bundle 后重构镜像。Web dist 由发布机本地预构建后直接复制进 Web 镜像，Worker 镜像的 pnpm 与 Playwright 下载走 npmmirror。
+- 服务器仅暴露 Caddy 80/443；API、Worker 与 PostgreSQL 留在 Compose 网络。Windows/macOS/Linux 发布机使用本地 Docker Buildx 生成目标 Linux 的 `server-runtime.tar`（服务端 node_modules、源码、migration）和 Web dist；生产 `.env`/Secret 不进入 bundle。服务器保留含 Node、Playwright Chromium、中文字体和系统库的固定 Worker base，每次 release 的 Dockerfile 只用 `FROM` + `ADD/COPY` 重构 Worker/Web 镜像，不执行 pnpm、apt、Playwright 下载、Web build 或远程 pull。
 - Web/Tauri 会话由 HttpOnly、SameSite=Strict Cookie 保护；所有资源入口执行活动机构和客户范围校验。系统超管是数据库唯一的显式布尔权限，不属于任何机构角色。
 - 供应商与 HRouter Key 使用包含机构 ID 的 AES-256-GCM AAD 信封加密；环境变量 Key 只作为默认机构的引导配置，其他机构必须保存独立密钥。
 - 分享链接仅存哈希，可设置过期并撤销。

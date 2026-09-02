@@ -1,0 +1,31 @@
+FROM node:24.16.0-bookworm-slim AS build
+WORKDIR /app
+ENV COREPACK_NPM_REGISTRY=https://registry.npmmirror.com
+
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY apps/worker/package.json apps/worker/tsconfig.json ./apps/worker/
+COPY apps/log-service/package.json apps/log-service/tsconfig.json ./apps/log-service/
+COPY packages/core/package.json packages/core/tsconfig.json ./packages/core/
+COPY packages/evidence/package.json packages/evidence/tsconfig.json ./packages/evidence/
+COPY packages/logging/package.json packages/logging/tsconfig.json ./packages/logging/
+COPY packages/metrics/package.json packages/metrics/tsconfig.json ./packages/metrics/
+COPY packages/search-providers/package.json packages/search-providers/tsconfig.json ./packages/search-providers/
+
+RUN sed -i -e '/^minimumReleaseAge:/d' -e '/^minimumReleaseAgeExclude:/,/^trustPolicy:/d' -e '/^trustPolicy/d' pnpm-workspace.yaml \
+	&& pnpm config set registry https://registry.npmmirror.com \
+	&& pnpm config set store-dir /pnpm-store
+RUN --mount=type=cache,id=geo-pnpm-store,target=/pnpm-store \
+	pnpm install --frozen-lockfile --filter @geo/worker... --filter @geo/log-service...
+
+COPY apps/worker/src ./apps/worker/src
+COPY apps/log-service/src ./apps/log-service/src
+COPY packages/core/src ./packages/core/src
+COPY packages/core/migrations ./packages/core/migrations
+COPY packages/evidence/src ./packages/evidence/src
+COPY packages/logging/src ./packages/logging/src
+COPY packages/metrics/src ./packages/metrics/src
+COPY packages/search-providers/src ./packages/search-providers/src
+
+FROM scratch AS export
+COPY --from=build /app /opt/geo-app

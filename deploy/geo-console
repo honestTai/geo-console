@@ -19,12 +19,9 @@ if [[ "$(basename "$(dirname "$APP_DIR")")" == "releases" ]]; then
 else
 	readonly INSTALL_ROOT="${GEO_INSTALL_ROOT:-$APP_DIR}"
 fi
-if [[ -f "$APP_DIR/.geo-release" ]]; then
-	IMAGE_TAG="$(awk -F= '$1 == "RELEASE_ID" { print $2; exit }' "$APP_DIR/.geo-release")"
-else
-	IMAGE_TAG="local"
-fi
-readonly IMAGE_TAG
+IMAGE_TAG="$(awk -F= '$1 == "RELEASE_ID" { print $2; exit }' "$APP_DIR/.geo-release" 2>/dev/null || printf 'local')"
+WORKER_BASE_IMAGE="$(awk -F= '$1 == "WORKER_BASE_IMAGE" { print $2; exit }' "$APP_DIR/.geo-release" 2>/dev/null || true)"
+readonly IMAGE_TAG WORKER_BASE_IMAGE
 
 log() {
 	printf '[GEO] %s\n' "$*"
@@ -40,7 +37,7 @@ usage() {
 Usage: geo-console <command> [arguments]
 
 Commands:
-  deploy                 Rebuild images and start the complete stack in migration-safe order
+  deploy                 Reconstruct images from local artifacts and start the stack
   status                 Show service state and the public health response
   doctor                 Validate Compose, service health, HTTPS, and backups
   logs [service]         Follow logs for all services or one service
@@ -55,7 +52,7 @@ EOF
 }
 
 dc() {
-	COMPOSE_PARALLEL_LIMIT=1 GEO_IMAGE_TAG="$IMAGE_TAG" docker compose --project-directory "$APP_DIR" --env-file "$APP_DIR/.env" "$@"
+	COMPOSE_PARALLEL_LIMIT=1 GEO_IMAGE_TAG="$IMAGE_TAG" GEO_WORKER_BASE_IMAGE="$WORKER_BASE_IMAGE" docker compose --project-directory "$APP_DIR" --env-file "$APP_DIR/.env" "$@"
 }
 
 env_value() {
@@ -132,17 +129,45 @@ run_backup() {
 	log "Evidence archive verified: $newest_evidence"
 }
 
+server_platform() {
+	case "$(uname -m)" in
+		x86_64) printf 'linux/amd64\n' ;;
+		aarch64|arm64) printf 'linux/arm64\n' ;;
+		*) fail "unsupported server architecture: $(uname -m)" ;;
+	esac
+}
+
 build_images() {
-	if [[ -f "$APP_DIR/.geo-release" ]]; then
-		[[ "$(awk -F= '$1 == "PACKAGE_MODE" { print $2; exit }' "$APP_DIR/.geo-release")" == "local-source-bundle" ]] || fail "release was not packaged locally"
-		[[ "$(awk -F= '$1 == "SERVER_IMAGE_ACTION" { print $2; exit }' "$APP_DIR/.geo-release")" == "rebuild" ]] || fail "release does not allow server image reconstruction"
-		[[ ! -e "$APP_DIR/deploy/package.sh" ]] || fail "local packaging command must not exist in a server release"
-		[[ -s "$APP_DIR/apps/web/dist/index.html" ]] || fail "locally built Web assets are missing"
-	fi
+	local manifest="$APP_DIR/.geo-release"
+	[[ -f "$manifest" ]] || fail "release manifest is missing"
+	[[ "$(awk -F= '$1 == "PACKAGE_MODE" { print $2; exit }' "$manifest")" == "local-server-artifacts" ]] || fail "release does not contain locally built server artifacts"
+	[[ "$(awk -F= '$1 == "SERVER_IMAGE_ACTION" { print $2; exit }' "$manifest")" == "reconstruct" ]] || fail "release does not allow image reconstruction"
+	[[ "$WORKER_BASE_IMAGE" =~ ^[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+$ ]] || fail "release worker base image is invalid"
+	[[ ! -e "$APP_DIR/deploy/package.sh" ]] || fail "local packaging command must not exist in a server release"
+	[[ -s "$APP_DIR/apps/web/dist/index.html" ]] || fail "locally built Web assets are missing"
+	local artifact expected_sha256 actual_sha256 target_platform expected_platform
+	artifact="$APP_DIR/$(awk -F= '$1 == "SERVER_ARTIFACT" { print $2; exit }' "$manifest")"
+	expected_sha256="$(awk -F= '$1 == "SERVER_ARTIFACT_SHA256" { print $2; exit }' "$manifest")"
+	[[ "$artifact" == "$APP_DIR/server-runtime.tar" && -s "$artifact" ]] || fail "locally built Linux server artifact is missing"
+	[[ "$expected_sha256" =~ ^[0-9a-f]{64}$ ]] || fail "server artifact checksum is invalid"
+	actual_sha256="$(sha256sum "$artifact" | awk '{ print $1 }')"
+	[[ "$actual_sha256" == "$expected_sha256" ]] || fail "server artifact checksum mismatch"
+	target_platform="$(awk -F= '$1 == "SERVER_PLATFORM" { print $2; exit }' "$manifest")"
+	expected_platform="$(server_platform)"
+	[[ "$target_platform" == "$expected_platform" ]] || fail "server artifact targets $target_platform, server requires $expected_platform"
+	grep -Eq '^[[:space:]]*RUN[[:space:]]' "$APP_DIR/docker/Dockerfile" && fail "server reconstruction Dockerfile must not run commands"
+	local image actual_platform
+	for image in "$WORKER_BASE_IMAGE" "postgres:18.6-alpine3.23" "caddy:2.10.2-alpine"; do
+		actual_platform="$(docker image inspect --platform "$expected_platform" --format '{{.Os}}/{{.Architecture}}' "$image" 2>/dev/null || true)"
+		[[ "$actual_platform" == "$expected_platform" ]] || fail "required base image $image is missing or has platform ${actual_platform:-unknown}"
+	done
 	dc config --quiet
-	dc pull postgres caddy
-	log "Reconstructing application images from the locally packaged release"
-	dc build --pull api web
+	log "Reconstructing images from locally built server artifacts"
+	dc build api web
+	for image in "geo-console-worker:$IMAGE_TAG" "geo-console-web:$IMAGE_TAG"; do
+		actual_platform="$(docker image inspect --platform "$expected_platform" --format '{{.Os}}/{{.Architecture}}' "$image" 2>/dev/null || true)"
+		[[ "$actual_platform" == "$expected_platform" ]] || fail "reconstructed image $image is missing or has platform ${actual_platform:-unknown}"
+	done
 }
 
 start_stack() {
@@ -273,12 +298,12 @@ main() {
 		backup)
 			run_backup
 			;;
-			upgrade)
-				upgrade_bundle "${1:-}"
-				;;
-			desktop-publish)
-				publish_desktop_update "$@"
-				;;
+		upgrade)
+			upgrade_bundle "${1:-}"
+			;;
+		desktop-publish)
+			publish_desktop_update "$@"
+			;;
 		restart)
 			stop_application_services
 			start_stack false

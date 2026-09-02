@@ -22,6 +22,8 @@ x-worker-base: &worker-base
     context: .
     dockerfile: docker/Dockerfile
     target: worker
+    args:
+      GEO_WORKER_BASE_IMAGE: ${GEO_WORKER_BASE_IMAGE:?set GEO_WORKER_BASE_IMAGE}
   environment: *worker-environment
   secrets:
     - postgres_password
@@ -58,6 +60,8 @@ services:
       context: .
       dockerfile: docker/Dockerfile
       target: worker
+      args:
+        GEO_WORKER_BASE_IMAGE: ${GEO_WORKER_BASE_IMAGE:?set GEO_WORKER_BASE_IMAGE}
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://geo@postgres:5432/geo
@@ -69,7 +73,7 @@ services:
     secrets:
       - postgres_password
       - log_service_token
-    command: ["corepack", "pnpm", "--filter", "@geo/log-service", "start"]
+    command: ["/opt/geo-app/apps/log-service/node_modules/.bin/tsx", "/opt/geo-app/apps/log-service/src/index.ts"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -110,15 +114,15 @@ services:
     environment:
       <<: *worker-environment
       GEO_CAPTURE_CONCURRENCY: ${GEO_CAPTURE_CONCURRENCY:-2}
-    command: ["corepack", "pnpm", "--filter", "@geo/worker", "start:capture"]
+    command: ["/opt/geo-app/apps/worker/node_modules/.bin/tsx", "/opt/geo-app/apps/worker/src/capture-worker.ts"]
 
   agent-worker:
     <<: *worker-base
-    command: ["corepack", "pnpm", "--filter", "@geo/worker", "start:agent"]
+    command: ["/opt/geo-app/apps/worker/node_modules/.bin/tsx", "/opt/geo-app/apps/worker/src/agent-worker.ts"]
 
   report-worker:
     <<: *worker-base
-    command: ["corepack", "pnpm", "--filter", "@geo/worker", "start:report"]
+    command: ["/opt/geo-app/apps/worker/node_modules/.bin/tsx", "/opt/geo-app/apps/worker/src/report-worker.ts"]
 
   web:
     image: geo-console-web:${GEO_IMAGE_TAG:-local}
