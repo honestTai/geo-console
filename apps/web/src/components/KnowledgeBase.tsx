@@ -61,7 +61,6 @@ export function KnowledgeBase({
 			description="新客户官网分析会自动合并同机构、同行业的问题；新增内容只由成员维护。"
 			extra={
 				<Input
-					className="knowledge-industry-filter"
 					style={{ width: 220 }}
 					allowClear
 					prefix={<IconSearch size={15} />}
