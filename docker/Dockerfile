@@ -11,8 +11,14 @@ COPY packages/evidence ./packages/evidence
 COPY packages/metrics ./packages/metrics
 COPY packages/logging ./packages/logging
 COPY packages/search-providers ./packages/search-providers
-RUN pnpm config set registry https://registry.npmmirror.com \
-	&& pnpm install --frozen-lockfile
+# 服务器镜像构建松弛供应链策略中的元数据检查:minimumReleaseAge/trustPolicy 需要逐包拉取
+# registry 元数据,国内服务器上 487 个条目会超时中断构建。--frozen-lockfile 下版本与 sha512
+# 完整性仍由 pnpm 强制校验,这两项策略只在发布机本地安装/升级依赖时生效。
+RUN sed -i -e '/^minimumReleaseAge:/d' -e '/^minimumReleaseAgeExclude:/,/^trustPolicy:/d' -e '/^trustPolicy/d' pnpm-workspace.yaml \
+	&& pnpm config set registry https://registry.npmmirror.com \
+	&& pnpm config set store-dir /pnpm-store
+RUN --mount=type=cache,id=geo-pnpm-store,target=/pnpm-store \
+	pnpm install --frozen-lockfile
 
 FROM caddy:2.10.2-alpine AS web
 # Web 静态产物由发布机本地构建（deploy/package.sh 调用 pnpm --filter @geo/web build），
