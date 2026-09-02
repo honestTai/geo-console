@@ -151,17 +151,6 @@
 	color: var(--ink-3);
 }
 
-.knowledge-create {
-	display: grid;
-	grid-template-columns: minmax(280px, 2fr) repeat(4, minmax(120px, 1fr)) auto;
-	gap: 8px;
-	align-items: center;
-	padding: 14px;
-	border: 1px solid var(--line);
-	background: var(--surface-2);
-	border-radius: var(--radius-s);
-}
-
 .knowledge-list,
 .organization-list {
 	display: grid;
@@ -3556,90 +3545,6 @@ textarea:focus {
 	padding: 28px;
 }
 
-.service-log-counts {
-	display: grid;
-	grid-template-columns: repeat(4, minmax(0, 1fr));
-	border: 1px solid var(--line);
-	border-radius: var(--radius-s);
-	overflow: hidden;
-}
-
-.service-log-counts button {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 12px;
-	min-height: 56px;
-	padding: 10px 14px;
-	border: 0;
-	border-right: 1px solid var(--line);
-	background: var(--surface);
-	color: var(--ink-3);
-	text-align: left;
-}
-
-.service-log-counts button:last-child {
-	border-right: 0;
-}
-
-.service-log-counts button.active {
-	background: var(--surface-2);
-	box-shadow: inset 0 -3px 0 currentColor;
-}
-
-.service-log-counts span {
-	font-size: 11px;
-	font-weight: 700;
-}
-
-.service-log-counts b {
-	font-size: 20px;
-	font-variant-numeric: tabular-nums;
-}
-
-.service-log-filters {
-	display: grid;
-	grid-template-columns: 160px 130px 150px 150px minmax(220px, 1fr) auto auto;
-	gap: 8px;
-	align-items: center;
-}
-
-.service-log-retention {
-	display: grid;
-	grid-template-columns: minmax(260px, 1fr) 150px auto auto;
-	align-items: center;
-	gap: 10px;
-	padding: 14px 16px;
-	border: 1px solid #f0c6c6;
-	border-radius: var(--radius-s);
-	background: #fff8f7;
-}
-
-.service-log-retention h3,
-.service-log-retention p {
-	margin: 0;
-}
-
-.service-log-retention h3 {
-	font-size: 14px;
-}
-
-.service-log-retention p {
-	margin-top: 3px;
-	color: var(--ink-3);
-	font-size: 12px;
-}
-
-@media (max-width: 900px) {
-	.service-log-filters {
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-	}
-
-	.service-log-retention {
-		grid-template-columns: 1fr 1fr;
-	}
-}
-
 @media (max-width: 600px) {
 	.management-shell > header {
 		align-items: flex-start;
@@ -3659,21 +3564,8 @@ textarea:focus {
 		padding: 18px 14px 32px;
 	}
 
-	.report-workflow-command-bar,
-	.service-log-counts,
-	.service-log-filters,
-	.service-log-retention {
+	.report-workflow-command-bar {
 		grid-template-columns: 1fr;
-	}
-
-	.service-log-counts button,
-	.service-log-counts button:last-child {
-		border-right: 0;
-		border-bottom: 1px solid var(--line);
-	}
-
-	.service-log-counts button:last-child {
-		border-bottom: 0;
 	}
 
 	.ds-darkstrip {

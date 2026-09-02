@@ -73,7 +73,7 @@ export function KnowledgeBase({
 		>
 			{error && <Alert type="error" showIcon message={error} />}
 			{!canWrite && <Alert type="info" showIcon message="当前为只读角色，可以查看知识库，但不能新增或归档问题。" />}
-			<Form layout="inline" className="knowledge-create">
+			<Form layout="inline">
 				<Form.Item label="问题">
 					<Input
 						style={{ width: 320 }}
