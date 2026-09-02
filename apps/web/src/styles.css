@@ -3395,24 +3395,10 @@ textarea:focus {
 
 /* 差距诊断：差距列表（对齐演示 gap-list / gap-item） */
 
-/* 整改中心：任务列表（对齐演示 remediation-list / remediation-item） */
+/* 整改中心：任务列表 */
 
 .remediation-list {
-	display: grid;
-	gap: 14px;
 	margin-top: 20px;
-}
-
-.remediation-item {
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) auto auto;
-	gap: 6px 14px;
-	align-items: center;
-}
-
-.remediation-item > details,
-.remediation-item > .notice {
-	grid-column: 1 / -1;
 }
 
 /* 业务归因：KPI 卡与导入数据表（对齐演示 ds-kpis / kpi / attribution-demo-table） */
@@ -3433,14 +3419,6 @@ textarea:focus {
 @media (max-width: 600px) {
 	.attribution-kpis {
 		grid-template-columns: 1fr;
-	}
-
-	.remediation-item {
-		grid-template-columns: minmax(0, 1fr) auto;
-	}
-
-	.remediation-item .task-header-actions {
-		grid-column: 1 / -1;
 	}
 }
 
