@@ -14,6 +14,8 @@
 		"@tabler/icons-react": "^3.46.0",
 		"@tauri-apps/plugin-process": "2.3.1",
 		"@tauri-apps/plugin-updater": "2.10.0",
+		"antd": "^6.6.2",
+		"dayjs": "^1.11.23",
 		"react": "^19.2.8",
 		"react-dom": "^19.2.8"
 	},

@@ -46,7 +46,7 @@ Tauri 2 桌面客户端加载同一个工作台 URL，是所有角色的正式�
 | 报告快照/PDF/Word/分享 | `apps/worker/src/report-snapshots.ts`、`report.ts`、`docx.ts` | Report Worker、Web |
 | 归因 CSV | `apps/worker/src/attribution.ts` | Attribution view |
 | 对象存储 | `apps/worker/src/object-store.ts` | captures、snapshots、PDF |
-| 工作台 UI | `apps/web/src/App.tsx`、`styles.css` | browser |
+| 工作台 UI | `apps/web/src/`(App.tsx 外壳 + components/ 视图 + ui/primitives + hooks)、`styles.css` | browser |
 | 桌面客户端与签名更新 | `apps/desktop/src-tauri`、`apps/web` 更新入口 | macOS/Windows/Linux 用户 |
 | 静态官网 | `landing/` | browser root path; no API/DB access |
 | 本机 CLI | `scripts/geo.ts` | setup/start/doctor/backup |
@@ -68,7 +68,7 @@ Tauri 2 桌面客户端加载同一个工作台 URL，是所有角色的正式�
 
 `App.tsx` 的组件注册表只负责把服务端 `navigation_key` 映射到真实组件；标签、顺序和可见性来自 `/api/rbac/navigation`。工作台包含业务页面、机构管理、超管机构状态和分层 RBAC 编辑器。运营列表统一分页，运行日志使用不累积全部结果的游标翻页。证据回答使用安全结构化 Markdown；报告使用单一可续跑工作流展示叙述、质检、冻结和文档状态。
 
-图表、KPI 与平台卡只消费真实 API 响应；无批次时使用空状态，不能把视觉验收 fixture 放入 `apps/web/public` 或正式构建。UI 仍是单文件应用壳；新增共享业务规则时不要继续堆入组件，应放回拥有该规则的 package/worker service。
+图表、KPI 与平台卡只消费真实 API 响应；无批次时使用空状态，不能把视觉验收 fixture 放入 `apps/web/public` 或正式构建。UI 不再是单文件应用壳：`App.tsx` 只做装配，`components/` 一视图一文件，共享类型/权限/分页/反馈分别收敛在 `types.ts`、`access.tsx`、`ui/primitives.tsx`、`hooks/`;UI 控件统一走 antd 6，拆分与选用规则见 `.agents/skills/geo-development/references/frontend.md`。新增共享业务规则时不要继续堆入组件，应放回拥有该规则的 package/worker service。
 
 `landing/` 是独立静态官网，部署在根路径；`apps/web` 使用 Vite base `/app/`。官网演示同步工作台菜单顺序和浅色布局，并为菜单、运行操作、设置、成员和日志提供窄屏交互；示意数据必须显式标注，不能请求业务 API、写数据库或被工作台导入。
 

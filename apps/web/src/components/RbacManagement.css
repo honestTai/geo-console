@@ -1,0 +1,31 @@
+.permission-checkboxes {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+	gap: 4px 16px;
+}
+
+.permission-checkboxes .ant-checkbox-wrapper {
+	margin-inline-start: 0;
+}
+
+.rbac-role-list .ant-list-item {
+	cursor: pointer;
+}
+
+.rbac-role-list .ant-list-item.active {
+	background: #f0fdf4;
+	border-radius: 6px;
+}
+
+.scope-toggle {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.role-editor h4 {
+	margin: 4px 0 0;
+	font-size: 13px;
+	color: #475467;
+}

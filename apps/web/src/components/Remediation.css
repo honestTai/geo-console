@@ -1,0 +1,53 @@
+.remediation-runs {
+	display: grid;
+	gap: 10px;
+	margin-bottom: 14px;
+}
+
+.task-top {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+.task-title {
+	font-size: 15px;
+}
+
+.task-meta-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin: 12px 0;
+}
+
+.task-acceptance {
+	margin: 0;
+	line-height: 1.7;
+	font-size: 13px;
+}
+
+.task-pre {
+	margin: 0;
+	font-size: 12.5px;
+	line-height: 1.6;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.draft-list {
+	margin: 0;
+	padding-left: 18px;
+	font-size: 12.5px;
+	line-height: 1.7;
+}
+
+.draft-leaf {
+	margin: 0;
+	font-size: 12px;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}

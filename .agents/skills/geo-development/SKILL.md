@@ -11,7 +11,8 @@ description: Develop or review GEO Console application code, including the Web/A
 
 1. 先读 [references/project-map.md](references/project-map.md)，确认改动的所有者和跨模块调用链。
 2. 涉及批次、采集、指标、Agent、报告、网站证据、身份或凭据时，再读 [references/domain-contracts.md](references/domain-contracts.md)。
-3. 跨模块改动读 [../../../docs/architecture.md](../../../docs/architecture.md)；Provider 改动同时读 [../../../docs/search-provider-adapters.md](../../../docs/search-provider-adapters.md)。
+3. 涉及 Web UI 结构、组件拆分、antd 组件选用、分页/反馈/密度规则时，读 [references/frontend.md](references/frontend.md)。
+4. 跨模块改动读 [../../../docs/architecture.md](../../../docs/architecture.md)；Provider 改动同时读 [../../../docs/search-provider-adapters.md](../../../docs/search-provider-adapters.md)。
 4. 符合重大功能变更标准时，编辑前读 [references/drift-control.md](references/drift-control.md)，记录 pre-task Git ref 和影响面。
 5. 检查受影响代码和现有测试后再编辑。不要只改 UI 类型或只改数据库一端来掩盖契约不一致。
 
@@ -35,7 +36,7 @@ description: Develop or review GEO Console application code, including the Web/A
 - 数据库变更同时更新 Drizzle Schema 和新的递增 SQL migration；不得编辑已部署 migration。
 - 只在新建项目 PGlite 或用户明确提供的隔离 PostgreSQL 上运行 migration。不得连接或修改推断出来的外部数据库。
 - 对外部 Provider 使用结构化响应解析和明确失败分类；协议或解析语义变化时提升 adapter/search tool 版本。
-- UI 延续现有工作台信息架构，覆盖 loading、empty、error、partial、queued、failed、read-only 状态；桌面与 390px 宽度都要检查无重叠和截断。
+- UI 延续现有工作台信息架构，覆盖 loading、empty、error、partial、queued、failed、read-only 状态；桌面与 390px 宽度都要检查无重叠和截断。前端结构、antd 组件选用、分页/反馈/密度规则按 [references/frontend.md](references/frontend.md) 执行。
 - 重大功能变更必须在同一变更中重新蒸馏受影响的代码事实源，并同步对应 docs、skill entrypoint/reference；不能把同步留给后续任务。
 - 改动范围和验证方法按 [references/change-checklist.md](references/change-checklist.md) 执行。
 

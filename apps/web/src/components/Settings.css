@@ -1,0 +1,45 @@
+.provider-tab-item {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.provider-tab-item img {
+	width: 22px;
+	height: 22px;
+	object-fit: contain;
+}
+
+.provider-tab-item > span {
+	display: flex;
+	flex-direction: column;
+	line-height: 1.2;
+	text-align: left;
+}
+
+.provider-tab-item > span small {
+	color: #667085;
+}
+
+.provider-tab-item i {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: #98a2b3;
+	align-self: center;
+}
+
+.provider-tab-item i.ok {
+	background: #16a34a;
+}
+
+.provider-tab-item i.fail,
+.provider-tab-item i.error {
+	background: #dc2626;
+}
+
+.provider-form {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+	column-gap: 16px;
+}

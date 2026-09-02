@@ -1,0 +1,9 @@
+.service-log-cursor-bar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.service-log-message {
+	margin: 0;
+}
