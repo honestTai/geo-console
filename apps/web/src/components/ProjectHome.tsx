@@ -100,9 +100,7 @@ export function ProjectHome({
 					{projects.map((project) => (
 						<Card key={project.id} className="project-home-card" hoverable onClick={() => onOpen(project.id)}>
 							<div className="project-home-card-head">
-								<Tag color={project.status === "active" ? "success" : "default"}>
-									{project.status === "active" ? "运行中" : "待建档"}
-								</Tag>
+								<Tag>{project.status === "active" ? "运行中" : "待建档"}</Tag>
 								<IconChevronRight className="card-arrow" size={20} />
 							</div>
 							<Typography.Title level={5} className="project-home-card-name" ellipsis={{ tooltip: project.name }}>

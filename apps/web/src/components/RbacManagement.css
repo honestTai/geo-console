@@ -13,7 +13,7 @@
 }
 
 .rbac-role-list .ant-list-item.active {
-	background: #f0fdf4;
+	background: var(--surface-2);
 	border-radius: 6px;
 }
 
@@ -28,4 +28,34 @@
 	margin: 4px 0 0;
 	font-size: 13px;
 	color: #475467;
+}
+
+/* 权限分组：平铺小节（默认全部展开，不用折叠组件） */
+
+.permission-group {
+	display: grid;
+	gap: 8px;
+	align-content: start;
+	min-width: 0;
+	padding: 12px 14px;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-s);
+	background: var(--surface);
+}
+
+.permission-group-head {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 10px;
+}
+
+.permission-group-head h4 {
+	margin: 0;
+	font-size: 13px;
+}
+
+.permission-group-head span {
+	font-size: 12px;
+	color: var(--ink-3);
 }

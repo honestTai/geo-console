@@ -22,7 +22,7 @@
 }
 
 .page-crumb-current {
-	color: var(--brand);
+	color: var(--ink);
 	font-weight: 650;
 }
 

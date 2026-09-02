@@ -549,11 +549,11 @@ const snapshotColumns: TableProps<ReportSnapshot>["columns"] = [
 	},
 ];
 
-function shareStatus(share: ReportShare): { active: boolean; label: string; color?: string } {
+function shareStatus(share: ReportShare): { active: boolean; label: string } {
 	const expired = new Date(share.expires_at).getTime() <= Date.now();
 	if (share.revoked_at) return { active: false, label: "已撤销" };
-	if (expired) return { active: false, label: "已过期", color: "orange" };
-	return { active: true, label: "分享中", color: "green" };
+	if (expired) return { active: false, label: "已过期" };
+	return { active: true, label: "分享中" };
 }
 
 function SnapshotAssetTable({
@@ -600,7 +600,7 @@ function ShareLinkTable({
 			key: "status",
 			render: (_: unknown, share: ReportShare) => {
 				const status = shareStatus(share);
-				return <Tag color={status.color}>{status.label}</Tag>;
+				return <Tag>{status.label}</Tag>;
 			},
 		},
 		{

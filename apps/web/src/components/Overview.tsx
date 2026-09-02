@@ -105,12 +105,12 @@ export function OverviewTrendPanel({
 							},
 							{
 								label: "首位推荐率",
-								color: "var(--info)",
+								color: "var(--ink-3)",
 								values: trends.comparable.map((item) => overallPercent(item, "firstRecommendationRate")),
 							},
 							{
 								label: "官网引用率",
-								color: "var(--warning)",
+								color: "var(--ink-4)",
 								values: trends.comparable.map((item) => overallPercent(item, "citationRate")),
 							},
 						]}

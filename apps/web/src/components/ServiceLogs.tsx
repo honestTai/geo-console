@@ -48,7 +48,6 @@ export function serviceLogParams(filters: ServiceLogFilters, cursor?: string | n
 	return params;
 }
 
-const LEVEL_COLORS: Record<ServiceLogLevel, string> = { error: "red", warn: "orange", info: "blue", debug: "default" };
 const SERVICE_OPTIONS = Object.entries(serviceLogLabels).map(([value, label]) => ({ value, label }));
 const LEVEL_OPTIONS = (["error", "warn", "info", "debug"] as const).map((level) => ({
 	value: level,
@@ -90,7 +89,7 @@ const logColumns: NonNullable<TableProps<ServiceLogRow>["columns"]> = [
 		title: "级别",
 		dataIndex: "level",
 		width: 90,
-		render: (level: ServiceLogLevel) => <Tag color={LEVEL_COLORS[level]}>{level}</Tag>,
+		render: (level: ServiceLogLevel) => <Tag>{level}</Tag>,
 	},
 	{
 		title: "服务 / 事件",
@@ -260,9 +259,7 @@ export function ServiceLogs() {
 							setFilters(next);
 						}}
 					>
-						<Tag color={LEVEL_COLORS[level]} style={{ marginInlineEnd: 4 }}>
-							{level.toUpperCase()}
-						</Tag>
+						<Tag style={{ marginInlineEnd: 4 }}>{level.toUpperCase()}</Tag>
 						{counts[level].toLocaleString("zh-CN")}
 					</AntdButton>
 				))}

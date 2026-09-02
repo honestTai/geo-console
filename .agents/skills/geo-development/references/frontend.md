@@ -24,14 +24,14 @@ apps/web/src/
 
 ## UI 框架与组件选用
 
-- 统一使用 antd 6 组件:表格 `Table`、弹窗 `Modal`、页内分段 `Tabs`、次要信息 `Collapse`、表单 `Form/Input/Select/DatePicker/Switch`、反馈 `Alert/Tag/Progress/Statistic/Descriptions`。不再手写 modal-backdrop、tablist、table、进度条。
+- 统一使用 antd 6 组件:表格 `Table`、弹窗 `Modal`、页面级导航 `Tabs`、表单 `Form/Input/Select/DatePicker/Switch`、反馈 `Alert/Tag/Progress/Statistic/Descriptions`。不再手写 modal-backdrop、tablist、table、进度条。`Tabs` 只用于页面级导航(如 RBAC、设置页平台);内容区内的次级分组用普通小节(h3+细分隔线)平铺,不用嵌套 `Tabs`/`Collapse`。
 - 分页只能用 `ui/primitives.tsx` 的 `Pagination`(antd Pagination 封装)。游标翻页(如 ServiceLogs)无法套用页码分页时,在 Table footer 自绘,但视觉沿用同一套 antd 控件。
 - 操作成功/失败用 `App.useApp()` 的 `message`;持续性错误用 `Alert`。禁止用错误字符串前缀判断成败、禁止 `JSON.stringify` dump 草稿到页面——结构化数据用 `Descriptions`/`Collapse` 展示。
 - 权限门控动作必须用 `access.tsx` 的 `Button`(permission prop),不得换成 antd Button 丢掉权限检查;无权限语义的纯交互按钮用 antd Button。
 
 ## 信息密度与操作
 
-- 首屏只放主操作与关键数据;次要内容默认进 `Tabs`/`Collapse`/`Popover`;长文本转要点;能图标+title 的不堆文字。一个视图的信息量以"无需滚动即可理解当前状态"为准。
+- 首屏只放主操作与关键数据;次要内容进 `Popover` 或后置小节;长文本转要点;能图标+title 的不堆文字。一个视图的信息量以"无需滚动即可理解当前状态"为准。
 - 危险操作二次确认(antd `Popconfirm` 或 Modal 确认);删除/封禁等必须保留权限门控。
 
 ## 样式
@@ -39,6 +39,7 @@ apps/web/src/
 - 优先 antd 默认样式;确需自定义时写视图私有 `<Name>.css`,不要改 `styles.css` 全局区。
 - `styles.css` 只保留设计变量(`:root`)、基础布局壳和仍存活的通用类;圆角用 `--radius-s/radius/radius-l`,断点只有 `max-width: 900px` 和 `600px` 两档,颜色尽量走变量。
 - 类名 kebab-case;视图私有类用短前缀(如 `ed-`、`.service-log-`)避免跨视图撞名。
+- 色彩纪律:品牌绿(#16a34a 系)只用于主操作按钮、链接、当前选中态(菜单/tab)和品牌 logo;其余静态装饰(标签、卡片、边框、图标底色、状态 pill、静态进度条)一律中性灰(`--surface-2` 底 + `--ink-2/3` 字 + `--line` 边)。状态 `Tag` 一律 `color="default"`,确需区分成败只用 `success`/`default` 二值;功能性反馈(`Alert`/`message`/`Popconfirm`、表单校验)保持 antd 语义色,失败状态可用柔和红字但不铺红底。深色块只允许出现在左侧栏和顶栏。
 
 ## 验证
 

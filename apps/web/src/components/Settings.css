@@ -29,15 +29,6 @@
 	align-self: center;
 }
 
-.provider-tab-item i.ok {
-	background: #16a34a;
-}
-
-.provider-tab-item i.fail,
-.provider-tab-item i.error {
-	background: #dc2626;
-}
-
 .provider-form {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

@@ -135,7 +135,7 @@ export function UserManagement() {
 					{
 						title: "状态",
 						key: "status",
-						render: (_, member) => (member.disabled_at ? <Tag color="red">已停用</Tag> : <Tag color="green">有效</Tag>),
+						render: (_, member) => (member.disabled_at ? <Tag>已停用</Tag> : <Tag>有效</Tag>),
 					},
 					{
 						title: "操作",

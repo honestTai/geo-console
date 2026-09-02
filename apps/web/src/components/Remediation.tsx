@@ -116,24 +116,10 @@ export const taskStatusLabels: Record<string, string> = {
 	done: "已完成",
 };
 
-const TASK_STATUS_COLORS: Record<string, string> = {
-	todo: "default",
-	in_progress: "processing",
-	published: "gold",
-	verified: "cyan",
-	done: "green",
-};
-
 export function taskPriorityMeta(priority: string): { className: string; label: string } {
 	if (priority === "high") return { className: "high", label: "高优先级" };
 	if (priority === "medium" || priority === "mid") return { className: "mid", label: "中优先级" };
 	return { className: "low", label: "常规" };
-}
-
-function taskPriorityColor(priority: string): string {
-	if (priority === "high") return "red";
-	if (priority === "medium" || priority === "mid") return "orange";
-	return "blue";
 }
 
 const STATUS_SELECT_OPTIONS = Object.entries(taskStatusLabels).map(([value, label]) => ({ value, label }));
@@ -261,12 +247,10 @@ export function TaskItem({
 			className="remediation-item"
 			title={
 				<Space size={8} wrap>
-					<Tag color={taskPriorityColor(task.priority)}>{priority.label}</Tag>
+					<Tag>{priority.label}</Tag>
 					<span className="task-title">{task.title}</span>
 					{task.verified_snapshot_id && (
-						<Tag color="green" icon={<IconCheck size={12} />}>
-							已抓取验收 · 快照 {task.verified_snapshot_id}
-						</Tag>
+						<Tag icon={<IconCheck size={12} />}>已抓取验收 · 快照 {task.verified_snapshot_id}</Tag>
 					)}
 				</Space>
 			}
@@ -280,7 +264,7 @@ export function TaskItem({
 						options={STATUS_SELECT_OPTIONS}
 						onChange={(status) => act(() => patch(`/api/tasks/${task.id}`, { status }))}
 					/>
-					<Tag color={TASK_STATUS_COLORS[task.status] ?? "default"}>{taskStatusLabels[task.status] ?? task.status}</Tag>
+					<Tag>{taskStatusLabels[task.status] ?? task.status}</Tag>
 					<Popconfirm
 						title="删除该整改任务？"
 						okText="删除"

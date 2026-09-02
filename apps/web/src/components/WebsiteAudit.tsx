@@ -1,5 +1,5 @@
 import { IconShieldCheck } from "@tabler/icons-react";
-import { Alert, Descriptions, Statistic, Tabs, Tag } from "antd";
+import { Alert, Descriptions, Statistic, Tag } from "antd";
 import { useMemo, useState } from "react";
 import { Button } from "../access";
 import { post } from "../api";
@@ -8,17 +8,17 @@ import { date, Empty } from "../ui/primitives";
 import { Page } from "./Page";
 import "./WebsiteAudit.css";
 
-const verdictMeta: Record<string, { label: string; color: string }> = {
-	ready: { label: "官网读取基础完整", color: "green" },
-	ready_with_warnings: { label: "官网可读取，但存在重要缺口", color: "orange" },
-	blocked: { label: "官网存在读取阻断", color: "red" },
+const verdictLabels: Record<string, string> = {
+	ready: "官网读取基础完整",
+	ready_with_warnings: "官网可读取，但存在重要缺口",
+	blocked: "官网存在读取阻断",
 };
 
-const checkStatusMeta: Record<AuditCheck["status"], { label: string; color: string }> = {
-	pass: { label: "通过", color: "green" },
-	fail: { label: "失败", color: "red" },
-	warning: { label: "警告", color: "orange" },
-	skip: { label: "参考", color: "default" },
+const checkStatusLabels: Record<AuditCheck["status"], string> = {
+	pass: "通过",
+	fail: "失败",
+	warning: "警告",
+	skip: "参考",
 };
 
 const checkStatusRank: Record<AuditCheck["status"], number> = { fail: 0, warning: 1, skip: 2, pass: 3 };
@@ -35,22 +35,10 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const audit = project.websiteAudits?.[0];
-	const checkTabs = useMemo(() => {
-		if (!audit) return [];
-		const groups = new Map<string, AuditCheck[]>();
-		for (const check of audit.result.checks) {
-			const label = checkGroupLabel(check);
-			groups.set(label, [...(groups.get(label) ?? []), check]);
-		}
-		return [...groups.entries()].map(([label, checks]) => ({
-			key: label,
-			label: `${label}（${checks.length}）`,
-			checks: [...checks].sort((a, b) => checkStatusRank[a.status] - checkStatusRank[b.status]),
-		}));
-	}, [audit]);
-	const defaultTabKey =
-		checkTabs.find((tab) => tab.checks.some((check) => check.status === "fail" || check.status === "warning"))?.key ??
-		checkTabs[0]?.key;
+	const sortedChecks = useMemo(
+		() => (audit ? [...audit.result.checks].sort((a, b) => checkStatusRank[a.status] - checkStatusRank[b.status]) : []),
+		[audit],
+	);
 	async function run() {
 		setBusy(true);
 		setError(null);
@@ -85,7 +73,7 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 			</Page>
 		);
 	const passCount = audit.result.checks.filter((check) => check.status === "pass").length;
-	const verdict = verdictMeta[audit.result.verdict];
+	const verdictLabel = verdictLabels[audit.result.verdict] ?? audit.result.verdict;
 	return (
 		<Page
 			className="audit-page"
@@ -103,7 +91,7 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 			<div className="audit-hero">
 				<Statistic title="AI 可读性得分" value={audit.result.score} suffix="/ 100" />
 				<div className="audit-hero-text">
-					<Tag color={verdict.color}>{verdict.label}</Tag>
+					<Tag>{verdictLabel}</Tag>
 					<p className="muted">
 						最近审计：{date(audit.result.checkedAt)} · {audit.result.checks.length} 项检查 · 审计证据 ID {audit.id}
 					</p>
@@ -149,24 +137,18 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 					通过 {passCount} / 共 {audit.result.checks.length} 项
 				</span>
 			</header>
-			<Tabs
-				defaultActiveKey={defaultTabKey}
-				items={checkTabs.map((tab) => ({
-					key: tab.key,
-					label: tab.label,
-					children: (
-						<div className="audit-check-grid">
-							{tab.checks.map((check) => (
-								<article className={`audit-check-card ${check.status}`} key={check.id}>
-									<Tag color={checkStatusMeta[check.status].color}>{checkStatusMeta[check.status].label}</Tag>
-									<strong>{check.label}</strong>
-									<p>{check.detail}</p>
-								</article>
-							))}
+			<div className="audit-check-grid">
+				{sortedChecks.map((check) => (
+					<article className={`audit-check-card ${check.status}`} key={check.id}>
+						<Tag>{checkStatusLabels[check.status]}</Tag>
+						<div className="audit-check-body">
+							<span className="audit-check-category">{checkGroupLabel(check)}</span>
+							<strong>{check.label}</strong>
+							<p>{check.detail}</p>
 						</div>
-					),
-				}))}
-			/>
+					</article>
+				))}
+			</div>
 		</Page>
 	);
 }

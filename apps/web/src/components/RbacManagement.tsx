@@ -1,5 +1,5 @@
 import { IconPlus, IconTrash } from "@tabler/icons-react";
-import { Alert, App, Checkbox, Collapse, Input, List, Popconfirm, Switch, Table, Tabs, Typography } from "antd";
+import { Alert, App, Checkbox, Input, List, Popconfirm, Switch, Table, Tabs, Typography } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "../access";
 import { api, post, put } from "../api";
@@ -29,19 +29,18 @@ export function PermissionChecklist({
 	const toggleGroup = (groupKeys: string[], keys: string[]) =>
 		onChange([...selected.filter((key) => !groupKeys.includes(key)), ...keys]);
 	return (
-		<Collapse
-			size="small"
-			className="permission-groups"
-			defaultActiveKey={groups
-				.filter(([, items]) => items.some((permission) => selected.includes(permission.key)))
-				.map(([group]) => group)}
-			items={groups.map(([group, items]) => {
+		<div className="permission-groups">
+			{groups.map(([group, items]) => {
 				const groupKeys = items.map((permission) => permission.key);
 				const checkedCount = items.filter((permission) => selected.includes(permission.key)).length;
-				return {
-					key: group,
-					label: `${group}（已选 ${checkedCount}/${items.length}）`,
-					children: (
+				return (
+					<section className="permission-group" key={group}>
+						<header className="permission-group-head">
+							<h4>{group}</h4>
+							<span>
+								已选 {checkedCount}/{items.length}
+							</span>
+						</header>
 						<Checkbox.Group
 							className="permission-checkboxes"
 							value={selected.filter((key) => groupKeys.includes(key))}
@@ -56,10 +55,10 @@ export function PermissionChecklist({
 								),
 							}))}
 						/>
-					),
-				};
+					</section>
+				);
 			})}
-		/>
+		</div>
 	);
 }
 
