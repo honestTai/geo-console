@@ -126,6 +126,8 @@ sudo geo-console upgrade /tmp/geo-console-<新版本>.run
 
 新镜像会在旧版本仍在线时构建。切换前自动备份 PostgreSQL 与本地证据，之后停止应用服务、切换 `current` 软链接、按顺序运行迁移并启动新版本。旧 release 目录会保留，但迁移只向前执行，不会自动回滚数据库。
 
+镜像构建在服务器上从 bundle 源码执行；`docker/Dockerfile` 已把 pnpm/corepack 切到 npmmirror、Playwright 浏览器下载切到 npmmirror CDN（lockfile 完整性校验不变），国内服务器升级不再直连 npmjs.org。
+
 常用管理命令：
 
 ```bash
