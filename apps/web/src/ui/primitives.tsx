@@ -42,8 +42,7 @@ export function Pagination({
 			current={page}
 			pageSize={pageSize}
 			total={total}
-			size="small"
-			showSizeChanger={!!onPageSize}
+			showSizeChanger={!!onPageSize && total > 10}
 			pageSizeOptions={[10, 20, 50]}
 			showTotal={(t) => `共 ${t} 条`}
 			onChange={(nextPage, nextPageSize) => {
