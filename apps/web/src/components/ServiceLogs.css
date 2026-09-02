@@ -1,3 +1,4 @@
+/* 运行日志：级别计数 + 筛选行 + 游标翻页 + 保留清理 */
 .service-log-cursor-bar {
 	display: flex;
 	align-items: center;
@@ -9,7 +10,7 @@
 }
 
 .service-log-counts {
-	margin-bottom: 4px;
+	margin-bottom: var(--space-3);
 }
 
 .service-log-counts .ant-btn {
@@ -17,10 +18,22 @@
 	align-items: center;
 }
 
-.service-log-filters {
-	margin-bottom: 4px;
+.service-log-level-tag.ant-tag {
+	margin-inline-end: 4px;
+}
+
+.service-log-select {
+	min-width: 160px;
+}
+
+.service-log-select.narrow {
+	min-width: 120px;
+}
+
+.service-log-range {
+	min-width: 250px;
 }
 
 .service-log-retention {
-	margin-top: 14px;
+	margin-top: var(--space-5);
 }

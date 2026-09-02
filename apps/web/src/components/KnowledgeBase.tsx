@@ -5,7 +5,8 @@ import { Button } from "../access";
 import { api, post } from "../api";
 import { usePaginated } from "../hooks/usePagination";
 import type { LibraryQuestion, Paginated, Project } from "../types";
-import { date, Empty, Pagination } from "../ui/primitives";
+import { date, Empty, FilterBar, Pagination, SectionTitle } from "../ui/primitives";
+import "./KnowledgeBase.css";
 import { Page } from "./Page";
 
 export function KnowledgeBase({
@@ -59,67 +60,65 @@ export function KnowledgeBase({
 			eyebrow="机构知识资产"
 			title="行业问题知识库"
 			description="新客户官网分析会自动合并同机构、同行业的问题；新增内容只由成员维护。"
-			extra={
-				<Input
-					style={{ width: 220 }}
-					allowClear
-					prefix={<IconSearch size={15} />}
-					placeholder="输入行业筛选"
-					value={industry}
-					onChange={(event) => setIndustry(event.target.value)}
-				/>
-			}
 		>
 			{error && <Alert type="error" showIcon message={error} />}
 			{!canWrite && <Alert type="info" showIcon message="当前为只读角色，可以查看知识库，但不能新增或归档问题。" />}
-			<Form layout="inline">
-				<Form.Item label="问题">
-					<Input
-						style={{ width: 320 }}
-						placeholder="潜在客户会向 AI 提出的真实问题"
-						value={form.question}
-						onChange={(event) => setForm({ ...form, question: event.target.value })}
+			<FilterBar
+				extra={<span className="knowledge-count">{questionsPage.total ? `${questionsPage.total} 个问题` : ""}</span>}
+			>
+				<Input
+					allowClear
+					prefix={<IconSearch size={15} />}
+					placeholder="按行业筛选，如：数控设备"
+					value={industry}
+					onChange={(event) => setIndustry(event.target.value)}
+				/>
+			</FilterBar>
+			{canWrite && (
+				<Form layout="vertical" className="knowledge-form">
+					<SectionTitle
+						title="加入新问题"
+						description={
+							industry ? `将加入「${industry}」行业，同行业客户建档时自动复用。` : "先在上方填写行业，再添加问题。"
+						}
 					/>
-				</Form.Item>
-				<Form.Item label="意图">
-					<Input
-						style={{ width: 110 }}
-						value={form.intent}
-						onChange={(event) => setForm({ ...form, intent: event.target.value })}
-					/>
-				</Form.Item>
-				<Form.Item label="主题">
-					<Input
-						style={{ width: 120 }}
-						value={form.topic}
-						onChange={(event) => setForm({ ...form, topic: event.target.value })}
-					/>
-				</Form.Item>
-				<Form.Item label="购买者角色">
-					<Input
-						style={{ width: 130 }}
-						value={form.persona}
-						onChange={(event) => setForm({ ...form, persona: event.target.value })}
-					/>
-				</Form.Item>
-				<Form.Item label="标签">
-					<Input
-						style={{ width: 150 }}
-						placeholder="逗号分隔"
-						value={form.tags}
-						onChange={(event) => setForm({ ...form, tags: event.target.value })}
-					/>
-				</Form.Item>
-				<Form.Item>
-					<Button
-						icon={<IconPlus size={16} />}
-						disabled={!canWrite || !industry || form.question.trim().length < 4 || !form.intent}
-						onClick={create}
-					>
-						加入知识库
-					</Button>
-				</Form.Item>
-			</Form>
+					<div className="knowledge-form-grid">
+						<Form.Item label="问题" className="knowledge-form-question">
+							<Input
+								placeholder="潜在客户会向 AI 提出的真实问题"
+								value={form.question}
+								onChange={(event) => setForm({ ...form, question: event.target.value })}
+							/>
+						</Form.Item>
+						<Form.Item label="意图">
+							<Input value={form.intent} onChange={(event) => setForm({ ...form, intent: event.target.value })} />
+						</Form.Item>
+						<Form.Item label="主题">
+							<Input value={form.topic} onChange={(event) => setForm({ ...form, topic: event.target.value })} />
+						</Form.Item>
+						<Form.Item label="购买者角色">
+							<Input value={form.persona} onChange={(event) => setForm({ ...form, persona: event.target.value })} />
+						</Form.Item>
+						<Form.Item label="标签">
+							<Input
+								placeholder="逗号分隔"
+								value={form.tags}
+								onChange={(event) => setForm({ ...form, tags: event.target.value })}
+							/>
+						</Form.Item>
+						<Form.Item label=" " className="knowledge-form-submit">
+							<Button
+								icon={<IconPlus size={16} />}
+								disabled={!industry || form.question.trim().length < 4 || !form.intent}
+								onClick={create}
+							>
+								加入知识库
+							</Button>
+						</Form.Item>
+					</div>
+				</Form>
+			)}
+			<SectionTitle title="问题列表" count={questionsPage.total || undefined} />
 			{questions.length ? (
 				<div className="knowledge-list">
 					{questions.map((question) => (

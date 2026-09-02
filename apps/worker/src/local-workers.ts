@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Database } from "@geo/core";
 import { StructuredLogger, safeErrorMessage } from "@geo/logging";
 import { executeAgentDraft, flushAgentLogs } from "./agent";
-import { recoverOrphanedAgentRuns, runOneAgentJob } from "./agent-jobs";
+import { coordinateWorkbench, recoverOrphanedAgentRuns, runOneAgentJob } from "./agent-jobs";
 import { flushCaptureLogs, startCloudRunner } from "./cloud-runner";
 import { flushReportLogs, queueScheduledReportSnapshots, runOneReportJob } from "./report-snapshots";
 
@@ -15,10 +15,15 @@ export async function startLocalWorkers(database: Database): Promise<() => Promi
 	let agentActive = false;
 	let reportActive = false;
 	let lastReportScan = 0;
+	let lastCoordination = 0;
 	const agentTick = async () => {
 		if (agentActive) return;
 		agentActive = true;
 		try {
+			if (Date.now() - lastCoordination >= 5_000) {
+				lastCoordination = Date.now();
+				await coordinateWorkbench(database);
+			}
 			await runOneAgentJob(database, agentOwner, executeAgentDraft);
 		} catch (error) {
 			logger.error("agent.tick_failed", safeErrorMessage(error), { traceId: agentOwner });

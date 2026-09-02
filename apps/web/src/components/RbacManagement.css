@@ -59,3 +59,49 @@
 	font-size: 12px;
 	color: var(--ink-3);
 }
+
+/* 菜单 → 按钮权限树 */
+.permission-tree {
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	background: var(--surface);
+	padding: var(--space-3) var(--space-4);
+}
+
+.permission-tree-toolbar {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	font-size: 12.5px;
+	color: var(--ink-3);
+	margin-bottom: var(--space-2);
+}
+
+.permission-tree-toolbar span {
+	margin-right: auto;
+}
+
+.permission-tree .ant-tree-treenode {
+	padding-bottom: 2px;
+}
+
+.permission-tree-group {
+	font-weight: 650;
+	font-size: 13px;
+}
+
+.permission-tree-page,
+.permission-tree-action {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.permission-tree-page {
+	font-weight: 600;
+}
+
+.permission-tree-page .ant-typography,
+.permission-tree-action .ant-typography {
+	font-size: 11.5px;
+}

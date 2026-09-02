@@ -5,7 +5,7 @@ import { Button, usePermission } from "../access";
 import { post } from "../api";
 import type { Paginated, ProjectSummary, View } from "../types";
 import { managementViews } from "../types";
-import { date, Empty, Notice, Pagination } from "../ui/primitives";
+import { Empty, FilterBar, Notice, Pagination, shortDate } from "../ui/primitives";
 import "./ProjectHome.css";
 
 export function ProjectHome({
@@ -75,15 +75,19 @@ export function ProjectHome({
 				<span className="eyebrow">客户项目</span>
 				<h1>从一个真实客户开始</h1>
 				<p>建档、真实采集、证据诊断、整改和同条件复测都保存在同一个项目中。</p>
+			</section>
+			<FilterBar
+				extra={<span className="project-home-count">{pagination.total ? `共 ${pagination.total} 个客户` : ""}</span>}
+			>
 				<Input
 					className="project-home-search"
 					allowClear
 					prefix={<IconSearch size={16} />}
 					value={search}
 					onChange={(event) => onSearch(event.target.value)}
-					placeholder="筛选当前机构下的客户"
+					placeholder="按客户名或域名筛选"
 				/>
-			</section>
+			</FilterBar>
 			{error && <Notice type="error" message={error} />}
 			{projects.length === 0 ? (
 				<Empty
@@ -118,7 +122,7 @@ export function ProjectHome({
 								</div>
 								<div>
 									<span>最近监测</span>
-									<b>{date(project.last_batch_at)}</b>
+									<b>{shortDate(project.last_batch_at)}</b>
 								</div>
 							</div>
 						</Card>

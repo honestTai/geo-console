@@ -50,3 +50,51 @@
 	margin: 0 0 8px;
 	font-size: 13px;
 }
+
+.schedule-section {
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	padding: var(--space-4) var(--space-5);
+	margin-bottom: var(--space-2);
+}
+
+.schedule-hint {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	margin: 0 0 var(--space-3);
+	color: var(--ink-2);
+	font-size: 13px;
+}
+
+.schedule-summary {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 13px;
+	color: var(--ink-3);
+}
+
+.schedule-select {
+	min-width: 110px;
+}
+
+.schedule-form .ant-form-item {
+	margin-bottom: var(--space-2);
+}
+
+.monitor-config-form {
+	width: 280px;
+}
+
+.run-activity .ant-timeline {
+	margin-top: var(--space-3);
+	max-height: 260px;
+	overflow-y: auto;
+}
+
+.run-activity .ant-timeline .ant-timeline-item {
+	padding-bottom: 12px;
+	font-size: 13px;
+}

@@ -10,6 +10,7 @@ import { renderReportDocx } from "./docx";
 import { artifactExists, putArtifact } from "./object-store";
 import { type Paginated, type PaginationInput, paginated } from "./pagination";
 import { providerDefinitions } from "./providers";
+import { type EvidenceIndexEntry, evidencePlatformLabel, stripTrackingFragment } from "./report";
 import { getBatch, getBatchReport } from "./service";
 import { parseJsonColumn, sha256, stableJson } from "./utils";
 
@@ -148,6 +149,8 @@ export async function advanceReportWorkflow(
 }
 
 const hashToken = (token: string): string => createHash("sha256").update(token).digest("hex");
+const priorityLabel = (value: unknown): string =>
+	value === "high" ? "高优先级" : value === "medium" ? "中优先级" : value === "low" ? "低优先级" : String(value ?? "");
 const escapeHtml = (value: unknown): string =>
 	String(value ?? "")
 		.replaceAll("&", "&amp;")
@@ -327,6 +330,58 @@ export async function getReportSnapshot(database: Database, reportId: string): P
 	return { ...row, payload: parseJsonColumn(row.payload as string | Record<string, unknown>) };
 }
 
+type EvidenceLookup = { byId: Map<string, EvidenceIndexEntry>; entries: EvidenceIndexEntry[] };
+
+/** 快照 payload 里的证据索引；旧快照没有索引时按证据 ID 出现顺序即时编号。 */
+export function evidenceLookup(payload: Record<string, unknown>): EvidenceLookup {
+	const analysis = (payload.report as { analysis?: { evidenceIndex?: EvidenceIndexEntry[] } } | undefined)?.analysis;
+	const entries = Array.isArray(analysis?.evidenceIndex) ? analysis.evidenceIndex : [];
+	return { byId: new Map(entries.map((entry) => [entry.id, entry])), entries };
+}
+
+export function citationMarks(evidenceIds: unknown, lookup: EvidenceLookup): string {
+	const ids = Array.isArray(evidenceIds) ? evidenceIds.map(String) : [];
+	const marks = ids.map((id) => {
+		const entry = lookup.byId.get(id);
+		return entry ? `[${entry.n}]` : `[${id.slice(0, 8)}]`;
+	});
+	return marks.length ? `<sup class="cite">${escapeHtml(marks.join(""))}</sup>` : "";
+}
+
+export function describeEvidenceEntry(entry: EvidenceIndexEntry): string {
+	if (entry.kind === "capture")
+		return `${entry.platformLabel ?? entry.platform ?? "联网回答"} · “${entry.question ?? ""}” · 第 ${entry.attempt ?? 1} 次采样 · ${reportDate(entry.capturedAt)}`;
+	if (entry.kind === "snapshot") return `${entry.platformLabel ?? "网页快照"} · ${entry.title ?? entry.url ?? ""}`;
+	return `${entry.platformLabel ?? "官网审计"} · ${reportDate(entry.capturedAt)}`;
+}
+
+function evidenceIndexTable(lookup: EvidenceLookup, prompts: Array<Record<string, unknown>>): string {
+	if (!lookup.entries.length)
+		return prompts
+			.flatMap((row) =>
+				(row.captures as Array<Record<string, unknown>>).map(
+					(capture) =>
+						`<p>${escapeHtml(capture.captureId)} · ${escapeHtml(evidencePlatformLabel(String(capture.platform)) ?? capture.platform)} · 第 ${escapeHtml(capture.attempt)} 次 · ${escapeHtml(capture.status)}</p>`,
+				),
+			)
+			.join("");
+	return `<table class="evidence-index"><thead><tr><th>编号</th><th>来源</th><th>问题 / 页面</th><th>采样</th><th>时间</th><th>引用网址</th></tr></thead><tbody>${lookup.entries
+		.map(
+			(entry) =>
+				`<tr><td>[${entry.n}]</td><td>${escapeHtml(entry.platformLabel ?? entry.platform ?? "-")}</td><td>${escapeHtml(entry.question ?? entry.title ?? entry.url ?? "-")}</td><td>${entry.attempt ? `第 ${entry.attempt} 次${entry.status && entry.status !== "complete" ? ` · ${escapeHtml(entry.status)}` : ""}` : "-"}</td><td>${entry.capturedAt ? escapeHtml(reportDate(entry.capturedAt)) : "-"}</td><td>${
+					entry.sourceUrls.length
+						? entry.sourceUrls
+								.slice(0, 5)
+								.map((url) => `<a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`)
+								.join("<br>")
+						: entry.url
+							? `<a href="${escapeHtml(entry.url)}">${escapeHtml(entry.url)}</a>`
+							: "平台未开放来源"
+				}</td></tr>`,
+		)
+		.join("")}</tbody></table>`;
+}
+
 function platformRows(payload: Record<string, unknown>): string {
 	const batch = payload.batch as { metrics?: { perPlatform?: Record<string, Record<string, unknown>> } };
 	const entries = Object.entries(batch.metrics?.perPlatform ?? {});
@@ -380,10 +435,12 @@ export function renderReportHtml(snapshot: Record<string, unknown>): string {
 		  }
 		| undefined;
 	const reputation = narrative?.reputation;
+	const lookup = evidenceLookup(payload);
 	const reputationSignal = (signal: Record<string, unknown>, polarity: "positive" | "negative"): string => {
-		const urls = Array.isArray(signal.sourceUrls) ? signal.sourceUrls.map(String) : [];
-		const evidenceIds = Array.isArray(signal.evidenceIds) ? signal.evidenceIds.map(String) : [];
-		return `<article class="reputation-signal ${polarity}"><strong>${polarity === "positive" ? "正面" : "负面"}</strong><p>${escapeHtml(signal.statement)}</p><small>来源：${urls.length ? urls.map((url) => `<a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`).join("、") : "平台未开放来源"} · 证据 ${escapeHtml(evidenceIds.join("、"))}</small></article>`;
+		const urls = Array.isArray(signal.sourceUrls)
+			? signal.sourceUrls.map((url) => stripTrackingFragment(String(url)))
+			: [];
+		return `<article class="reputation-signal ${polarity}"><strong>${polarity === "positive" ? "正面" : "负面"}</strong><p>${escapeHtml(signal.statement)}${citationMarks(signal.evidenceIds, lookup)}</p><small>来源：${urls.length ? [...new Set(urls)].map((url) => `<a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`).join("、") : "平台未开放来源"}</small></article>`;
 	};
 	const comparison = payload.comparison as Record<string, unknown> | null;
 	const chart = Object.entries(
@@ -396,7 +453,7 @@ export function renderReportHtml(snapshot: Record<string, unknown>): string {
 		)
 		.join("");
 	return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(snapshot.title)}</title><style>
-		@page{size:A4;margin:20mm 14mm 18mm}*{box-sizing:border-box}body{margin:0;color:#18201d;font:14px/1.65 "Noto Sans CJK SC","Source Han Sans SC","PingFang SC","Microsoft YaHei",sans-serif;background:#fff}main{max-width:1080px;margin:auto;padding:32px}.cover{min-height:240px;border-bottom:4px solid #117a65;padding:40px 0}.eyebrow{color:#117a65;font-weight:700}.cover h1{font-size:32px;margin:14px 0 10px;letter-spacing:0}.muted{color:#66716d}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:24px 0}.kpi{border:1px solid #d9e1de;border-radius:6px;padding:14px}.kpi strong{display:block;font-size:24px;color:#0d584a}.section{break-inside:avoid;margin:28px 0}.section h2{font-size:20px;border-bottom:1px solid #ccd7d3;padding-bottom:7px}.toc a{display:block;color:#117a65;text-decoration:none;padding:3px 0}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #d9e1de;padding:7px;text-align:left;vertical-align:top}th{background:#eff5f2}.bar-row{display:grid;grid-template-columns:150px 1fr 52px;gap:10px;align-items:center;margin:8px 0}.bar{height:12px;background:#e5ece9}.bar i{display:block;height:100%;background:#117a65}.finding{border-left:3px solid #117a65;padding:8px 12px;margin:12px 0;background:#f7faf9}.reputation-signal{padding:10px 12px;margin:10px 0;border-left:3px solid #188b66;background:#f1f9f5}.reputation-signal.negative{border-color:#c43d46;background:#fff3f3}.reputation-signal p{margin:4px 0}.reputation-signal a{color:#0d584a;word-break:break-all}.recommendation{border:1px solid #d9e1de;padding:10px 12px;margin:9px 0}.warning{border:1px solid #d4a72c;background:#fff9e8;padding:12px}.appendix{font-size:11px;word-break:break-all}@media(max-width:700px){main{padding:18px}.kpis{grid-template-columns:1fr 1fr}.cover h1{font-size:25px}.bar-row{grid-template-columns:100px 1fr 46px}table{display:block;overflow:auto}}
+		@page{size:A4;margin:20mm 14mm 18mm}*{box-sizing:border-box}body{margin:0;color:#18201d;font:14px/1.65 "Noto Sans CJK SC","Source Han Sans SC","PingFang SC","Microsoft YaHei",sans-serif;background:#fff}main{max-width:1080px;margin:auto;padding:32px}.cover{min-height:240px;border-bottom:4px solid #117a65;padding:40px 0}.eyebrow{color:#117a65;font-weight:700}.cover h1{font-size:32px;margin:14px 0 10px;letter-spacing:0}.muted{color:#66716d}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:24px 0}.kpi{border:1px solid #d9e1de;border-radius:6px;padding:14px}.kpi strong{display:block;font-size:24px;color:#0d584a}.section{break-inside:avoid;margin:28px 0}.section h2{font-size:20px;border-bottom:1px solid #ccd7d3;padding-bottom:7px}.toc a{display:block;color:#117a65;text-decoration:none;padding:3px 0}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #d9e1de;padding:7px;text-align:left;vertical-align:top}th{background:#eff5f2}.bar-row{display:grid;grid-template-columns:150px 1fr 52px;gap:10px;align-items:center;margin:8px 0}.bar{height:12px;background:#e5ece9}.bar i{display:block;height:100%;background:#117a65}.finding{border-left:3px solid #117a65;padding:8px 12px;margin:12px 0;background:#f7faf9}.reputation-signal{padding:10px 12px;margin:10px 0;border-left:3px solid #188b66;background:#f1f9f5}.reputation-signal.negative{border-color:#c43d46;background:#fff3f3}.reputation-signal p{margin:4px 0}.reputation-signal a{color:#0d584a;word-break:break-all}.recommendation{border:1px solid #d9e1de;padding:10px 12px;margin:9px 0}.warning{border:1px solid #d4a72c;background:#fff9e8;padding:12px}.appendix{font-size:11px;word-break:break-all}.cite{color:#117a65;font-size:10px;margin-left:2px}.evidence-index td{font-size:10.5px}.evidence-index a{color:#0d584a}@media(max-width:700px){main{padding:18px}.kpis{grid-template-columns:1fr 1fr}.cover h1{font-size:25px}.bar-row{grid-template-columns:100px 1fr 46px}table{display:block;overflow:auto}}
 		</style></head><body><main><section class="cover"><div class="eyebrow">GEO CONSOLE / ${escapeHtml(snapshot.report_type)}</div><h1>${escapeHtml(snapshot.title)}</h1><p>${escapeHtml((analysis.executive ?? {}).headline)}</p><p class="muted">快照 ${escapeHtml(snapshot.id)} · ${escapeHtml(reportDate(snapshot.created_at))}</p></section>
 		<section class="kpis"><div class="kpi">品牌提及率<strong>${percent(overall.brandMentionRate)}</strong></div><div class="kpi">首位推荐率<strong>${percent(overall.firstRecommendationRate)}</strong></div><div class="kpi">品牌声量份额<strong>${percent(overall.brandShareOfVoice)}</strong></div><div class="kpi">数据覆盖率<strong>${percent(overall.dataCoverage)}</strong></div></section>
 		<section class="section toc"><h2>目录</h2><a href="#summary">1. 执行摘要</a><a href="#reputation">2. AI 口碑检测</a><a href="#platforms">3. 平台指标</a><a href="#questions">4. 问题与竞品</a><a href="#sources">5. 信源</a><a href="#remediation">6. GEO 优化与整改</a><a href="#evidence">7. 证据与局限</a></section>
@@ -405,8 +462,8 @@ export function renderReportHtml(snapshot: Record<string, unknown>): string {
 		<section class="section" id="platforms"><h2>3. 平台指标</h2><table><thead><tr><th>平台口径</th><th>回答覆盖</th><th>品牌提及</th><th>首位推荐</th><th>声量份额</th><th>官网引用</th></tr></thead><tbody>${platformRows(payload)}</tbody></table></section>
 		<section class="section" id="questions"><h2>4. 问题与竞品</h2><table><thead><tr><th>问题</th><th>有效/计划</th><th>提及率</th><th>首位率</th><th>最佳位置</th><th>来源数</th></tr></thead><tbody>${prompts.map((row) => `<tr><td>${escapeHtml(row.question)}</td><td>${escapeHtml(row.completeSamples)}/${escapeHtml(row.plannedSamples)}</td><td>${percent(row.targetMentionRate)}</td><td>${percent(row.firstRecommendationRate)}</td><td>${escapeHtml(row.bestTargetPosition ?? "未出现")}</td><td>${escapeHtml(row.sourceCount)}</td></tr>`).join("")}</tbody></table></section>
 		<section class="section" id="sources"><h2>5. 信源与变化</h2><table><thead><tr><th>域名</th><th>引用次数</th><th>覆盖问题</th><th>分类</th></tr></thead><tbody>${sources.map((source) => `<tr><td>${escapeHtml(source.domain)}</td><td>${escapeHtml(source.citationCount)}</td><td>${escapeHtml(source.promptCount)}</td><td>${escapeHtml(source.category ?? (source.isOwned ? "owned" : "other"))}</td></tr>`).join("")}</tbody></table>${comparison ? `<p>新增信源：${escapeHtml((comparison.newSources as string[]).join("、") || "无")}</p><p>丢失信源：${escapeHtml((comparison.lostSources as string[]).join("、") || "无")}</p>` : ""}</section>
-		<section class="section" id="remediation"><h2>6. GEO 优化与整改</h2>${(narrative?.geoRecommendations ?? []).map((item) => `<article class="recommendation"><strong>${escapeHtml(item.priority)} · ${escapeHtml(item.title)}</strong><p>${escapeHtml(item.action)}</p><small>${escapeHtml(item.rationale)} · 证据 ${escapeHtml((item.evidenceIds as string[]).join("、"))}</small></article>`).join("")}${findings.map((finding) => `<article class="finding"><strong>${escapeHtml(finding.title)}</strong><p>${escapeHtml(finding.detail)}</p><p>建议：${escapeHtml(finding.recommendation)}</p><small>证据：${escapeHtml(parseJsonColumn<string[]>((finding.evidence_ids ?? finding.evidenceIds ?? []) as string | string[]).join("、"))}</small></article>`).join("") || "<p>尚无已批准诊断。</p>"}<table><thead><tr><th>任务</th><th>优先级</th><th>状态</th><th>负责人</th><th>验收</th></tr></thead><tbody>${tasks.map((task) => `<tr><td>${escapeHtml(task.title)}</td><td>${escapeHtml(task.priority)}</td><td>${escapeHtml(task.status)}</td><td>${escapeHtml(task.owner ?? "待分配")}</td><td>${escapeHtml(task.acceptance_criteria)}</td></tr>`).join("")}</tbody></table></section>
-		<section class="section appendix" id="evidence"><h2>7. 证据索引与口径声明</h2>${prompts.flatMap((row) => (row.captures as Array<Record<string, unknown>>).map((capture) => `<p>${escapeHtml(capture.captureId)} · ${escapeHtml(capture.platform)} · 第 ${escapeHtml(capture.attempt)} 次 · ${escapeHtml(capture.status)} · 原始证据 ${escapeHtml(capture.screenshotKey ?? "不可用")}</p>`)).join("")}<div class="warning"><strong>证据与黑盒局限</strong>${(narrative?.limitations ?? []).map((item) => `<p>${escapeHtml(item)}</p>`).join("")}<p>${escapeHtml(payload.blackBoxStatement)}</p>${disclosures.map((item) => `<p><b>${escapeHtml(item.providerId)}</b>：${escapeHtml(item.disclosure)}</p>`).join("")}</div></section>
+		<section class="section" id="remediation"><h2>6. GEO 优化与整改</h2>${(narrative?.geoRecommendations ?? []).map((item) => `<article class="recommendation"><strong>${escapeHtml(priorityLabel(item.priority))} · ${escapeHtml(item.title)}</strong><p>${escapeHtml(item.action)}</p><small>${escapeHtml(item.rationale)}${citationMarks(item.evidenceIds, lookup)}</small></article>`).join("")}${findings.map((finding) => `<article class="finding"><strong>${escapeHtml(finding.title)}</strong><p>${escapeHtml(finding.detail)}</p><p>建议：${escapeHtml(finding.recommendation)}${citationMarks(parseJsonColumn<string[]>((finding.evidence_ids ?? finding.evidenceIds ?? []) as string | string[]), lookup)}</p></article>`).join("") || "<p>尚无已批准诊断。</p>"}<table><thead><tr><th>任务</th><th>优先级</th><th>状态</th><th>负责人</th><th>验收</th></tr></thead><tbody>${tasks.map((task) => `<tr><td>${escapeHtml(task.title)}</td><td>${escapeHtml(task.priority)}</td><td>${escapeHtml(task.status)}</td><td>${escapeHtml(task.owner ?? "待分配")}</td><td>${escapeHtml(task.acceptance_criteria)}</td></tr>`).join("")}</tbody></table></section>
+		<section class="section appendix" id="evidence"><h2>7. 证据索引与口径声明</h2><p>正文中的 [n] 对应下表编号；每条证据都是指定时间、平台、问题下的真实采样或官网快照。</p>${evidenceIndexTable(lookup, prompts)}<div class="warning"><strong>证据与黑盒局限</strong>${(narrative?.limitations ?? []).map((item) => `<p>${escapeHtml(item)}</p>`).join("")}<p>${escapeHtml(payload.blackBoxStatement)}</p>${disclosures.map((item) => `<p><b>${escapeHtml(item.providerId)}</b>：${escapeHtml(item.disclosure)}</p>`).join("")}</div></section>
 		</main></body></html>`;
 }
 
@@ -666,10 +723,13 @@ export async function getSharedReport(database: Database, token: string): Promis
 }
 
 export function reportCsv(snapshot: Record<string, unknown>): string {
-	const payload = snapshot.payload as { report?: { analysis?: { promptRows?: Array<Record<string, unknown>> } } };
+	const payload = snapshot.payload as {
+		report?: { analysis?: { promptRows?: Array<Record<string, unknown>>; evidenceIndex?: EvidenceIndexEntry[] } };
+	};
 	const rows = payload.report?.analysis?.promptRows ?? [];
+	const index = payload.report?.analysis?.evidenceIndex ?? [];
 	const quote = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
-	return [
+	const lines = [
 		["问题", "意图", "有效样本", "计划样本", "品牌提及率", "首位推荐率", "最佳位置", "来源数"],
 		...rows.map((row) => [
 			row.question,
@@ -681,7 +741,19 @@ export function reportCsv(snapshot: Record<string, unknown>): string {
 			row.bestTargetPosition,
 			row.sourceCount,
 		]),
-	]
-		.map((row) => row.map(quote).join(","))
-		.join("\n");
+	];
+	if (index.length) {
+		lines.push([], ["证据编号", "来源", "问题/页面", "采样", "时间", "引用网址", "证据 ID"]);
+		for (const entry of index)
+			lines.push([
+				`[${entry.n}]`,
+				entry.platformLabel ?? entry.platform ?? "",
+				entry.question ?? entry.title ?? entry.url ?? "",
+				entry.attempt ? `第 ${entry.attempt} 次` : "",
+				entry.capturedAt ?? "",
+				entry.sourceUrls.join(" | ") || entry.url || "",
+				entry.id,
+			]);
+	}
+	return lines.map((row) => row.map(quote).join(",")).join("\n");
 }

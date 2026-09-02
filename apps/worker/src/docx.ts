@@ -1,3 +1,5 @@
+import { type EvidenceIndexEntry, stripTrackingFragment } from "./report";
+
 type ZipEntry = { name: string; data: Buffer; crc: number; offset: number };
 
 const crcTable = Array.from({ length: 256 }, (_, index) => {
@@ -91,6 +93,25 @@ export function renderReportDocx(snapshot: Record<string, unknown>): Buffer {
 		| undefined;
 	const overall = batch.metrics?.overall ?? {};
 	const reputation = narrative?.reputation;
+	const evidenceIndex = ((report.analysis as { evidenceIndex?: EvidenceIndexEntry[] } | undefined)?.evidenceIndex ??
+		[]) as EvidenceIndexEntry[];
+	const byId = new Map(evidenceIndex.map((entry) => [entry.id, entry]));
+	const marks = (ids: unknown): string =>
+		Array.isArray(ids) && ids.length
+			? ` ${ids.map((id) => `[${byId.get(String(id))?.n ?? String(id).slice(0, 8)}]`).join("")}`
+			: "";
+	const sourceLine = (signal: Record<string, unknown>): string =>
+		Array.isArray(signal.sourceUrls) && signal.sourceUrls.length
+			? [...new Set(signal.sourceUrls.map((url) => stripTrackingFragment(String(url))))].join("、")
+			: "平台未开放来源";
+	const priorityText = (value: unknown): string =>
+		value === "high"
+			? "高优先级"
+			: value === "medium"
+				? "中优先级"
+				: value === "low"
+					? "低优先级"
+					: String(value ?? "");
 	const body = [
 		paragraph(snapshot.title, "Title"),
 		paragraph(`报告快照：${snapshot.id}`),
@@ -108,23 +129,36 @@ export function renderReportDocx(snapshot: Record<string, unknown>): Buffer {
 		...((reputation?.positiveSignals ?? []).length
 			? (reputation?.positiveSignals ?? []).map(
 					(signal) =>
-						`${paragraph(`- ${signal.statement}`)}${paragraph(`来源：${Array.isArray(signal.sourceUrls) && signal.sourceUrls.length ? signal.sourceUrls.join("、") : "平台未开放来源"}`)}`,
+						`${paragraph(`- ${signal.statement}${marks(signal.evidenceIds)}`)}${paragraph(`来源：${sourceLine(signal)}`)}`,
 				)
 			: [paragraph("未观察到正面口碑信号。")]),
 		paragraph("负面信号", "Heading2"),
 		...((reputation?.negativeSignals ?? []).length
 			? (reputation?.negativeSignals ?? []).map(
 					(signal) =>
-						`${paragraph(`- ${signal.statement}`)}${paragraph(`来源：${Array.isArray(signal.sourceUrls) && signal.sourceUrls.length ? signal.sourceUrls.join("、") : "平台未开放来源"}`)}`,
+						`${paragraph(`- ${signal.statement}${marks(signal.evidenceIds)}`)}${paragraph(`来源：${sourceLine(signal)}`)}`,
 				)
 			: [paragraph("未观察到负面口碑信号。")]),
 		paragraph("GEO 优化建议", "Heading1"),
 		...(narrative?.geoRecommendations ?? []).map((item) =>
-			paragraph(`${item.priority}｜${item.title}：${item.action}`),
+			paragraph(`${priorityText(item.priority)}｜${item.title}：${item.action}${marks(item.evidenceIds)}`),
 		),
 		paragraph("证据局限", "Heading1"),
 		...(narrative?.limitations ?? []).map((item) => paragraph(item)),
 		paragraph(String(payload.blackBoxStatement ?? "")),
+		...(evidenceIndex.length
+			? [
+					paragraph("证据索引", "Heading1"),
+					paragraph("正文中的 [n] 对应以下编号。"),
+					...evidenceIndex.map((entry) =>
+						paragraph(
+							entry.kind === "capture"
+								? `[${entry.n}] ${entry.platformLabel ?? entry.platform ?? ""} · “${entry.question ?? ""}” · 第 ${entry.attempt ?? 1} 次采样 · ${entry.capturedAt ?? ""}${entry.sourceUrls.length ? ` · 引用：${entry.sourceUrls.slice(0, 5).join("、")}` : ""}`
+								: `[${entry.n}] ${entry.platformLabel ?? ""} · ${entry.title ?? entry.url ?? ""}`,
+						),
+					),
+				]
+			: []),
 	].join("");
 	const document = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="850" w:bottom="1020" w:left="850"/></w:sectPr></w:body></w:document>`;
 	const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:rPr><w:rFonts w:eastAsia="Microsoft YaHei"/><w:sz w:val="22"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:rPr><w:b/><w:sz w:val="40"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:rPr><w:b/><w:color w:val="0D584A"/><w:sz w:val="30"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:rPr><w:b/><w:sz w:val="25"/></w:rPr></w:style></w:styles>`;

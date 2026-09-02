@@ -22,7 +22,7 @@ Tauri 2 桌面客户端是所有用户的正式产品壳，正式版加载同域
 - `apps/worker/src/index.ts`：机构会话、请求级租户作用域、RBAC、超管机构切换、项目 API、周期调度和审计日志。
 - `apps/log-service`：内网结构化运行日志采集、租户查询、CSV 导出、分页与保留期清理；不接收证据正文或凭据。
 - `capture-worker.ts`：按数据库租约领取 `capture` 任务，只调用冻结配置中的供应商。
-- `agent-worker.ts`：领取 `agent_draft` 任务，实时保存受限工具轨迹，完成后进入人工审批。
+- `agent-worker.ts`：领取 `agent_draft` 与 `agent_session_turn` 任务，实时保存受限工具轨迹；每 5 秒运行一次工作台协调（自动批准工作台会话产生的草稿、唤醒等待批次/Agent/报告完成的会话）。
 - `report-worker.ts`：在已批准 Agent 报告叙述与质量检查后领取 `report_document` 任务，以冻结快照生成 PDF 与 Word 后写对象存储。
 - `packages/search-providers`：五个平台的真实 API 协议与失败分类。
 - `packages/evidence`：`QueryCapture v1/v2` 不可变证据契约。
@@ -36,7 +36,7 @@ Tauri 2 桌面客户端是所有用户的正式产品壳，正式版加载同域
 
 ## 工作台信息架构
 
-- 项目业务菜单包括项目总览、AI 监测、证据中心、官网审计、差距诊断、整改中心、业务归因和复测报告。
+- 项目业务菜单包括 AI 工作台、项目总览、AI 监测、证据中心、官网审计、差距诊断、整改中心、业务归因、复测报告和优化文章；侧栏按“客户工作台 / 机构管理 / 系统管理”分组，顶栏只显示客户名与域名，页面标题由页头唯一渲染。
 - 机构级问题知识库、平台设置、成员、业务审计、运行日志和多租户管理在未选择客户时也可进入，避免空租户无法先配置平台。
 - 菜单名称、顺序和可见性由服务端动态导航目录返回；机构未获授权的页面不会进入任何角色，用户未获授权的页面不会渲染，对应 API 同时返回 403。
 - 问题知识库按机构和行业维护；新客户分析先复用同业问题，再追加 Agent 发现的新问题候选，只有成员主动添加的记录才成为后续共享知识。
@@ -62,6 +62,14 @@ Tauri 2 桌面客户端是所有用户的正式产品壳，正式版加载同域
 7. 人工批准报告叙述后，系统自动排队绑定该版本的 Pi Agent 质量检查；质量检查人工批准且通过后，自动冻结快照并排队 PDF/Word。诊断、整改、内容与报告草稿都不自动发布或修改客户网站。
 8. 已发布 URL 重新抓取验收。复测必须复制正式基线完整配置。
 9. 只有已批准叙述与通过的质量检查才能冻结报告 payload 与 SHA-256；Report Worker 再确定性生成 PDF/Word，另提供 CSV、JSON 和可撤销分享链接。定时批次会依序创建 Agent 任务，等待人工批准后再继续冻结与导出。
+10. 报告分析包含 `evidenceIndex`：每条回答/快照/审计证据按采集时间编号，正文、PDF、Word 和 CSV 用 `[n]` 引用并附带平台、问题、采样次数、时间与引用网址；口碑来源 URL 去掉供应商追踪片段；模型夹带的英文推理草稿不进入“AI 如何描述品牌”。
+11. 优化文章：以已批准报告叙述的每条 GEO 建议为目标，`optimization_article` Agent 读取该建议引用的证据与官网快照生成 Markdown 草稿，物化到 `optimization_articles`（每条建议一篇，重复生成覆盖为新版本）。文章只是可编辑草稿，发布由成员完成后填写地址。
+
+## AI 工作台
+
+`agent_sessions` 保存一段与内置 Pi Agent 的对话：`transcript` 是 pi-agent-core 的 AgentMessage 列表，每回合用 `initialState.messages` 恢复后继续；`agent_session_events` 以递增 `seq` 记录用户消息、Agent 增量文本、工具调用、提问、等待与自动批准事件，前端按 `after=seq` 增量轮询。工作台工具只复用现有 service：`suggest_questions/apply_scope`（版本化监测范围）、`create_batch`、`run_site_audit`、`run_rule_diagnosis`、`run_agent_draft`、`advance_report`、`generate_articles`、`verify_batch`，以及只读证据工具。
+
+会话不会阻塞 Worker：`ask_user` 与 `wait_for` 都以 `terminate` 结束当前回合并把 `waiting` 写入会话；用户回答或协调器发现批次 `complete/partial`、Agent run 终态、报告 PDF 就绪后，入队 `agent_session_turn(resume)` 续跑。`auto_approve=true` 时协调器代表会话创建者批准该会话产生的草稿，`agent_runs.approved_via='workbench'` 且审计日志带 `sessionId`；关闭自动模式则回到 `waiting_user` 等待成员在对应页面审批。文章草稿 run 由协调器以 `auto_article` 直接物化，不需要人工审批。运行 20 分钟以上且无待处理任务的会话会被置为 failed。
 
 ## 不变量
 

@@ -115,6 +115,18 @@ const resourceScopes: Array<{ expression: RegExp; scope: ResourceScope }> = [
 		},
 	},
 	{
+		expression: /^\/api\/workbench\/sessions\/([^/]+)/,
+		scope: { table: "agent_sessions", organizationExpression: "organization_id", projectExpression: "project_id" },
+	},
+	{
+		expression: /^\/api\/articles\/([^/]+)/,
+		scope: {
+			table: "optimization_articles",
+			organizationExpression: "organization_id",
+			projectExpression: "project_id",
+		},
+	},
+	{
 		expression: /^\/api\/tasks\/([^/]+)/,
 		scope: {
 			table: "remediation_tasks t JOIN projects p ON p.id=t.project_id",

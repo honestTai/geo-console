@@ -44,3 +44,15 @@ apps/web/src/
 ## 验证
 
 改前端后跑 `pnpm --filter @geo/web check-types && pnpm --filter @geo/web test && pnpm --filter @geo/web build` 及 biome check;窄屏(900px、600px、390px)与桌面端都要检查无重叠截断;桌面与 Tauri 客户端加载同一份构建产物。
+
+## 2026-09 布局重做后的约定
+
+- 页面标题只由 `components/Page.tsx` 渲染一次：面包屑 `客户 / 页面`、标题、一句描述、右侧主操作；`Shell.tsx` 顶栏只显示客户名、域名 Tag 和当前页面名，不再放 `<h1>`。
+- 侧栏菜单按服务端 `group_label` 分组（客户工作台 / 机构管理 / 系统管理）；<900px 改为抽屉。
+- 间距只用 `--space-1..8`（4/8/12/16/20/24/32/48）；内容区最大宽 `--content-max`。
+- 按钮统一走 `access.tsx Button`（antd Button 封装：primary/secondary/ghost/danger/link + `permission` + `busy`），不再有 `.button` 自定义样式；仅在 antd 组件内部（Dropdown 触发器、Modal footer）直接用 antd Button。
+- 共享原语（`ui/primitives.tsx`）：`SectionTitle`（页内分组，替代嵌套卡片/Collapse）、`FilterBar`（搜索/筛选一行，禁止把输入框套在卡片里）、`KpiGrid/KpiCard`、`IdChip`（短 ID + 复制，任何 UUID/hash 都不得裸露）、`EvidenceRef`（证据引用 `[n] 平台 · 问题`，可跳转证据中心）、`BatchPicker`（antd Select）、`shortDate`。
+- 分页统一使用 `Pagination` 原语，放在列表底部，总数在左、页码在右。
+- 表单：表单字段用 `Form layout="vertical"` + 网格类（如 `.settings-grid`、`.knowledge-form-grid`），不用 `layout="inline"` 堆一行；避免 inline `style={{ width }}`，宽度写在视图 CSS。
+- 原生 `input/select/textarea` 的全局边框只作用于非 antd 控件（`styles.css` 用 `:not([class*="ant-"])` 与祖先排除），避免双边框。
+- 状态与失败码要翻译成中文（批次 `batchStatusLabel`、采集 `captureLogMessage`、文章/会话状态映射），界面不出现英文枚举值。

@@ -5,6 +5,14 @@ import { geoPaths, migrateDatabase, openDatabase, searchProviderIds } from "@geo
 import { checkLogService, LogServiceUnavailableError, StructuredLogger, safeErrorMessage } from "@geo/logging";
 import { z } from "zod";
 import { approveAgentRun, enqueueAgentDraft, enqueueTaskContentAgent, listAgentRuns, rejectAgentRun } from "./agent";
+import {
+	deleteArticle,
+	generateArticlesForBatch,
+	getArticle,
+	listArticles,
+	regenerateArticle,
+	updateArticle,
+} from "./articles";
 import { getAttribution, importAttributionCsv } from "./attribution";
 import {
 	AuthenticationError,
@@ -84,6 +92,17 @@ import {
 	setOrganizationStatus,
 } from "./tenancy";
 import { json, readJson } from "./utils";
+import {
+	answerQuestion,
+	cancelSession,
+	createSession,
+	getSession,
+	listSessionEvents,
+	listSessions,
+	sendMessage,
+	updateSessionSettings,
+	WORKBENCH_QUICK_COMMANDS,
+} from "./workbench";
 
 const host = process.env.GEO_WORKER_HOST?.trim() || "127.0.0.1";
 const port = Number(process.env.GEO_WORKER_PORT || 3010);
@@ -427,6 +446,105 @@ async function handleBatchTaskRoutes(
 	return false;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Workbench and article endpoints stay explicit for dynamic route-policy matching.
+async function handleWorkbenchRoutes(
+	request: IncomingMessage,
+	response: ServerResponse,
+	path: string,
+	actorUserId: string | null,
+): Promise<boolean> {
+	const sessions = routeMatch(path, /^\/api\/projects\/([^/]+)\/workbench\/sessions$/);
+	if (sessions && request.method === "GET") {
+		const url = new URL(request.url ?? path, `http://${request.headers.host ?? "127.0.0.1"}`);
+		json(response, 200, {
+			...(await listSessions(database, sessions[0], parsePagination(url))),
+			quickCommands: WORKBENCH_QUICK_COMMANDS,
+		});
+		return true;
+	}
+	if (sessions && request.method === "POST") {
+		json(response, 201, await createSession(database, sessions[0], await readJson(request), actorUserId));
+		return true;
+	}
+	const session = routeMatch(path, /^\/api\/workbench\/sessions\/([^/]+)$/);
+	if (session && request.method === "GET") {
+		json(response, 200, await getSession(database, session[0]));
+		return true;
+	}
+	const events = routeMatch(path, /^\/api\/workbench\/sessions\/([^/]+)\/events$/);
+	if (events && request.method === "GET") {
+		const url = new URL(request.url ?? path, `http://${request.headers.host ?? "127.0.0.1"}`);
+		const after = Number(url.searchParams.get("after") ?? 0);
+		json(response, 200, await listSessionEvents(database, events[0], Number.isFinite(after) ? after : 0));
+		return true;
+	}
+	const messages = routeMatch(path, /^\/api\/workbench\/sessions\/([^/]+)\/messages$/);
+	if (messages && request.method === "POST") {
+		json(response, 202, await sendMessage(database, messages[0], await readJson(request)));
+		return true;
+	}
+	const answer = routeMatch(path, /^\/api\/workbench\/sessions\/([^/]+)\/answer$/);
+	if (answer && request.method === "POST") {
+		json(response, 202, await answerQuestion(database, answer[0], await readJson(request)));
+		return true;
+	}
+	const cancel = routeMatch(path, /^\/api\/workbench\/sessions\/([^/]+)\/cancel$/);
+	if (cancel && request.method === "POST") {
+		await cancelSession(database, cancel[0]);
+		json(response, 200, { cancelled: true });
+		return true;
+	}
+	const settings = routeMatch(path, /^\/api\/workbench\/sessions\/([^/]+)\/settings$/);
+	if (settings && request.method === "PATCH") {
+		await updateSessionSettings(database, settings[0], await readJson(request));
+		json(response, 200, { saved: true });
+		return true;
+	}
+	const articles = routeMatch(path, /^\/api\/projects\/([^/]+)\/articles$/);
+	if (articles && request.method === "GET") {
+		const url = new URL(request.url ?? path, `http://${request.headers.host ?? "127.0.0.1"}`);
+		json(
+			response,
+			200,
+			await listArticles(database, articles[0], parsePagination(url), {
+				batchId: url.searchParams.get("batchId"),
+				status: url.searchParams.get("status"),
+			}),
+		);
+		return true;
+	}
+	const generate = routeMatch(path, /^\/api\/projects\/([^/]+)\/articles\/generate$/);
+	if (generate && request.method === "POST") {
+		const body = z.object({ batchId: z.string().min(1) }).parse(await readJson(request));
+		const batchValue = await getBatch(database, body.batchId);
+		if (!batchValue || String(batchValue.project_id) !== generate[0]) throw new Error("采集批次不存在或不属于当前客户");
+		json(response, 202, await generateArticlesForBatch(database, body.batchId));
+		return true;
+	}
+	const article = routeMatch(path, /^\/api\/articles\/([^/]+)$/);
+	if (article && request.method === "GET") {
+		const value = await getArticle(database, article[0]);
+		value ? json(response, 200, value) : json(response, 404, { error: "优化文章不存在" });
+		return true;
+	}
+	if (article && request.method === "PATCH") {
+		await updateArticle(database, article[0], await readJson(request));
+		json(response, 200, { updated: true });
+		return true;
+	}
+	if (article && request.method === "DELETE") {
+		await deleteArticle(database, article[0]);
+		json(response, 200, { deleted: true });
+		return true;
+	}
+	const regenerate = routeMatch(path, /^\/api\/articles\/([^/]+)\/regenerate$/);
+	if (regenerate && request.method === "POST") {
+		json(response, 202, await regenerateArticle(database, regenerate[0]));
+		return true;
+	}
+	return false;
+}
+
 async function handleSettingsRoutes(
 	request: IncomingMessage,
 	response: ServerResponse,
@@ -704,6 +822,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 		(await handleProjectRoutes(request, response, path, identity)) ||
 		(await handleProjectDataRoutes(request, response, path)) ||
 		(await handleBatchTaskRoutes(request, response, path, identity.id)) ||
+		(await handleWorkbenchRoutes(request, response, path, identity.id)) ||
 		(await handleSettingsRoutes(request, response, path, identity.organizationId)) ||
 		(await handleKnowledgeRoutes(request, response, path, identity.organizationId, identity.id));
 	if (handled) {

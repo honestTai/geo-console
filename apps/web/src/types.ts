@@ -261,6 +261,7 @@ export type ReportAnalysis = {
 		urls: Array<{ url: string; title: string | null; count: number }>;
 	}>;
 	perceptionExcerpts: Array<{ text: string; captureId: string; question: string; platform: string }>;
+	evidenceIndex?: EvidenceIndexEntry[];
 	topicCoverage: Array<{
 		promptId: string;
 		question: string;
@@ -314,9 +315,110 @@ export type AttributionPayload = {
 	eventsPagination: Omit<Paginated<never>, "items">;
 	importsPagination: Omit<Paginated<never>, "items">;
 };
+export type EvidenceIndexEntry = {
+	n: number;
+	id: string;
+	kind: "capture" | "snapshot" | "audit";
+	platform: string | null;
+	platformLabel: string | null;
+	question: string | null;
+	attempt: number | null;
+	status: string | null;
+	capturedAt: string | null;
+	sourceUrls: string[];
+	url: string | null;
+	title: string | null;
+};
+
+export type AgentThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh";
+export const thinkingLevelOptions: Array<{ value: AgentThinkingLevel; label: string; hint: string }> = [
+	{ value: "minimal", label: "最低", hint: "最快最省，适合简单核对" },
+	{ value: "low", label: "低", hint: "默认；报告与草稿的推荐档" },
+	{ value: "medium", label: "中", hint: "更完整的证据比对" },
+	{ value: "high", label: "高", hint: "复杂多平台分析，耗时更长" },
+	{ value: "xhigh", label: "极高", hint: "只在需要深度核验时使用" },
+];
+
+export type AgentSessionStatus = "idle" | "running" | "waiting_user" | "waiting_job" | "done" | "failed";
+export type AgentSessionPlanStep = {
+	key: string;
+	label: string;
+	status: "pending" | "running" | "done" | "failed" | "skipped";
+	ref?: string | null;
+	detail?: string | null;
+};
+export type AgentSessionWaiting =
+	| { kind: "user"; question: string; options: string[]; multiple: boolean; toolCallId: string }
+	| { kind: "batch" | "agent_run" | "report"; id: string; label: string; toolCallId: string };
+export type WorkbenchSession = {
+	id: string;
+	title: string;
+	status: AgentSessionStatus;
+	auto_approve: boolean;
+	model: string | null;
+	thinking_level: AgentThinkingLevel | null;
+	plan: AgentSessionPlanStep[];
+	waiting: AgentSessionWaiting | null;
+	current_batch_id: string | null;
+	usage: { input?: number; output?: number; totalTokens?: number } | null;
+	error_message: string | null;
+	created_at: string;
+	updated_at: string;
+	last_turn_at: string | null;
+};
+export type WorkbenchEvent = {
+	seq: number;
+	type: string;
+	payload: Record<string, unknown>;
+	created_at: string;
+};
+export type WorkbenchQuickCommand = { key: string; label: string; message: string };
+export const sessionStatusLabel: Record<AgentSessionStatus, string> = {
+	idle: "待指令",
+	running: "执行中",
+	waiting_user: "等待你回答",
+	waiting_job: "等待后台任务",
+	done: "已完成",
+	failed: "已终止",
+};
+
+export type ArticleStatus = "draft" | "reviewing" | "published";
+export const articleStatusLabel: Record<ArticleStatus, string> = {
+	draft: "草稿",
+	reviewing: "审校中",
+	published: "已发布",
+};
+export type ArticleSummary = {
+	id: string;
+	batch_id: string | null;
+	source_run_id: string | null;
+	narrative_run_id: string | null;
+	recommendation_index: number;
+	recommendation_title: string;
+	recommendation_priority: string | null;
+	title: string;
+	summary: string | null;
+	status: ArticleStatus;
+	published_url: string | null;
+	version: number;
+	content_length: number;
+	created_at: string;
+	updated_at: string;
+};
+export type Article = ArticleSummary & {
+	recommendation_action: string | null;
+	content_markdown: string;
+	outline: string[];
+	fact_gaps: string[];
+	evidence_ids: string[];
+	target_prompt_ids: string[];
+};
+
 export type AgentRun = {
 	id: string;
 	batch_id: string | null;
+	session_id?: string | null;
+	approved_via?: string | null;
 	purpose: string;
 	status: "queued" | "running" | "awaiting_approval" | "approved" | "rejected" | "failed";
 	model: string;
@@ -425,6 +527,8 @@ export type ProviderSetting = {
 };
 export type ProviderDraft = Partial<ProviderSetting> & { apiKey?: string; secondaryApiKey?: string };
 export type View =
+	| "workbench"
+	| "articles"
 	| "overview"
 	| "monitor"
 	| "evidence"
@@ -508,6 +612,7 @@ export type PermissionRecord = {
 	kind: "page" | "action";
 	group_label: string;
 	label: string;
+	parent_key?: string | null;
 	system_only: boolean;
 	desktop_only: boolean;
 	position: number;

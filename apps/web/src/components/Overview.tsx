@@ -1,10 +1,10 @@
 import { IconSettings } from "@tabler/icons-react";
-import { Skeleton, Spin, Statistic } from "antd";
+import { Alert, Skeleton, Spin, Statistic } from "antd";
 import { type ReactNode, useEffect, useState } from "react";
 import { Button } from "../access";
 import { api } from "../api";
 import { type BatchSummary, type Project, shortDate, type Task, type TrendResponse } from "../types";
-import { percentage } from "../ui/primitives";
+import { Empty, percentage, SectionTitle } from "../ui/primitives";
 import { LineTrendChart, MentionBarChart, overallMetric, overallPercent, perPlatformMention } from "./charts";
 import { Page } from "./Page";
 import { ScopeEditor } from "./ScopeEditor";
@@ -78,7 +78,7 @@ export function OverviewTrendPanel({
 }) {
 	let content: ReactNode;
 	if (!latest) {
-		content = <p className="muted trend-empty">建立首个基线后，这里会显示关键指标随批次的变化趋势。</p>;
+		content = <Empty title="还没有监测批次" detail="建立首个基线后，这里会显示关键指标随批次的变化趋势。" />;
 	} else if (loading) {
 		content = (
 			<div className="chart-loading">
@@ -87,13 +87,14 @@ export function OverviewTrendPanel({
 			</div>
 		);
 	} else if (!trends || trends.comparable.length === 0) {
-		content = <p className="muted trend-empty">暂无可比较的批次数据。</p>;
+		content = <Empty compact title="暂无可比较的批次数据" detail="批次完成后自动出现。" />;
 	} else {
 		const latestComparable = trends.comparable.at(-1);
 		content = (
 			<>
+				<SectionTitle title="指标趋势" description="同配置批次按时间排列；复测与基线条件一致时才可比较。" />
 				{trends.comparable.length < 2 ? (
-					<p className="muted trend-empty">当前只有一个同配置批次；完成一次“同条件复测”后显示趋势曲线。</p>
+					<Alert type="info" showIcon message="当前只有一个同配置批次；完成一次“同条件复测”后显示趋势曲线。" />
 				) : (
 					<LineTrendChart
 						labels={trends.comparable.map((item) => ({ id: item.id, label: shortDate(item.createdAt) }))}
@@ -117,11 +118,14 @@ export function OverviewTrendPanel({
 					/>
 				)}
 				{latestComparable ? (
-					<MentionBarChart
-						title="平台覆盖（最新可比批次品牌提及率）"
-						items={perPlatformMention(latestComparable.metrics)}
-						note="失败平台不进入品牌率分母；未开放来源的平台引用率记为不可用。"
-					/>
+					<>
+						<SectionTitle title="平台覆盖" description="最新可比批次各平台的品牌提及率。" />
+						<MentionBarChart
+							title="平台覆盖（最新可比批次品牌提及率）"
+							items={perPlatformMention(latestComparable.metrics)}
+							note="失败平台不进入品牌率分母；未开放来源的平台引用率记为不可用。"
+						/>
+					</>
 				) : null}
 			</>
 		);
@@ -160,7 +164,8 @@ export function Overview({ project, refresh }: { project: Project; refresh(): Pr
 		<Page
 			breadcrumb={project.name}
 			eyebrow="项目总览"
-			title={`${project.name} · 可见度总览`}
+			title="可见度总览"
+			description="最新批次的核心指标、趋势与平台覆盖；所有数值来自真实采集证据。"
 			extra={
 				<Button
 					permission="project.onboard"

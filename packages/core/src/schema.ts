@@ -301,14 +301,41 @@ export type AgentPurpose =
 	| "remediation"
 	| "content_brief"
 	| "report_narrative"
-	| "quality_review";
+	| "quality_review"
+	| "optimization_article";
+
+export type AgentThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh";
+export const agentThinkingLevels: AgentThinkingLevel[] = ["minimal", "low", "medium", "high", "xhigh"];
 
 export type AgentJobPayload = {
 	runId: string;
 	targetTaskId: string | null;
 };
 
-export type JobPayload = CaptureJobPayload | AgentJobPayload | { reportId: string };
+/** AI 工作台一次对话回合：用户消息或依赖对象完成后的自动续跑。 */
+export type AgentSessionTurnPayload = {
+	sessionId: string;
+	trigger: "user" | "resume" | "answer";
+	message: string | null;
+};
+
+export type AgentSessionStatus = "idle" | "running" | "waiting_user" | "waiting_job" | "done" | "failed";
+
+export type AgentSessionWaiting =
+	| { kind: "user"; question: string; options: string[]; multiple: boolean; toolCallId: string }
+	| { kind: "batch"; id: string; label: string; toolCallId: string }
+	| { kind: "agent_run"; id: string; label: string; toolCallId: string }
+	| { kind: "report"; id: string; label: string; toolCallId: string };
+
+export type AgentSessionPlanStep = {
+	key: string;
+	label: string;
+	status: "pending" | "running" | "done" | "failed" | "skipped";
+	ref?: string | null;
+	detail?: string | null;
+};
+
+export type JobPayload = CaptureJobPayload | AgentJobPayload | AgentSessionTurnPayload | { reportId: string };
 
 export const jobs = pgTable(
 	"jobs",
@@ -777,10 +804,99 @@ export const agentRuns = pgTable(
 		errorMessage: text("error_message"),
 		approvedBy: text("approved_by").references(() => users.id, { onDelete: "set null" }),
 		approvedAt: timestamp("approved_at", { withTimezone: true }),
+		sessionId: text("session_id"),
+		approvedVia: text("approved_via"),
+		thinkingLevel: text("thinking_level").$type<AgentThinkingLevel>(),
+		targetRef: jsonb("target_ref").$type<Record<string, unknown> | null>(),
 		createdAt,
 		completedAt: timestamp("completed_at", { withTimezone: true }),
 	},
 	(table) => [index("agent_runs_project_idx").on(table.projectId, table.createdAt)],
+);
+
+export const agentSessions = pgTable(
+	"agent_sessions",
+	{
+		id: id("id"),
+		organizationId: text("organization_id")
+			.notNull()
+			.default("default")
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		title: text("title").notNull(),
+		status: text("status").$type<AgentSessionStatus>().notNull().default("idle"),
+		autoApprove: boolean("auto_approve").notNull().default(true),
+		model: text("model"),
+		thinkingLevel: text("thinking_level").$type<AgentThinkingLevel>(),
+		transcript: jsonb("transcript").$type<unknown[]>().notNull().default([]),
+		plan: jsonb("plan").$type<AgentSessionPlanStep[]>().notNull().default([]),
+		waiting: jsonb("waiting").$type<AgentSessionWaiting | null>(),
+		currentBatchId: text("current_batch_id").references(() => experimentBatches.id, { onDelete: "set null" }),
+		usage: jsonb("usage").$type<Record<string, number> | null>(),
+		errorMessage: text("error_message"),
+		createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+		createdAt,
+		updatedAt,
+		lastTurnAt: timestamp("last_turn_at", { withTimezone: true }),
+	},
+	(table) => [
+		index("agent_sessions_project_idx").on(table.projectId, table.createdAt),
+		index("agent_sessions_status_idx").on(table.status),
+	],
+);
+
+export const agentSessionEvents = pgTable(
+	"agent_session_events",
+	{
+		id: id("id"),
+		sessionId: text("session_id")
+			.notNull()
+			.references(() => agentSessions.id, { onDelete: "cascade" }),
+		seq: integer("seq").notNull(),
+		type: text("type").notNull(),
+		payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+		createdAt,
+	},
+	(table) => [uniqueIndex("agent_session_events_seq_unique").on(table.sessionId, table.seq)],
+);
+
+export type OptimizationArticleStatus = "draft" | "reviewing" | "published";
+
+export const optimizationArticles = pgTable(
+	"optimization_articles",
+	{
+		id: id("id"),
+		organizationId: text("organization_id")
+			.notNull()
+			.default("default")
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		batchId: text("batch_id").references(() => experimentBatches.id, { onDelete: "set null" }),
+		sourceRunId: text("source_run_id").references(() => agentRuns.id, { onDelete: "set null" }),
+		narrativeRunId: text("narrative_run_id").references(() => agentRuns.id, { onDelete: "set null" }),
+		recommendationIndex: integer("recommendation_index").notNull().default(0),
+		recommendationTitle: text("recommendation_title").notNull(),
+		recommendationAction: text("recommendation_action"),
+		recommendationPriority: text("recommendation_priority"),
+		title: text("title").notNull(),
+		summary: text("summary"),
+		status: text("status").$type<OptimizationArticleStatus>().notNull().default("draft"),
+		contentMarkdown: text("content_markdown").notNull().default(""),
+		outline: jsonb("outline").$type<string[]>().notNull().default([]),
+		factGaps: jsonb("fact_gaps").$type<string[]>().notNull().default([]),
+		evidenceIds: jsonb("evidence_ids").$type<string[]>().notNull().default([]),
+		targetPromptIds: jsonb("target_prompt_ids").$type<string[]>().notNull().default([]),
+		publishedUrl: text("published_url"),
+		version: integer("version").notNull().default(1),
+		createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+		createdAt,
+		updatedAt,
+	},
+	(table) => [index("optimization_articles_project_idx").on(table.projectId, table.createdAt)],
 );
 
 export type ReportType = "quick_audit" | "remediation" | "retest";

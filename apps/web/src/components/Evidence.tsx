@@ -1,14 +1,39 @@
 import { IconDownload, IconFileText, IconShieldCheck } from "@tabler/icons-react";
 import { Collapse, Segmented } from "antd";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Button, useBatch } from "../access";
-import { type Capture, type Project, providerIds, providerLabel } from "../types";
-import { BatchPicker, csvCell, date, downloadText, Empty, Notice, Pagination } from "../ui/primitives";
+import { type Capture, type Project, providerIds, providerLabel, providerShortLabel } from "../types";
+import { answerInline, FormattedAnswer } from "../ui/markdown";
+import type { EvidenceFocus } from "../ui/navigation";
+import {
+	BatchPicker,
+	csvCell,
+	date,
+	downloadText,
+	Empty,
+	FilterBar,
+	IdChip,
+	Notice,
+	Pagination,
+	shortDate,
+} from "../ui/primitives";
 import "./Evidence.css";
 import { Page } from "./Page";
 
-export function Evidence({ project }: { project: Project }) {
-	const { selected, setSelected, batch } = useBatch(project);
+export { answerInline, FormattedAnswer };
+
+const PAGE_SIZE = 12;
+
+export function Evidence({
+	project,
+	focus = null,
+	onConsumeFocus,
+}: {
+	project: Project;
+	focus?: EvidenceFocus;
+	onConsumeFocus?(): void;
+}) {
+	const { selected, setSelected, batch } = useBatch(project, focus?.batchId ?? null);
 	const [platform, setPlatform] = useState("all");
 	const captures = useMemo(
 		() => batch?.captures.filter((item) => platform === "all" || item.engine === platform) ?? [],
@@ -17,15 +42,31 @@ export function Evidence({ project }: { project: Project }) {
 	const platformOptions = useMemo(
 		() => [
 			{ label: "全部", value: "all" },
-			...[...new Set(batch?.config.platforms ?? providerIds)].map((id) => ({ label: providerLabel(id), value: id })),
+			...[...new Set(batch?.config.platforms ?? providerIds)].map((id) => ({
+				label: providerShortLabel(id),
+				value: id,
+			})),
 		],
 		[batch],
 	);
 	const [capturePage, setCapturePage] = useState(1);
-	const visibleCaptures = captures.slice((capturePage - 1) * 10, capturePage * 10);
 	const [activeCaptureId, setActiveCaptureId] = useState<string | null>(null);
-	const activeCapture =
-		visibleCaptures.find((item) => item.captureId === activeCaptureId) ?? visibleCaptures[0] ?? null;
+	// 从报告/诊断的证据引用跳转过来时定位到具体回答。
+	useEffect(() => {
+		if (!focus || !batch) return;
+		const index = batch.captures.findIndex((item) => item.captureId === focus.captureId);
+		if (index === -1) {
+			const owner = project.batches.find((item) => item.id !== batch.id && focus.batchId === item.id);
+			if (owner) setSelected(owner.id);
+			return;
+		}
+		setPlatform("all");
+		setCapturePage(Math.floor(index / PAGE_SIZE) + 1);
+		setActiveCaptureId(focus.captureId);
+		onConsumeFocus?.();
+	}, [focus, batch, project.batches, setSelected, onConsumeFocus]);
+	const visibleCaptures = captures.slice((capturePage - 1) * PAGE_SIZE, capturePage * PAGE_SIZE);
+	const activeCapture = captures.find((item) => item.captureId === activeCaptureId) ?? visibleCaptures[0] ?? null;
 	function pickPlatform(value: string) {
 		setPlatform(value);
 		setCapturePage(1);
@@ -72,12 +113,16 @@ export function Evidence({ project }: { project: Project }) {
 		]);
 		downloadText(
 			`${project.name}-${selected ?? "证据"}.csv`,
-			`\uFEFF${[headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")}`,
+			`﻿${[headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")}`,
 			"text/csv;charset=utf-8",
 		);
 	}
 	if (!project.batches.length)
-		return <Empty title="还没有证据" detail="完成至少一个真实采集批次后，回答、来源和原始 API 响应会出现在这里。" />;
+		return (
+			<Page breadcrumb={project.name} eyebrow="证据中心" title="回答原文存证">
+				<Empty title="还没有证据" detail="完成至少一个真实采集批次后，回答、来源和原始 API 响应会出现在这里。" />
+			</Page>
+		);
 	return (
 		<Page
 			breadcrumb={project.name}
@@ -85,30 +130,28 @@ export function Evidence({ project }: { project: Project }) {
 			title="回答原文存证"
 			description="原始回答与 API 响应写入后不可修改；派生指标可以按新规则重算。"
 			extra={
-				<div className="filters">
-					<BatchPicker
-						project={project}
-						selected={selected}
-						setSelected={(id) => {
-							setSelected(id);
-							setCapturePage(1);
-							setActiveCaptureId(null);
-						}}
-					/>
-					<Button variant="secondary" icon={<IconDownload size={16} />} disabled={!captures.length} onClick={exportCsv}>
-						导出证据 CSV
-					</Button>
-				</div>
+				<Button variant="secondary" icon={<IconDownload size={16} />} disabled={!captures.length} onClick={exportCsv}>
+					导出证据 CSV
+				</Button>
 			}
 		>
-			<div className="evidence-filter">
+			<FilterBar extra={<span className="evidence-count">{captures.length ? `${captures.length} 条回答` : ""}</span>}>
+				<BatchPicker
+					project={project}
+					selected={selected}
+					setSelected={(id) => {
+						setSelected(id);
+						setCapturePage(1);
+						setActiveCaptureId(null);
+					}}
+				/>
 				<Segmented options={platformOptions} value={platform} onChange={(value) => pickPlatform(String(value))} />
-			</div>
+			</FilterBar>
 			{captures.length === 0 ? (
 				<Empty title="批次尚无采集结果" detail="云端 Worker 可能仍在等待分时窗口，或平台配置需要处理。" />
 			) : (
-				<>
-					<div className="evidence-grid">
+				<div className="evidence-layout">
+					<div className="evidence-list">
 						{visibleCaptures.map((capture) => (
 							<button
 								type="button"
@@ -116,161 +159,44 @@ export function Evidence({ project }: { project: Project }) {
 								key={capture.captureId}
 								onClick={() => setActiveCaptureId(capture.captureId)}
 							>
-								<span className="ev-platform">{providerLabel(capture.engine)}</span>
-								<strong>“{capture.prompt}”</strong>
-								<span className="ev-meta">
-									{capture.status === "success" ? "有回答" : capture.status} · 第 {capture.attempt} 次采样 ·{" "}
-									{date(capture.capturedAt)}
+								<span className="evidence-card-head">
+									<span className="ev-platform">{providerShortLabel(capture.engine)}</span>
+									<span className="ev-meta">
+										第 {capture.attempt} 次 · {shortDate(capture.capturedAt)}
+									</span>
+								</span>
+								<strong>{capture.prompt}</strong>
+								<span className={`ev-result ${capture.status === "complete" ? "ok" : "fail"}`}>
+									{capture.status === "complete"
+										? capture.brandMatches.length
+											? `提及品牌 · 位置 ${Math.min(...capture.brandMatches.map((match) => match.position))}`
+											: "未提及品牌"
+										: `采集失败 · ${capture.failureMessage ?? capture.status}`}
 								</span>
 							</button>
 						))}
+						<Pagination
+							page={capturePage}
+							pageSize={PAGE_SIZE}
+							total={captures.length}
+							totalPages={Math.max(1, Math.ceil(captures.length / PAGE_SIZE))}
+							onPage={(page) => {
+								setCapturePage(page);
+								setActiveCaptureId(null);
+							}}
+						/>
 					</div>
-					<Pagination
-						page={capturePage}
-						pageSize={10}
-						total={captures.length}
-						totalPages={Math.max(1, Math.ceil(captures.length / 10))}
-						onPage={(page) => {
-							setCapturePage(page);
-							setActiveCaptureId(null);
-						}}
-					/>
-					{activeCapture && <EvidenceDetail capture={activeCapture} />}
-				</>
+					<div className="evidence-detail-pane">
+						{activeCapture ? (
+							<EvidenceDetail capture={activeCapture} />
+						) : (
+							<Empty compact title="选择一条回答" detail="左侧点击任意回答查看原文、来源和原始响应。" />
+						)}
+					</div>
+				</div>
 			)}
 		</Page>
 	);
-}
-
-export function answerInline(value: string, keyPrefix: string): ReactNode[] {
-	const pattern = /(\*\*[^*]+\*\*|`[^`]+`|!?\[[^\]]*\]\(https?:\/\/[^\s)]+\))/g;
-	const parts: ReactNode[] = [];
-	let offset = 0;
-	for (const [index, match] of [...value.matchAll(pattern)].entries()) {
-		const token = match[0];
-		const start = match.index ?? 0;
-		if (start > offset) parts.push(value.slice(offset, start));
-		if (token.startsWith("**")) parts.push(<strong key={`${keyPrefix}-b-${index}`}>{token.slice(2, -2)}</strong>);
-		else if (token.startsWith("`")) parts.push(<code key={`${keyPrefix}-c-${index}`}>{token.slice(1, -1)}</code>);
-		else {
-			const image = token.startsWith("!");
-			const link = token.match(/^!?\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)$/);
-			if (link)
-				parts.push(
-					<a key={`${keyPrefix}-a-${index}`} href={link[2]} target="_blank" rel="noreferrer">
-						{image ? `图片：${link[1] || link[2]}` : link[1] || link[2]}
-					</a>,
-				);
-			else parts.push(token);
-		}
-		offset = start + token.length;
-	}
-	if (offset < value.length) parts.push(value.slice(offset));
-	return parts;
-}
-
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: A single pass keeps Markdown block precedence explicit without injecting HTML.
-export function FormattedAnswer({ value }: { value: string }) {
-	const lines = value.replaceAll("\r\n", "\n").split("\n");
-	const blocks: ReactNode[] = [];
-	for (let index = 0; index < lines.length; ) {
-		const line = lines[index]?.trimEnd() ?? "";
-		if (!line.trim()) {
-			index += 1;
-			continue;
-		}
-		const heading = line.match(/^(#{1,6})\s+(.+)$/);
-		if (heading) {
-			const level = Math.min(4, heading[1].length + 1);
-			const content = answerInline(heading[2], `h-${index}`);
-			blocks.push(
-				level === 2 ? (
-					<h2 key={`h-${index}`}>{content}</h2>
-				) : level === 3 ? (
-					<h3 key={`h-${index}`}>{content}</h3>
-				) : (
-					<h4 key={`h-${index}`}>{content}</h4>
-				),
-			);
-			index += 1;
-			continue;
-		}
-		if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
-			blocks.push(<hr key={`hr-${index}`} />);
-			index += 1;
-			continue;
-		}
-		if (line.includes("|") && /^\s*\|?\s*:?-{3,}/.test(lines[index + 1] ?? "")) {
-			const rows: string[][] = [];
-			const header = line
-				.replace(/^\||\|$/g, "")
-				.split("|")
-				.map((cell) => cell.trim());
-			index += 2;
-			while (index < lines.length && (lines[index] ?? "").includes("|")) {
-				rows.push(
-					(lines[index] ?? "")
-						.replace(/^\||\|$/g, "")
-						.split("|")
-						.map((cell) => cell.trim()),
-				);
-				index += 1;
-			}
-			blocks.push(
-				<div className="answer-table-wrap" key={`table-${index}`}>
-					<table>
-						<thead>
-							<tr>
-								{header.map((cell, cellIndex) => (
-									<th key={cell}>{answerInline(cell, `th-${index}-${cellIndex}`)}</th>
-								))}
-							</tr>
-						</thead>
-						<tbody>
-							{rows.map((row, rowIndex) => (
-								<tr key={row.join("|")}>
-									{row.map((cell, cellIndex) => (
-										<td key={cell}>{answerInline(cell, `td-${rowIndex}-${cellIndex}`)}</td>
-									))}
-								</tr>
-							))}
-						</tbody>
-					</table>
-				</div>,
-			);
-			continue;
-		}
-		const listMatch = line.match(/^\s*(?:[-*+]\s+|\d+[.)]\s+)(.+)$/);
-		if (listMatch) {
-			const ordered = /^\s*\d/.test(line);
-			const items: string[] = [];
-			while (index < lines.length) {
-				const item = (lines[index] ?? "").match(/^\s*(?:[-*+]\s+|\d+[.)]\s+)(.+)$/);
-				if (!item || /^\s*\d/.test(lines[index] ?? "") !== ordered) break;
-				items.push(item[1]);
-				index += 1;
-			}
-			const children = items.map((item, itemIndex) => (
-				<li key={item}>{answerInline(item, `li-${index}-${itemIndex}`)}</li>
-			));
-			blocks.push(ordered ? <ol key={`ol-${index}`}>{children}</ol> : <ul key={`ul-${index}`}>{children}</ul>);
-			continue;
-		}
-		const paragraph: string[] = [line.trim()];
-		index += 1;
-		while (
-			index < lines.length &&
-			(lines[index] ?? "").trim() &&
-			!/^#{1,6}\s+/.test(lines[index] ?? "") &&
-			!/^\s*(?:[-*+]\s+|\d+[.)]\s+)/.test(lines[index] ?? "") &&
-			!((lines[index] ?? "").includes("|") && /^\s*\|?\s*:?-{3,}/.test(lines[index + 1] ?? ""))
-		) {
-			paragraph.push((lines[index] ?? "").trim());
-			index += 1;
-		}
-		blocks.push(<p key={`p-${index}`}>{answerInline(paragraph.join(" "), `p-${index}`)}</p>);
-	}
-	return <div className="formatted-answer">{blocks}</div>;
 }
 
 type EvidencePanel = { key: string; label: string; children: ReactNode };
@@ -348,20 +274,23 @@ export function EvidenceDetail({ capture }: { capture: Capture }) {
 	return (
 		<article className="evidence-detail">
 			<div className="ed-head">
-				<span className="ev-platform">{providerLabel(capture.engine)}</span>
-				<div>
-					<strong>“{capture.prompt}”</strong>
+				<div className="ed-head-text">
+					<span className="ev-platform">{providerLabel(capture.engine)}</span>
+					<strong>{capture.prompt}</strong>
 					<span className="ed-time">
 						采集于 {date(capture.capturedAt)} · 第 {capture.attempt} 次采样 · {capture.model ?? "历史页面"} ·{" "}
-						{capture.protocol ?? capture.captureMode} · 证据ID {capture.captureId}
+						{capture.protocol ?? capture.captureMode}
 					</span>
 				</div>
-				{capture.evidence.requestId && (
-					<span className="ed-hash" title="证据请求 ID，用于校验完整性">
-						<IconShieldCheck size={12} />
-						<code>{capture.evidence.requestId}</code>
-					</span>
-				)}
+				<div className="ed-ids">
+					<IdChip value={capture.captureId} label="证据" />
+					{capture.evidence.requestId && (
+						<span className="ed-hash" title="供应商请求 ID，用于向平台追溯本次回答">
+							<IconShieldCheck size={12} />
+							<IdChip value={capture.evidence.requestId} label="请求" length={10} />
+						</span>
+					)}
+				</div>
 			</div>
 			{capture.answerText ? (
 				<Collapse className="ed-collapse" defaultActiveKey={["answer"]} items={panels} />
@@ -371,7 +300,7 @@ export function EvidenceDetail({ capture }: { capture: Capture }) {
 			<div className="ed-foot">
 				<span className="ed-status">
 					结论：
-					{capture.status === "success"
+					{capture.status === "complete"
 						? capture.brandMatches.length > 0
 							? `品牌被提及 ${capture.brandMatches.length} 次`
 							: "回答未提及品牌"
@@ -382,7 +311,7 @@ export function EvidenceDetail({ capture }: { capture: Capture }) {
 						? `提及位置 ${capture.brandMatches.map((match) => match.position).join("、")}`
 						: "未提及"}
 					{capture.sources.length > 0 ? ` · 引用来源 ${capture.sources.length} 条` : ""}
-					{capture.evidence.rawResponseObjectKey || capture.evidence.screenshotObjectKey ? " · 截图 + 原文已存证" : ""}
+					{capture.evidence.rawResponseObjectKey || capture.evidence.screenshotObjectKey ? " · 原文已存证" : ""}
 				</span>
 			</div>
 		</article>

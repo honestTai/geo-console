@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { migrateDatabase, openDatabase } from "@geo/core";
 import { StructuredLogger, safeErrorMessage } from "@geo/logging";
 import { flushAgentLogs } from "./agent";
-import { executeAgentDraft, recoverOrphanedAgentRuns, runOneAgentJob } from "./agent-jobs";
+import { coordinateWorkbench, executeAgentDraft, recoverOrphanedAgentRuns, runOneAgentJob } from "./agent-jobs";
 
 const database = await openDatabase();
 await migrateDatabase(database);
@@ -10,11 +10,16 @@ await recoverOrphanedAgentRuns(database);
 const owner = process.env.GEO_AGENT_EXECUTOR_ID?.trim() || `agent:${process.pid}:${randomUUID()}`;
 const logger = new StructuredLogger("agent-worker");
 let active = false;
+let lastCoordination = 0;
 
 async function tick(): Promise<void> {
 	if (active) return;
 	active = true;
 	try {
+		if (Date.now() - lastCoordination >= 5_000) {
+			lastCoordination = Date.now();
+			await coordinateWorkbench(database);
+		}
 		await runOneAgentJob(database, owner, executeAgentDraft);
 	} catch (error) {
 		logger.error("worker.tick_failed", safeErrorMessage(error), { traceId: owner });
