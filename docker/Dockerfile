@@ -13,10 +13,11 @@ COPY packages/logging ./packages/logging
 COPY packages/search-providers ./packages/search-providers
 RUN pnpm config set registry https://registry.npmmirror.com \
 	&& pnpm install --frozen-lockfile
-RUN pnpm --filter @geo/web build
 
 FROM caddy:2.10.2-alpine AS web
-COPY --from=build /app/apps/web/dist /srv/app
+# Web 静态产物由发布机本地构建（deploy/package.sh 调用 pnpm --filter @geo/web build），
+# 服务器镜像只复制 dist，不再在构建期安装前端依赖。
+COPY apps/web/dist /srv/app
 COPY landing /srv
 COPY docker/caddy/Web.Caddyfile /etc/caddy/Caddyfile
 

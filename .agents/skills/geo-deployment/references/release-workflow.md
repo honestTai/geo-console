@@ -105,7 +105,7 @@ geo-console upgrade /tmp/geo-console-<release>.run
 
 upgrade 会构建新镜像、再次创建切换前备份、停止应用服务、切换 `current` 并激活。PostgreSQL 与 Caddy 数据卷保持不变。
 
-镜像构建在服务器本地执行：`docker/Dockerfile` 已将 corepack/pnpm registry 与 Playwright 浏览器下载切到 npmmirror（lockfile 完整性校验不受影响）。慢速外网导致构建超时时，可放心用 `nohup geo-console upgrade ... > /tmp/upgrade-<id>.log 2>&1 &` 挂后台再轮询日志，SSH 断连不会杀死构建。
+镜像构建在服务器本地执行，但 Web 静态产物由发布机本地构建（`deploy/package.sh` 自动运行 `pnpm --filter @geo/web build` 并把 `apps/web/dist` 打进 bundle)，Web 镜像只复制 dist、不再在构建期安装依赖；Worker 镜像的 corepack/pnpm registry 与 Playwright 浏览器下载走 npmmirror（lockfile 完整性校验不受影响）。慢速外网或 SSH 断连时，可用 `nohup geo-console upgrade ... > /tmp/upgrade-<id>.log 2>&1 &` 挂后台再轮询日志。
 
 升级后验证：
 
