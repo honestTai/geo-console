@@ -19,12 +19,15 @@ const querySchema = z.object({
 	from: z.string().datetime().optional(),
 	to: z.string().datetime().optional(),
 	cursor: z.string().max(1_000).optional(),
+	// 工作台列表用 page/pageSize（与其他列表同口径，默认 20）；CSV 导出与旧调用方仍可用 cursor/limit
+	page: z.coerce.number().int().min(1).optional(),
+	pageSize: z.coerce.number().int().min(5).max(100).optional(),
 	limit: z.coerce.number().int().min(1).max(500).default(100),
 });
 
 function scopedQuery(url: URL, organizationId: string, includeSystem: boolean): ServiceLogQuery {
-	const parsed = querySchema.parse(Object.fromEntries(url.searchParams));
-	return { ...parsed, organizationId, includeSystem };
+	const { pageSize, ...parsed } = querySchema.parse(Object.fromEntries(url.searchParams));
+	return { ...parsed, limit: pageSize ?? parsed.limit, organizationId, includeSystem };
 }
 
 export async function getServiceLogs(

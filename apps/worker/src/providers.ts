@@ -247,3 +247,80 @@ export async function testProviderConfig(
 	);
 	return result;
 }
+
+/** 各平台 OpenAI 兼容的模型列表地址；DashScope 原生接口没有列表，走兼容模式。 */
+function providerModelsUrl(providerId: SearchProviderId, endpoint: string, secondaryEndpoint: string | null): string {
+	const base = endpoint.replace(/\/$/, "");
+	if (providerId === "qwen_api") return "https://dashscope.aliyuncs.com/compatible-mode/v1/models";
+	if (providerId === "yuanbao_hunyuan")
+		return `${(secondaryEndpoint ?? providerDefinitions.yuanbao_hunyuan.secondaryEndpoint ?? "").replace(/\/chat\/completions\/?$/, "").replace(/\/$/, "")}/models`;
+	return `${base}/models`;
+}
+
+const providerModelFamilies: Record<SearchProviderId, RegExp> = {
+	deepseek_api: /^deepseek/i,
+	kimi_api: /^(kimi|moonshot)/i,
+	doubao_api: /^doubao/i,
+	qwen_api: /^(qwen|qwq)/i,
+	yuanbao_hunyuan: /^hunyuan/i,
+};
+
+export type ProviderModelList = { models: string[]; source: "provider" | "unavailable"; message: string | null };
+
+/**
+ * 从平台自身读取可用模型供下拉选择。任何网络或鉴权失败都返回空列表并附说明，
+ * 不阻塞设置页；用户仍可直接输入模型 ID。
+ */
+export async function listProviderModels(
+	database: Database,
+	providerId: SearchProviderId,
+	organizationId = "default",
+): Promise<ProviderModelList> {
+	const definition = providerDefinitions[providerId];
+	const row = (
+		await database.query<{ endpoint: string; search_strategy: unknown }>(
+			"SELECT endpoint,search_strategy FROM provider_configs WHERE organization_id=$1 AND provider_id=$2",
+			[organizationId, providerId],
+		)
+	).rows[0];
+	if (!row) return { models: [], source: "unavailable", message: "平台尚未初始化" };
+	const credentialKey =
+		providerId === "yuanbao_hunyuan" && definition.secondaryCredentialKey
+			? definition.secondaryCredentialKey
+			: definition.credentialKey;
+	const apiKey = await readEncryptedCredential(database, credentialKey, organizationId);
+	if (!apiKey) return { models: [], source: "unavailable", message: "保存 API Key 后可读取该平台的模型列表" };
+	const strategy = parseJsonColumn<Record<string, unknown>>(row.search_strategy as string | Record<string, unknown>);
+	const options =
+		strategy.options && typeof strategy.options === "object" ? (strategy.options as Record<string, unknown>) : {};
+	const url = providerModelsUrl(
+		providerId,
+		row.endpoint,
+		typeof options.secondaryEndpoint === "string" ? options.secondaryEndpoint : null,
+	);
+	try {
+		const response = await fetch(url, {
+			headers: { authorization: `Bearer ${apiKey}` },
+			signal: AbortSignal.timeout(15_000),
+		});
+		if (!response.ok)
+			return { models: [], source: "unavailable", message: `平台模型列表请求失败（HTTP ${response.status}）` };
+		const body = (await response.json().catch(() => ({}))) as { data?: unknown };
+		const ids = (Array.isArray(body.data) ? body.data : [])
+			.map((item) => (item && typeof item === "object" ? (item as { id?: unknown }).id : null))
+			.filter((id): id is string => typeof id === "string");
+		const family = providerModelFamilies[providerId];
+		const filtered = ids.filter((id) => family.test(id));
+		return {
+			models: [...new Set(filtered.length ? filtered : ids)].sort(),
+			source: "provider",
+			message: null,
+		};
+	} catch (error) {
+		return {
+			models: [],
+			source: "unavailable",
+			message: `无法读取平台模型列表：${error instanceof Error ? error.message : "网络错误"}`,
+		};
+	}
+}

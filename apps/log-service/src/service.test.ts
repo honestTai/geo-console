@@ -41,4 +41,32 @@ describe("standalone log service", () => {
 			await database.close();
 		}
 	});
+
+	it("页码分页返回总数并按时间倒序切页", async () => {
+		const database = openMemoryDatabase();
+		try {
+			await migrateDatabase(database);
+			await ingestServiceLogs(database, {
+				logs: Array.from({ length: 7 }, (_, index) => ({
+					organizationId: "default",
+					service: "api",
+					level: index % 3 === 0 ? ("warn" as const) : ("info" as const),
+					event: "http.request",
+					message: `第 ${index + 1} 条`,
+					occurredAt: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(),
+				})),
+			});
+			const first = await listServiceLogs(database, { organizationId: "default", page: 1, limit: 3 });
+			expect(first).toMatchObject({ total: 7, page: 1, pageSize: 3, totalPages: 3 });
+			expect(first.logs.map((log) => log.message)).toEqual(["第 7 条", "第 6 条", "第 5 条"]);
+			const last = await listServiceLogs(database, { organizationId: "default", page: 3, limit: 3 });
+			expect(last.logs.map((log) => log.message)).toEqual(["第 1 条"]);
+			// 按级别筛选时总数跟随筛选条件
+			const warns = await listServiceLogs(database, { organizationId: "default", level: "warn", page: 1, limit: 20 });
+			expect(warns.total).toBe(3);
+			expect(warns.counts.warn).toBe(3);
+		} finally {
+			await database.close();
+		}
+	});
 });

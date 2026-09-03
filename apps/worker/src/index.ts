@@ -28,12 +28,19 @@ import {
 	logout,
 	selectOrganization,
 } from "./auth";
+import { exportKnowledge, exportSettings, importKnowledge, importSettings } from "./config-transfer";
 import { getHRouterConfig, listHRouterModels, saveHRouterConfig } from "./hrouter";
 import { archiveLibraryQuestion, createLibraryQuestion, listLibraryQuestions } from "./knowledge-base";
 import { startLocalWorkers } from "./local-workers";
 import { checkObjectStore, readArtifact } from "./object-store";
 import { parsePagination } from "./pagination";
-import { ensureProviderConfigs, getProviderSettings, saveProviderConfig, testProviderConfig } from "./providers";
+import {
+	ensureProviderConfigs,
+	getProviderSettings,
+	listProviderModels,
+	saveProviderConfig,
+	testProviderConfig,
+} from "./providers";
 import {
 	AccessDeniedError,
 	authorizeDynamicRequest,
@@ -558,19 +565,12 @@ async function handleSettingsRoutes(
 		});
 		return true;
 	}
-	if (path === "/api/settings/hrouter" && request.method === "PUT") {
-		await saveHRouterConfig(database, await readJson(request), organizationId);
-		json(response, 200, { saved: true });
+	if (path === "/api/settings/export" && request.method === "GET") {
+		json(response, 200, await exportSettings(database, organizationId));
 		return true;
 	}
-	if (path === "/api/settings/hrouter/models" && request.method === "GET") {
-		json(response, 200, { models: await listHRouterModels(database, organizationId) });
-		return true;
-	}
-	if (path === "/api/settings/hrouter/test" && request.method === "POST") {
-		const config = await getHRouterConfig(database, organizationId);
-		const models = await listHRouterModels(database, organizationId);
-		json(response, 200, { connected: true, selectedModelAvailable: models.some((model) => model.id === config.model) });
+	if (path === "/api/settings/import" && request.method === "POST") {
+		json(response, 200, await importSettings(database, organizationId, await readJson(request)));
 		return true;
 	}
 	const provider = routeMatch(path, /^\/api\/settings\/providers\/([^/]+)$/);
@@ -584,6 +584,41 @@ async function handleSettingsRoutes(
 	if (providerTest && request.method === "POST") {
 		const providerId = z.enum(searchProviderIds).parse(providerTest[0]);
 		json(response, 200, await testProviderConfig(database, providerId, organizationId));
+		return true;
+	}
+	const providerModels = routeMatch(path, /^\/api\/settings\/providers\/([^/]+)\/models$/);
+	if (providerModels && request.method === "GET") {
+		const providerId = z.enum(searchProviderIds).parse(providerModels[0]);
+		json(response, 200, await listProviderModels(database, providerId, organizationId));
+		return true;
+	}
+	return false;
+}
+
+async function handleHRouterRoutes(
+	request: IncomingMessage,
+	response: ServerResponse,
+	path: string,
+	organizationId: string,
+): Promise<boolean> {
+	if (path === "/api/settings/hrouter" && request.method === "PUT") {
+		await saveHRouterConfig(database, await readJson(request), organizationId);
+		json(response, 200, { saved: true });
+		return true;
+	}
+	if (path === "/api/settings/hrouter/models" && request.method === "GET") {
+		// 下拉框数据源：没配 Key 或 HRouter 不可达都不算服务端错误，返回空列表加说明，页面仍可手输模型
+		try {
+			json(response, 200, { models: await listHRouterModels(database, organizationId), message: null });
+		} catch (error) {
+			json(response, 200, { models: [], message: error instanceof Error ? error.message : "模型列表读取失败" });
+		}
+		return true;
+	}
+	if (path === "/api/settings/hrouter/test" && request.method === "POST") {
+		const config = await getHRouterConfig(database, organizationId);
+		const models = await listHRouterModels(database, organizationId);
+		json(response, 200, { connected: true, selectedModelAvailable: models.some((model) => model.id === config.model) });
 		return true;
 	}
 	return false;
@@ -607,6 +642,15 @@ async function handleKnowledgeRoutes(
 	}
 	if (path === "/api/knowledge/questions" && request.method === "POST") {
 		json(response, 201, await createLibraryQuestion(database, organizationId, actorUserId, await readJson(request)));
+		return true;
+	}
+	if (path === "/api/knowledge/export" && request.method === "GET") {
+		const url = new URL(request.url ?? path, `http://${request.headers.host ?? "127.0.0.1"}`);
+		json(response, 200, await exportKnowledge(database, organizationId, url.searchParams.get("industry")));
+		return true;
+	}
+	if (path === "/api/knowledge/import" && request.method === "POST") {
+		json(response, 200, await importKnowledge(database, organizationId, actorUserId, await readJson(request)));
 		return true;
 	}
 	const question = routeMatch(path, /^\/api\/knowledge\/questions\/([^/]+)$/);
@@ -824,6 +868,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 		(await handleBatchTaskRoutes(request, response, path, identity.id)) ||
 		(await handleWorkbenchRoutes(request, response, path, identity.id)) ||
 		(await handleSettingsRoutes(request, response, path, identity.organizationId)) ||
+		(await handleHRouterRoutes(request, response, path, identity.organizationId)) ||
 		(await handleKnowledgeRoutes(request, response, path, identity.organizationId, identity.id));
 	if (handled) {
 		await auditRequest(database, identity, request.method ?? "GET", path);

@@ -9,7 +9,6 @@ import {
 } from "@tabler/icons-react";
 import {
 	Alert,
-	Anchor,
 	Button as AntdButton,
 	Descriptions,
 	Dropdown,
@@ -26,20 +25,27 @@ import { Button, useBatch, usePermission } from "../access";
 import { api, post } from "../api";
 import {
 	type AgentRun,
+	agentStatusLabels,
 	type Batch,
 	batchKindLabel,
+	captureStatusLabel,
+	DEFAULT_PAGE_SIZE,
 	type EvidenceIndexEntry,
 	metricLabels,
 	type Paginated,
+	type PlatformMetrics,
 	type Project,
 	providerLabel,
+	providerShortLabel,
 	type ReportAnalysis,
 	type ReportPayload,
 	type ReportShare,
 	type ReportSnapshot,
 	type ReportWorkflowResult,
 	type ReportWorkflowState,
+	sourceCategoryLabel,
 	sourceLabels,
+	taskStatusLabel,
 } from "../types";
 import { useWorkspaceNavigation } from "../ui/navigation";
 import {
@@ -54,8 +60,9 @@ import {
 	Pagination,
 	percentage,
 	SectionTitle,
+	shortDate,
 } from "../ui/primitives";
-import { BatchMetrics, ComparisonDeltaChart } from "./charts";
+import { BatchMetrics, ComparisonDeltaChart, platformUnavailable } from "./charts";
 import { Page } from "./Page";
 import "./Report.css";
 
@@ -73,7 +80,6 @@ export function ReportExecutiveOverview({
 	const overall = batch.metrics.overall;
 	return (
 		<section className="report-executive-overview">
-			<SectionTitle title="管理层摘要" />
 			<div className="executive-summary">
 				<div>
 					<h2>{analysis.executive.headline}</h2>
@@ -113,7 +119,7 @@ export function ReportExecutiveOverview({
 				<div className="report-card report-comparison-card">
 					<div className="report-head">
 						<div>
-							<strong>01 整改前后对比</strong>
+							<strong>整改前后对比</strong>
 							<span>与基线使用完全相同的问法、平台与采样条件</span>
 						</div>
 						{pdfAction}
@@ -130,15 +136,6 @@ export const agentToolLabels: Record<string, string> = {
 	read_batch_evidence_index: "建立证据索引",
 	read_evidence: "核验原始证据",
 	submit_draft: "校验草稿",
-};
-
-export const agentStatusLabels: Record<AgentRun["status"], string> = {
-	queued: "排队中",
-	running: "分析中",
-	awaiting_approval: "待审批",
-	approved: "已批准",
-	rejected: "已拒绝",
-	failed: "执行失败",
 };
 
 const purposeLabels: Record<string, string> = {
@@ -214,7 +211,7 @@ export function AgentDraftContent({
 	if (!run.draft) return null;
 	const refs = (ids: unknown) =>
 		Array.isArray(ids) && ids.length ? (
-			<EvidenceRef ids={ids.map(String)} index={evidenceIndex} onOpen={onOpenEvidence} compact />
+			<EvidenceRef ids={ids.map(String)} index={evidenceIndex} onOpen={onOpenEvidence} max={4} />
 		) : null;
 	if (run.purpose === "report_narrative") {
 		const limitations = Array.isArray(run.draft.limitations) ? run.draft.limitations.map(String) : [];
@@ -312,7 +309,7 @@ export function AgentDraftContent({
 		return (
 			<div className="agent-draft-content">
 				<div>
-					<span>检查结论 · {String(run.draft.verdict ?? "-")}</span>
+					<span>检查结论 · {run.draft.verdict === "pass" ? "通过" : run.draft.verdict === "blocked" ? "未通过" : "-"}</span>
 					<p>{String(run.draft.summary ?? "-")}</p>
 				</div>
 				<div>
@@ -435,6 +432,7 @@ export function ReportAgentRun({
 	);
 }
 
+
 type PromptMatrixRow = ReportAnalysis["promptRows"][number];
 type TopicCoverageRow = ReportAnalysis["topicCoverage"][number];
 type BaselineDeltaRow = {
@@ -448,13 +446,45 @@ type BaselineDeltaRow = {
 	hasDelta: boolean;
 };
 type TaskRow = ReportPayload["tasks"][number];
-type EvidenceIndexRow = Batch["captures"][number];
 
 const DELTA_METRICS = [
 	["品牌提及率", "brandMentionRate"],
 	["首位推荐率", "firstRecommendationRate"],
 	["官网引用率", "citationRate"],
 ] as const;
+
+function deltaRow(
+	platform: string,
+	label: string,
+	key: (typeof DELTA_METRICS)[number][1],
+	before: PlatformMetrics | undefined,
+	after: PlatformMetrics | undefined,
+): BaselineDeltaRow {
+	const unavailable = platformUnavailable(before) || platformUnavailable(after);
+	const beforeValue = unavailable ? null : (before?.[key] ?? null);
+	const afterValue = unavailable ? null : (after?.[key] ?? null);
+	const hasDelta = beforeValue !== null && afterValue !== null;
+	const difference = hasDelta ? afterValue - beforeValue : 0;
+	return {
+		key: `${platform}-${key}`,
+		platform: providerLabel(platform),
+		metric: label,
+		before: unavailable ? "不可用" : percentage(beforeValue),
+		after: unavailable ? "不可用" : percentage(afterValue),
+		delta: hasDelta ? `${(difference * 100).toFixed(1)} 个百分点` : "-",
+		positive: difference >= 0,
+		hasDelta,
+	};
+}
+
+/** 基线与复测逐平台指标差值；任一侧平台没有成功回答时整行标为不可用，不按 0 计算差值。 */
+function buildDeltaRows(batch: Batch, baselineBatch: Batch): BaselineDeltaRow[] {
+	return batch.config.platforms.flatMap((platform) =>
+		DELTA_METRICS.map(([label, key]) =>
+			deltaRow(platform, label, key, baselineBatch.metrics.perPlatform[platform], batch.metrics.perPlatform[platform]),
+		),
+	);
+}
 
 const promptMatrixColumns: TableProps<PromptMatrixRow>["columns"] = [
 	{
@@ -471,6 +501,7 @@ const promptMatrixColumns: TableProps<PromptMatrixRow>["columns"] = [
 	{
 		title: "客户位置",
 		key: "position",
+		width: 96,
 		render: (_: unknown, row: PromptMatrixRow) => (
 			<span className={`rank rank-${row.bestTargetPosition ?? "none"}`}>
 				{row.bestTargetPosition ? `第 ${row.bestTargetPosition}` : "未出现"}
@@ -480,6 +511,7 @@ const promptMatrixColumns: TableProps<PromptMatrixRow>["columns"] = [
 	{
 		title: "提及 / 首位",
 		key: "rates",
+		width: 130,
 		render: (_: unknown, row: PromptMatrixRow) =>
 			`${percentage(row.targetMentionRate)} / ${percentage(row.firstRecommendationRate)}`,
 	},
@@ -493,10 +525,11 @@ const promptMatrixColumns: TableProps<PromptMatrixRow>["columns"] = [
 				</span>
 			)),
 	},
-	{ title: "来源", key: "sourceCount", dataIndex: "sourceCount" },
+	{ title: "来源", key: "sourceCount", dataIndex: "sourceCount", width: 70 },
 	{
 		title: "样本",
 		key: "samples",
+		width: 80,
 		render: (_: unknown, row: PromptMatrixRow) => `${row.completeSamples}/${row.plannedSamples}`,
 	},
 ];
@@ -539,7 +572,9 @@ const baselineDeltaColumns: TableProps<BaselineDeltaRow>["columns"] = [
 		title: "变化",
 		key: "delta",
 		render: (_: unknown, row: BaselineDeltaRow) => (
-			<span className={row.positive ? "positive" : "negative"}>{row.hasDelta ? row.delta : "-"}</span>
+			<span className={row.hasDelta ? (row.positive ? "positive" : "negative") : "muted"}>
+				{row.hasDelta ? row.delta : "不可比"}
+			</span>
 		),
 	},
 ];
@@ -549,32 +584,18 @@ const taskColumns: TableProps<TaskRow>["columns"] = [
 	{
 		title: "优先级",
 		key: "priority",
-		render: (_: unknown, task: TaskRow) => (task.priority === "high" ? "高" : "中"),
+		width: 90,
+		render: (_: unknown, task: TaskRow) => (task.priority === "high" ? "高" : task.priority === "low" ? "低" : "中"),
 	},
-	{ title: "状态", key: "status", dataIndex: "status" },
-	{ title: "负责人", key: "owner", render: (_: unknown, task: TaskRow) => task.owner ?? "未分配" },
+	{ title: "状态", key: "status", width: 100, render: (_: unknown, task: TaskRow) => taskStatusLabel(task.status) },
+	{ title: "负责人", key: "owner", width: 120, render: (_: unknown, task: TaskRow) => task.owner ?? "未分配" },
 	{
 		title: "发布与验收",
 		key: "acceptance",
+		width: 110,
 		render: (_: unknown, task: TaskRow) =>
 			task.verified_snapshot_id ? "已验收" : task.published_url ? "待验收" : "未发布",
 	},
-];
-
-const evidenceIndexColumns: TableProps<EvidenceIndexRow>["columns"] = [
-	{
-		title: "证据ID",
-		key: "captureId",
-		render: (_: unknown, capture: EvidenceIndexRow) => <code>{capture.captureId}</code>,
-	},
-	{
-		title: "平台",
-		key: "platform",
-		render: (_: unknown, capture: EvidenceIndexRow) => providerLabel(capture.engine),
-	},
-	{ title: "问题", key: "prompt", dataIndex: "prompt" },
-	{ title: "采样", key: "attempt", dataIndex: "attempt" },
-	{ title: "状态", key: "status", dataIndex: "status" },
 ];
 
 const snapshotColumns: TableProps<ReportSnapshot>["columns"] = [
@@ -656,6 +677,7 @@ function SnapshotAssetTable({
 				pagination={false}
 				dataSource={snapshots}
 				columns={snapshotColumns}
+				scroll={{ x: 560 }}
 			/>
 			<Pagination {...page} onPage={onPage} />
 		</>
@@ -710,382 +732,141 @@ function ShareLinkTable({
 	];
 	return (
 		<>
-			<Table<ReportShare> rowKey="id" size="small" pagination={false} dataSource={shares} columns={columns} />
+			<Table<ReportShare>
+				rowKey="id"
+				size="small"
+				pagination={false}
+				dataSource={shares}
+				columns={columns}
+				scroll={{ x: 520 }}
+			/>
 			<Pagination {...page} onPage={onPage} />
 		</>
 	);
 }
 
-type ReportDocContext = {
-	batch: Batch;
-	analysis: ReportAnalysis;
-	report: ReportPayload;
-	baselineBatch: Batch | null;
-	openEvidence?(captureId: string): void;
-};
-
-type ReportDocColumnConfig = { number: string; title: string; content: ReactNode };
-
-type ReportDocSectionConfig = {
-	key: string;
-	number?: string;
-	title?: string;
-	note?: ReactNode;
-	extra?: ReactNode;
-	className?: string;
-	columns?: ReportDocColumnConfig[];
-	content?: ReactNode;
-	when?(context: ReportDocContext): boolean;
-};
-
-function ReportDocSection({ config }: { config: ReportDocSectionConfig }) {
-	if (config.columns) {
-		return (
-			<div id={`report-section-${config.key}`} className="report-section split-report-section">
-				{config.columns.map((column) => (
-					<div key={column.number} id={`report-section-${config.key}-${column.number}`}>
-						<div className="report-title-row">
-							<div>
-								<span>{column.number}</span>
-								<h2>{column.title}</h2>
-							</div>
-						</div>
-						{column.content}
-					</div>
-				))}
-			</div>
-		);
-	}
-	return (
-		<div
-			id={`report-section-${config.key}`}
-			className={`report-section${config.className ? ` ${config.className}` : ""}`}
-		>
-			<div className="report-title-row">
-				<div>
-					{config.number ? <span>{config.number}</span> : null}
-					<h2>{config.title}</h2>
-				</div>
-				{config.note ? <small>{config.note}</small> : null}
-				{config.extra}
-			</div>
-			{config.content}
-		</div>
-	);
-}
-
-/** 报告正文目录：与 buildReportDocSections 的输出一一对应，columns 区块展开为子级锚点。 */
-function reportDocAnchorItems(sections: ReportDocSectionConfig[]) {
-	return sections.map((section) =>
-		section.columns
-			? {
-					key: section.key,
-					href: `#report-section-${section.key}`,
-					title: `${section.columns[0].number} ${section.columns[0].title}`,
-					children: section.columns.slice(1).map((column) => ({
-						key: `${section.key}-${column.number}`,
-						href: `#report-section-${section.key}-${column.number}`,
-						title: `${column.number} ${column.title}`,
-					})),
-				}
-			: {
-					key: section.key,
-					href: `#report-section-${section.key}`,
-					title: section.number ? `${section.number} ${section.title}` : section.title,
-				},
-	);
-}
-
-function buildReportDocSections(context: ReportDocContext): ReportDocSectionConfig[] {
-	const { batch, analysis, report, baselineBatch } = context;
-	const websiteAudit = analysis.websiteAudit;
-	const sourceRankings = analysis.sourceDomains.slice(0, 10).map((source, index) => (
-		<div key={source.domain}>
-			<span>{index + 1}</span>
-			<b>{source.domain}</b>
-			<small>{source.isOwned ? "客户官网" : `${source.category} · ${source.promptCount} 个问题`}</small>
-			<strong>{source.citationCount}</strong>
-		</div>
-	));
-	const perceptionExcerpts = analysis.perceptionExcerpts.map((excerpt) => (
-		<blockquote key={`${excerpt.captureId}-${excerpt.text}`}>
-			{excerpt.text}
-			<footer>
-				<EvidenceRef ids={[excerpt.captureId]} index={analysis.evidenceIndex} onOpen={context.openEvidence} />
-			</footer>
-		</blockquote>
-	));
-	const deltaRows: BaselineDeltaRow[] = baselineBatch
-		? batch.config.platforms.flatMap((platform) => {
-				const before = baselineBatch.metrics.perPlatform[platform];
-				const after = batch.metrics.perPlatform[platform];
-				return DELTA_METRICS.map(([label, key]) => {
-					const beforeValue = before?.[key];
-					const afterValue = after?.[key];
-					const hasDelta = beforeValue != null && afterValue != null;
-					return {
-						key: `${platform}-${key}`,
-						platform: providerLabel(platform),
-						metric: label,
-						before: percentage(beforeValue),
-						after: percentage(afterValue),
-						delta: hasDelta ? `${(((afterValue ?? 0) - (beforeValue ?? 0)) * 100).toFixed(1)} 个百分点` : "-",
-						positive: (afterValue ?? 0) - (beforeValue ?? 0) >= 0,
-						hasDelta,
-					};
-				});
-			})
-		: [];
-	return [
+/** 原始证据索引：编号、平台、问题、采样与来源，全部可读，不出现 UUID。 */
+function EvidenceIndexTable({
+	entries,
+	onOpen,
+}: {
+	entries: EvidenceIndexEntry[];
+	onOpen(captureId: string): void;
+}) {
+	const [page, setPage] = useState(1);
+	const pageSize = 15;
+	const rows = entries.slice((page - 1) * pageSize, page * pageSize);
+	const columns: TableProps<EvidenceIndexEntry>["columns"] = [
 		{
-			key: "sampling",
-			number: "01",
-			title: "采样条件与平台表现",
-			note: "所有条件写入冻结批次，不随项目后续编辑变化",
-			content: (
-				<>
-					<dl className="report-facts">
-						<div>
-							<dt>平台</dt>
-							<dd>{batch.config.platforms.join(" / ")}</dd>
-						</div>
-						<div>
-							<dt>问题数</dt>
-							<dd>{batch.config.prompts.length}</dd>
-						</div>
-						<div>
-							<dt>每题重复</dt>
-							<dd>{batch.config.repeats}</dd>
-						</div>
-						<div>
-							<dt>有效 / 失败</dt>
-							<dd>
-								{batch.metrics.validSamples} / {batch.metrics.failedSamples}
-							</dd>
-						</div>
-					</dl>
-					<BatchMetrics batch={batch} />
-				</>
+			title: "编号",
+			key: "n",
+			width: 72,
+			render: (_: unknown, entry: EvidenceIndexEntry) => (
+				<EvidenceRef ids={[entry.id]} index={entries} onOpen={onOpen} compact />
 			),
 		},
 		{
-			key: "prompt-matrix",
-			number: "02",
-			title: "逐问题竞争矩阵",
-			note: "不是总分平均值，直接显示具体问题的输赢",
-			content: (
-				<Table<PromptMatrixRow>
-					className="prompt-matrix"
-					rowKey="promptId"
-					size="small"
-					pagination={false}
-					dataSource={analysis.promptRows}
-					columns={promptMatrixColumns}
-				/>
-			),
+			title: "来源",
+			key: "source",
+			width: 190,
+			render: (_: unknown, entry: EvidenceIndexEntry) =>
+				entry.kind === "capture" ? providerLabel(entry.platform ?? "") : (entry.platformLabel ?? "网页快照"),
 		},
 		{
-			key: "sources-perception",
-			columns: [
-				{
-					number: "03",
-					title: "引用信源榜",
-					content: analysis.sourceDomains.length ? (
-						<div className="source-ranking">{sourceRankings}</div>
-					) : (
-						<p className="muted">本批次回答没有展示可提取来源，系统没有补造引用。</p>
-					),
-				},
-				{
-					number: "04",
-					title: "AI 如何描述品牌",
-					content: analysis.perceptionExcerpts.length ? (
-						<div className="perception-list">{perceptionExcerpts}</div>
-					) : (
-						<p className="muted">回答中没有可直接截取的品牌描述。</p>
-					),
-				},
-			],
+			title: "问题 / 页面",
+			key: "subject",
+			render: (_: unknown, entry: EvidenceIndexEntry) =>
+				entry.kind === "capture" ? (
+					entry.question
+				) : entry.url ? (
+					<a href={entry.url} target="_blank" rel="noreferrer">
+						{entry.title ?? entry.url}
+					</a>
+				) : (
+					(entry.title ?? "-")
+				),
 		},
 		{
-			key: "topic-coverage",
-			number: "05",
-			title: "客户、竞品与引用页主题覆盖",
-			note: `客户页 ${analysis.webEvidenceSummary.customerPages} · 竞品页 ${analysis.webEvidenceSummary.competitorPages} · 引用页 ${analysis.webEvidenceSummary.citationPages}`,
-			content: (
-				<>
-					{analysis.topicCoverage.some((row) => row.terms.length) ? (
-						<Table<TopicCoverageRow>
-							className="topic-coverage-table"
-							rowKey="promptId"
-							size="small"
-							pagination={false}
-							dataSource={analysis.topicCoverage}
-							columns={topicCoverageColumns}
-						/>
-					) : (
-						<p className="muted">当前问题没有已确认标签，系统不从问题文本猜测主题。</p>
-					)}
-					<p className="limitation">
-						{analysis.webEvidenceSummary.customerPages
-							? "这里是已保存网页快照的精确文本覆盖对比，用于定位可核验的内容缺口，不解释平台排序算法。"
-							: "客户网页证据不足：系统尚未成功保存客户页面，因此只展示外部页面命中，不判定官网内容缺失。"}
-					</p>
-				</>
-			),
+			title: "采样",
+			key: "attempt",
+			width: 150,
+			render: (_: unknown, entry: EvidenceIndexEntry) =>
+				entry.kind === "capture"
+					? `第 ${entry.attempt ?? 1} 次 · ${shortDate(entry.capturedAt)}`
+					: shortDate(entry.capturedAt),
 		},
 		{
-			key: "website-audit",
-			number: "06",
-			title: "官网 GEO 技术基础",
-			when: (current) => Boolean(current.analysis.websiteAudit),
-			extra: websiteAudit ? <strong className="inline-score">{websiteAudit.result.score}/100</strong> : undefined,
-			content: websiteAudit ? (
-				<>
-					<div className="report-audit-checks">
-						{websiteAudit.result.checks
-							.filter((check) => check.status !== "skip")
-							.map((check) => (
-								<div key={check.id}>
-									<span className={`check-state ${check.status}`}>
-										{check.status === "pass" ? "通过" : check.status === "fail" ? "失败" : "警告"}
-									</span>
-									<b>{check.label}</b>
-									<p>{check.detail}</p>
-								</div>
-							))}
-					</div>
-					<small>官网审计证据：{websiteAudit.id}</small>
-				</>
-			) : null,
+			title: "状态",
+			key: "status",
+			width: 110,
+			render: (_: unknown, entry: EvidenceIndexEntry) =>
+				entry.status ? (
+					<span className={entry.status === "complete" ? "" : "evidence-index-failed"}>
+						{captureStatusLabel(entry.status)}
+					</span>
+				) : (
+					"已存证"
+				),
 		},
 		{
-			key: "baseline-delta",
-			number: "07",
-			title: "基线与复测变化",
-			when: (current) => Boolean(current.baselineBatch),
-			content: baselineBatch ? (
-				<>
-					<p>
-						本次复测冻结并复用了基线批次 <code>{baselineBatch.id}</code>{" "}
-						的客户、竞品、问题、平台、地区、重复次数和采集版本。
-					</p>
-					<Table<BaselineDeltaRow>
-						rowKey="key"
-						size="small"
-						pagination={false}
-						dataSource={deltaRows}
-						columns={baselineDeltaColumns}
-					/>
-				</>
-			) : null,
-		},
-		{
-			key: "findings",
-			number: baselineBatch ? "08" : "07",
-			title: "证据诊断与整改路线",
-			content: (
-				<>
-					{report.findings.length ? (
-						report.findings.map((finding) => (
-							<div className="report-finding" key={finding.id}>
-								<span>{finding.category}</span>
-								<b>{finding.title}</b>
-								<p>{finding.detail}</p>
-								<p className="report-recommendation">建议：{finding.recommendation}</p>
-								<small className="report-finding-meta">
-									证据充分度 {Math.round(finding.confidence * 100)}%
-									<EvidenceRef
-										ids={finding.evidence_ids}
-										index={analysis.evidenceIndex}
-										onOpen={context.openEvidence}
-										compact
-									/>
-								</small>
-							</div>
-						))
-					) : (
-						<p>报告已计算可见度与问题差距，但尚未把结论写入整改流程。进入“差距诊断”生成后即可转任务。</p>
-					)}
-					{report.tasks.length > 0 && (
-						<Table<TaskRow>
-							className="task-report-table"
-							rowKey="id"
-							size="small"
-							pagination={false}
-							dataSource={report.tasks}
-							columns={taskColumns}
-						/>
-					)}
-				</>
-			),
-		},
-		{
-			key: "attribution",
-			number: baselineBatch ? "09" : "08",
-			title: "真实业务结果",
-			note: "与 AI 指标并列，不自动推断因果",
-			content: report.attributionSummary.length ? (
-				<div className="report-attribution">
-					{report.attributionSummary.map((item) => (
-						<div key={`${item.source_type}-${item.metric}`}>
-							<span>{sourceLabels[item.source_type] ?? item.source_type}</span>
-							<strong>{item.value.toLocaleString("zh-CN")}</strong>
-							<b>{metricLabels[item.metric] ?? item.metric}</b>
-							<small>
-								{item.observations} 条真实观察 · 至 {date(item.last_observed_at)}
-							</small>
-						</div>
-					))}
-				</div>
-			) : (
-				<p className="muted">尚未导入 GA4、Search Console、表单或电话数据，本报告不声称已经带来访问或咨询。</p>
-			),
-		},
-		{
-			key: "evidence-index",
-			number: baselineBatch ? "10" : "09",
-			title: "原始证据索引",
-			content: (
-				<Table<EvidenceIndexRow>
-					className="evidence-index"
-					rowKey="captureId"
-					size="small"
-					pagination={false}
-					dataSource={batch.captures}
-					columns={evidenceIndexColumns}
-				/>
-			),
-		},
-		{
-			key: "limitations",
-			title: "方法与局限",
-			className: "limitation",
-			content: (
-				<p>
-					联网 API
-					的模型、索引与搜索策略属于平台黑盒，并具有随机性。报告仅描述冻结模型、问题集、地区和采样窗口下的真实结果；API
-					回答不等同于对应 App 页面回答，也不证明单一整改与排名变化之间的因果关系。
-				</p>
-			),
+			title: "引用网址",
+			key: "sources",
+			width: 240,
+			render: (_: unknown, entry: EvidenceIndexEntry) =>
+				entry.sourceUrls.length ? (
+					<span className="evidence-index-sources">
+						<a href={entry.sourceUrls[0]} target="_blank" rel="noreferrer">
+							{entry.sourceUrls[0].replace(/^https?:\/\//, "").slice(0, 40)}
+						</a>
+						{entry.sourceUrls.length > 1 && <small>等 {entry.sourceUrls.length} 个</small>}
+					</span>
+				) : entry.kind === "capture" ? (
+					<span className="muted">未开放来源</span>
+				) : (
+					"-"
+				),
 		},
 	];
+	return (
+		<>
+			<Table<EvidenceIndexEntry>
+				className="evidence-index"
+				rowKey="id"
+				size="small"
+				pagination={false}
+				dataSource={rows}
+				columns={columns}
+				scroll={{ x: 900 }}
+			/>
+			<Pagination
+				page={page}
+				pageSize={pageSize}
+				total={entries.length}
+				totalPages={Math.max(1, Math.ceil(entries.length / pageSize))}
+				onPage={setPage}
+			/>
+		</>
+	);
 }
 
-// The printable document stays in one component so its section numbering and conditional retest blocks remain auditable.
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: report composition intentionally mirrors the printed document
+type ReportTabKey = "overview" | "narrative" | "details" | "actions" | "evidence" | "assets";
+
+// The report page mirrors the frozen document but splits it into page-level tabs so each screen stays readable.
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: report composition intentionally keeps workflow, tabs and document sections in one auditable component
 export function Report({ project }: { project: Project }) {
 	const { selected, setSelected, batch } = useBatch(project);
 	const navigation = useWorkspaceNavigation();
 	const canGenerate = usePermission("report.generate");
 	const canShare = usePermission("report.share");
+	const [tab, setTab] = useState<ReportTabKey>("overview");
 	const [baselineBatch, setBaselineBatch] = useState<Batch | null>(null);
 	const [report, setReport] = useState<ReportPayload | null>(null);
+	const [reportLoading, setReportLoading] = useState(false);
 	const [reportError, setReportError] = useState<string | null>(null);
 	const [snapshotsPage, setSnapshotsPage] = useState<Paginated<ReportSnapshot>>({
 		items: [],
 		page: 1,
-		pageSize: 10,
+		pageSize: DEFAULT_PAGE_SIZE,
 		total: 0,
 		totalPages: 1,
 	});
@@ -1093,7 +874,7 @@ export function Report({ project }: { project: Project }) {
 	const [agentRunsPage, setAgentRunsPage] = useState<Paginated<AgentRun>>({
 		items: [],
 		page: 1,
-		pageSize: 10,
+		pageSize: DEFAULT_PAGE_SIZE,
 		total: 0,
 		totalPages: 1,
 	});
@@ -1104,7 +885,7 @@ export function Report({ project }: { project: Project }) {
 	const [sharesPage, setSharesPage] = useState<Paginated<ReportShare>>({
 		items: [],
 		page: 1,
-		pageSize: 10,
+		pageSize: DEFAULT_PAGE_SIZE,
 		total: 0,
 		totalPages: 1,
 	});
@@ -1173,12 +954,24 @@ export function Report({ project }: { project: Project }) {
 	}, [latestSnapshotId, loadShares]);
 	useEffect(() => {
 		if (!selected) return;
+		// 切换批次时保留上一份报告直到新数据到达，由 Page 的延迟 loading 覆盖，避免先清空再重绘的抖动。
+		let cancelled = false;
 		setWorkflowState(null);
-		setReport(null);
 		setReportError(null);
+		setReportLoading(true);
 		api<ReportPayload>(`/api/batches/${selected}/report`)
-			.then(setReport)
-			.catch((reason) => setReportError(reason instanceof Error ? reason.message : "报告分析加载失败"));
+			.then((value) => {
+				if (!cancelled) setReport(value);
+			})
+			.catch((reason) => {
+				if (!cancelled) setReportError(reason instanceof Error ? reason.message : "报告分析加载失败");
+			})
+			.finally(() => {
+				if (!cancelled) setReportLoading(false);
+			});
+		return () => {
+			cancelled = true;
+		};
 	}, [selected]);
 	useEffect(() => {
 		if (!batch?.compare_to_batch_id) {
@@ -1190,7 +983,11 @@ export function Report({ project }: { project: Project }) {
 			.catch(() => setBaselineBatch(null));
 	}, [batch?.compare_to_batch_id]);
 	if (!project.batches.length)
-		return <Empty title="还没有报告数据" detail="完成基线后可打印单批次报告；完成同条件复测后可展示前后变化。" />;
+		return (
+			<Page breadcrumb={project.name} eyebrow="复测报告" title="报告与交付" description="选择一个已完成批次生成报告">
+				<Empty title="还没有报告数据" detail="完成基线后可打印单批次报告；完成同条件复测后可展示前后变化。" />
+			</Page>
+		);
 	const analysis = report?.analysis;
 	const selectedSnapshots = snapshots.filter((item) => item.batch_id === selected);
 	const latestSnapshot = selectedSnapshots[0];
@@ -1202,6 +999,7 @@ export function Report({ project }: { project: Project }) {
 			run.draft?.verdict === "pass" &&
 			run.draft.reviewedNarrativeRunId === approvedNarrative?.id,
 	);
+	const openEvidence = (captureId: string) => navigation.openEvidence(captureId, selected);
 	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Polling preserves each explicit server-side PDF terminal state for the user.
 	async function createDocuments() {
 		if (!latestSnapshot) return;
@@ -1241,6 +1039,7 @@ export function Report({ project }: { project: Project }) {
 			setShareUrl(url);
 			await navigator.clipboard?.writeText(url);
 			await loadShares(latestSnapshot.id);
+			setTab("assets");
 		} catch (reason) {
 			setReportError(reason instanceof Error ? reason.message : "分享链接创建失败");
 		} finally {
@@ -1257,6 +1056,7 @@ export function Report({ project }: { project: Project }) {
 			});
 			setWorkflowState(result.state);
 			await Promise.all([loadAgentRuns(), loadSnapshots()]);
+			setTab("narrative");
 		} catch (reason) {
 			setReportError(reason instanceof Error ? reason.message : "报告工作流启动失败");
 		} finally {
@@ -1265,20 +1065,10 @@ export function Report({ project }: { project: Project }) {
 	}
 	const awaitingApproval = agentRuns.some((run) => run.status === "awaiting_approval");
 	const reportReady = Boolean(latestSnapshot?.pdf_artifact_key && latestSnapshot.word_artifact_key);
-	const docSections =
-		batch && analysis && report
-			? buildReportDocSections({
-					batch,
-					analysis,
-					report,
-					baselineBatch,
-					openEvidence: (captureId) => navigation.openEvidence(captureId, selected),
-				}).filter((section) => section.when?.({ batch, analysis, report, baselineBatch }) ?? true)
-			: [];
 	const workflowLabel = awaitingApproval
 		? "等待人工审批"
 		: hasActiveAgentRuns
-			? "Agent 处理中"
+			? "HRouter Agent 处理中"
 			: reportReady
 				? "生成新报告版本"
 				: workflowState === "quality_blocked"
@@ -1318,12 +1108,327 @@ export function Report({ project }: { project: Project }) {
 		{ title: "冻结版本", status: latestSnapshot ? "finish" : approvedQuality ? "process" : "wait" },
 		{ title: "PDF / Word", status: reportReady ? "finish" : latestSnapshot ? "process" : "wait" },
 	] as const;
+	const websiteAudit = analysis?.websiteAudit ?? null;
+	const deltaRows: BaselineDeltaRow[] = batch && baselineBatch ? buildDeltaRows(batch, baselineBatch) : [];
+	const evidenceEntries = analysis?.evidenceIndex ?? [];
+	const tabItems = [
+		{
+			key: "overview",
+			label: "总览",
+			children:
+				batch && analysis && report ? (
+					<>
+						<ReportExecutiveOverview batch={batch} analysis={analysis} baselineBatch={baselineBatch} />
+						<SectionTitle title="采样条件与平台表现" description="所有条件写入冻结批次，不随项目后续编辑变化。" />
+						<dl className="report-facts">
+							<div>
+								<dt>平台</dt>
+								<dd>{batch.config.platforms.map((platform) => providerShortLabel(platform)).join(" / ")}</dd>
+							</div>
+							<div>
+								<dt>问题数</dt>
+								<dd>{batch.config.prompts.length}</dd>
+							</div>
+							<div>
+								<dt>每题重复</dt>
+								<dd>{batch.config.repeats} 次</dd>
+							</div>
+							<div>
+								<dt>有效 / 失败</dt>
+								<dd>
+									{batch.metrics.validSamples} / {batch.metrics.failedSamples}
+								</dd>
+							</div>
+						</dl>
+						<BatchMetrics batch={batch} />
+					</>
+				) : null,
+		},
+		{
+			key: "narrative",
+			label: `口碑与建议${agentRuns.length ? ` (${agentRuns.length})` : ""}`,
+			children: (
+				<>
+					<section className="agent-activity">
+						<SectionTitle
+							title="HRouter Agent 任务"
+							count={
+								hasActiveAgentRuns
+									? `${agentRuns.filter((run) => run.status === "queued" || run.status === "running").length} 个进行中`
+									: `${agentRuns.length} 条`
+							}
+							description="报告叙述与质量检查由 HRouter Agent 基于本批次证据生成；批准后自动进入下一步。"
+						/>
+						{agentRuns.length ? (
+							<div className="agent-run-list">
+								{agentRuns.slice(0, 8).map((run) => (
+									<ReportAgentRun
+										key={run.id}
+										run={run}
+										onApprove={async () => {
+											const result = await post<{ workflow: ReportWorkflowResult | null }>(
+												`/api/agent-runs/${run.id}/approve`,
+											);
+											setWorkflowState(result.workflow?.state ?? null);
+											await Promise.all([loadAgentRuns(), loadSnapshots()]);
+										}}
+										onReject={async () => {
+											await post(`/api/agent-runs/${run.id}/reject`);
+											await loadAgentRuns();
+										}}
+									/>
+								))}
+							</div>
+						) : (
+							<p className="agent-activity-empty">当前批次暂无 HRouter Agent 任务，点击右上角“生成并校验报告”开始。</p>
+						)}
+						<Pagination {...agentRunsPage} onPage={(page) => void loadAgentRuns(page)} />
+					</section>
+					{approvedNarrative ? (
+						<section className="approved-agent-report">
+							<SectionTitle
+								title="口碑检测与 GEO 优化意见"
+								description="已批准的 HRouter Agent 结论；每条结论后的引用可点击跳转到证据中心核对原文。"
+								extra={<Tag>{approvedQuality ? "质量校验通过" : "等待质量校验"}</Tag>}
+							/>
+							<AgentDraftContent run={approvedNarrative} evidenceIndex={analysis?.evidenceIndex} onOpenEvidence={openEvidence} />
+						</section>
+					) : (
+						<Empty
+							compact
+							title="还没有已批准的报告叙述"
+							detail="叙述批准后，这里会显示口碑判断、正负信号、来源状态与 GEO 优化建议。"
+						/>
+					)}
+				</>
+			),
+		},
+		{
+			key: "details",
+			label: "数据明细",
+			children: analysis ? (
+				<>
+					<SectionTitle title="逐问题竞争矩阵" description="不是总分平均值，直接显示具体问题的输赢。" />
+					<Table<PromptMatrixRow>
+						className="prompt-matrix"
+						rowKey="promptId"
+						size="small"
+						pagination={false}
+						dataSource={analysis.promptRows}
+						columns={promptMatrixColumns}
+						scroll={{ x: 820 }}
+					/>
+					<div className="split-report-section">
+						<div>
+							<SectionTitle title="引用信源榜" />
+							{analysis.sourceDomains.length ? (
+								<div className="source-ranking">
+									{analysis.sourceDomains.slice(0, 10).map((source, index) => (
+										<div key={source.domain}>
+											<span>{index + 1}</span>
+											<b>{source.domain}</b>
+											<small>
+												{source.isOwned ? "客户官网" : `${sourceCategoryLabel(source.category)} · ${source.promptCount} 个问题`}
+											</small>
+											<strong>{source.citationCount}</strong>
+										</div>
+									))}
+								</div>
+							) : (
+								<p className="muted">本批次回答没有展示可提取来源，系统没有补造引用。</p>
+							)}
+						</div>
+						<div>
+							<SectionTitle title="AI 如何描述品牌" />
+							{analysis.perceptionExcerpts.length ? (
+								<div className="perception-list">
+									{analysis.perceptionExcerpts.map((excerpt) => (
+										<blockquote key={`${excerpt.captureId}-${excerpt.text}`}>
+											{excerpt.text}
+											<footer>
+												<EvidenceRef ids={[excerpt.captureId]} index={analysis.evidenceIndex} onOpen={openEvidence} />
+											</footer>
+										</blockquote>
+									))}
+								</div>
+							) : (
+								<p className="muted">回答中没有可直接截取的品牌描述。</p>
+							)}
+						</div>
+					</div>
+					<SectionTitle
+						title="客户、竞品与引用页主题覆盖"
+						description={`客户页 ${analysis.webEvidenceSummary.customerPages} · 竞品页 ${analysis.webEvidenceSummary.competitorPages} · 引用页 ${analysis.webEvidenceSummary.citationPages}`}
+					/>
+					{analysis.topicCoverage.some((row) => row.terms.length) ? (
+						<Table<TopicCoverageRow>
+							className="topic-coverage-table"
+							rowKey="promptId"
+							size="small"
+							pagination={false}
+							dataSource={analysis.topicCoverage}
+							columns={topicCoverageColumns}
+							scroll={{ x: 760 }}
+						/>
+					) : (
+						<p className="muted">当前问题没有已确认标签，系统不从问题文本猜测主题。</p>
+					)}
+					<p className="limitation">
+						{analysis.webEvidenceSummary.customerPages
+							? "这里是已保存网页快照的精确文本覆盖对比，用于定位可核验的内容缺口，不解释平台排序算法。"
+							: "客户网页证据不足：系统尚未成功保存客户页面，因此只展示外部页面命中，不判定官网内容缺失。"}
+					</p>
+					{websiteAudit && (
+						<>
+							<SectionTitle
+								title="官网 GEO 技术基础"
+								extra={<strong className="inline-score">{websiteAudit.result.score}/100</strong>}
+							/>
+							<div className="report-audit-checks">
+								{websiteAudit.result.checks
+									.filter((check) => check.status !== "skip")
+									.map((check) => (
+										<div key={check.id}>
+											<span className={`check-state ${check.status}`}>
+												{check.status === "pass" ? "通过" : check.status === "fail" ? "失败" : "警告"}
+											</span>
+											<b>{check.label}</b>
+											<p>{check.detail}</p>
+										</div>
+									))}
+							</div>
+							<small className="report-finding-meta">
+								审计证据
+								<EvidenceRef ids={[websiteAudit.id]} index={analysis.evidenceIndex} />
+								{date(websiteAudit.result.checkedAt)}
+							</small>
+						</>
+					)}
+					{batch && baselineBatch && (
+						<>
+							<SectionTitle
+								title="基线与复测变化"
+								description={`本次复测冻结并复用了「${batchKindLabel(baselineBatch.kind)} · ${date(baselineBatch.created_at)}」的客户、竞品、问题、平台、地区、重复次数和采集版本。`}
+							/>
+							<Table<BaselineDeltaRow>
+								rowKey="key"
+								size="small"
+								pagination={false}
+								dataSource={deltaRows}
+								columns={baselineDeltaColumns}
+								scroll={{ x: 640 }}
+							/>
+						</>
+					)}
+				</>
+			) : null,
+		},
+		{
+			key: "actions",
+			label: `诊断与整改${report ? ` (${report.findings.length + report.tasks.length})` : ""}`,
+			children: report ? (
+				<>
+					<SectionTitle title="证据诊断" description="由确定性规则与已批准的 HRouter Agent 诊断得出；每条结论附引用证据。" />
+					{report.findings.length ? (
+						report.findings.map((finding) => (
+							<div className="report-finding" key={finding.id}>
+								<span>{finding.category}</span>
+								<b>{finding.title}</b>
+								<p>{finding.detail}</p>
+								<p className="report-recommendation">建议：{finding.recommendation}</p>
+								<small className="report-finding-meta">
+									证据充分度 {Math.round(finding.confidence * 100)}%
+									<EvidenceRef ids={finding.evidence_ids} index={analysis?.evidenceIndex} onOpen={openEvidence} max={6} />
+								</small>
+							</div>
+						))
+					) : (
+						<p className="muted">报告已计算可见度与问题差距，但尚未把结论写入整改流程。进入“差距诊断”生成后即可转任务。</p>
+					)}
+					<SectionTitle title="整改路线" count={report.tasks.length} />
+					{report.tasks.length ? (
+						<Table<TaskRow>
+							className="task-report-table"
+							rowKey="id"
+							size="small"
+							pagination={false}
+							dataSource={report.tasks}
+							columns={taskColumns}
+							scroll={{ x: 640 }}
+						/>
+					) : (
+						<p className="muted">还没有整改任务；在“整改中心”从已批准诊断创建任务后会同步到报告。</p>
+					)}
+					<SectionTitle title="真实业务结果" description="与 AI 指标并列，不自动推断因果。" />
+					{report.attributionSummary.length ? (
+						<div className="report-attribution">
+							{report.attributionSummary.map((item) => (
+								<div key={`${item.source_type}-${item.metric}`}>
+									<span>{sourceLabels[item.source_type] ?? item.source_type}</span>
+									<strong>{item.value.toLocaleString("zh-CN")}</strong>
+									<b>{metricLabels[item.metric] ?? item.metric}</b>
+									<small>
+										{item.observations} 条真实观察 · 至 {date(item.last_observed_at)}
+									</small>
+								</div>
+							))}
+						</div>
+					) : (
+						<p className="muted">尚未导入 GA4、Search Console、表单或电话数据，本报告不声称已经带来访问或咨询。</p>
+					)}
+				</>
+			) : null,
+		},
+		{
+			key: "evidence",
+			label: `证据索引${evidenceEntries.length ? ` (${evidenceEntries.length})` : ""}`,
+			children: (
+				<>
+					<SectionTitle
+						title="原始证据索引"
+						description="报告中的每个 [n] 引用都对应这里的一条证据；点击编号可在证据中心查看回答原文与原始响应。"
+					/>
+					{evidenceEntries.length ? (
+						<EvidenceIndexTable entries={evidenceEntries} onOpen={openEvidence} />
+					) : (
+						<p className="muted">当前批次还没有可索引的证据。</p>
+					)}
+					<p className="limitation">
+						联网 API 的模型、索引与搜索策略属于平台黑盒，并具有随机性。报告仅描述冻结模型、问题集、地区和采样窗口下的真实结果；API
+						回答不等同于对应 App 页面回答，也不证明单一整改与排名变化之间的因果关系。
+					</p>
+				</>
+			),
+		},
+		{
+			key: "assets",
+			label: `版本与分享${selectedSnapshots.length ? ` (${selectedSnapshots.length})` : ""}`,
+			children: (
+				<section className="report-assets">
+					{shareUrl && <Alert type="success" showIcon title={`分享链接已复制：${shareUrl}`} />}
+					<SectionTitle title="报告版本" description="冻结版本不可修改；每个版本都带内容指纹，可导出 CSV、JSON、PDF 与 Word。" />
+					<SnapshotAssetTable snapshots={selectedSnapshots} page={snapshotsPage} onPage={(page) => void loadSnapshots(page)} />
+					<SectionTitle title="分享链接" description="分享链接默认 30 天过期，可随时撤销；对方无需登录即可查看冻结版本。" />
+					<ShareLinkTable
+						shares={shares}
+						latestSnapshotId={latestSnapshotId}
+						page={sharesPage}
+						onPage={(page) => {
+							if (latestSnapshotId) void loadShares(latestSnapshotId, page);
+						}}
+						onRevoke={revokeShare}
+					/>
+				</section>
+			),
+		},
+	];
 	return (
 		<Page
 			className="report"
 			breadcrumb={project.name}
 			eyebrow="复测报告"
-			title="效果报告与交付"
+			title="报告与交付"
+			loading={reportLoading}
 			description={
 				batch
 					? `${batchKindLabel(batch.kind)} · ${date(batch.created_at)} · ${batchStatusLabel(batch.status)} · 有效样本 ${batch.metrics.validSamples}/${batch.metrics.expectedSamples}`
@@ -1343,7 +1448,7 @@ export function Report({ project }: { project: Project }) {
 					</Button>
 					{deliveryMenuItems.length > 0 && (
 						<Dropdown trigger={["click"]} menu={{ items: deliveryMenuItems, onClick: handleDeliveryMenuClick }}>
-							<AntdButton icon={<IconChevronDown size={15} />} iconPosition="end">
+							<AntdButton icon={<IconChevronDown size={15} />} iconPlacement="end">
 								交付
 							</AntdButton>
 						</Dropdown>
@@ -1351,113 +1456,22 @@ export function Report({ project }: { project: Project }) {
 				</>
 			}
 		>
-			<div className="report-workflow no-print">
+			<div className="report-workflow">
 				<Steps size="small" items={[...workflowSteps]} />
 			</div>
-			{reportError && <Alert type="error" showIcon message={reportError} />}
-			{batch && analysis ? (
-				<ReportExecutiveOverview batch={batch} analysis={analysis} baselineBatch={baselineBatch} />
-			) : null}
-			<section className="agent-activity no-print">
-				<SectionTitle
-					title="Agent 任务"
-					count={
-						hasActiveAgentRuns
-							? `${agentRuns.filter((run) => run.status === "queued" || run.status === "running").length} 个进行中`
-							: `${agentRuns.length} 条`
-					}
-					description="报告叙述与质量检查由内置 Agent 基于本批次证据生成；批准后自动进入下一步。"
-				/>
-				{agentRuns.length ? (
-					<div className="agent-run-list">
-						{agentRuns.slice(0, 8).map((run) => (
-							<ReportAgentRun
-								key={run.id}
-								run={run}
-								onApprove={async () => {
-									const result = await post<{ workflow: ReportWorkflowResult | null }>(
-										`/api/agent-runs/${run.id}/approve`,
-									);
-									setWorkflowState(result.workflow?.state ?? null);
-									await Promise.all([loadAgentRuns(), loadSnapshots()]);
-								}}
-								onReject={async () => {
-									await post(`/api/agent-runs/${run.id}/reject`);
-									await loadAgentRuns();
-								}}
-							/>
-						))}
-					</div>
-				) : (
-					<p className="agent-activity-empty">当前批次暂无 Agent 任务。</p>
-				)}
-				<Pagination {...agentRunsPage} onPage={(page) => void loadAgentRuns(page)} />
-			</section>
-			{approvedNarrative && (
-				<section className="approved-agent-report">
-					<SectionTitle
-						title="口碑检测与 GEO 优化意见"
-						description="已批准的 Agent 结论；引用编号可点击跳转到证据中心核对原文。"
-						extra={<Tag>{approvedQuality ? "质量校验通过" : "等待质量校验"}</Tag>}
-					/>
-					<AgentDraftContent
-						run={approvedNarrative}
-						evidenceIndex={analysis?.evidenceIndex}
-						onOpenEvidence={(captureId) => navigation.openEvidence(captureId, selected)}
-					/>
-				</section>
-			)}
-			<section className="report-assets no-print">
-				<SectionTitle title="报告版本与分享" description="冻结版本不可修改；分享链接可设置过期并随时撤销。" />
-				{shareUrl && <Alert type="success" showIcon message={`分享链接已复制：${shareUrl}`} />}
-				<Tabs
-					className="report-assets-tabs"
-					items={[
-						{
-							key: "assets",
-							label: `资产 (${selectedSnapshots.length})`,
-							children: (
-								<SnapshotAssetTable
-									snapshots={selectedSnapshots}
-									page={snapshotsPage}
-									onPage={(page) => void loadSnapshots(page)}
-								/>
-							),
-						},
-						{
-							key: "shares",
-							label: `分享 (${shares.length})`,
-							children: (
-								<ShareLinkTable
-									shares={shares}
-									latestSnapshotId={latestSnapshotId}
-									page={sharesPage}
-									onPage={(page) => {
-										if (latestSnapshotId) void loadShares(latestSnapshotId, page);
-									}}
-									onRevoke={revokeShare}
-								/>
-							),
-						},
-					]}
-				/>
-			</section>
-			{docSections.length ? (
-				<div className="report-doc-layout">
-					<div className="report-doc-main">
-						{docSections.map((section) => (
-							<ReportDocSection key={section.key} config={section} />
-						))}
-					</div>
-					<aside className="report-doc-anchor no-print">
-						<Anchor items={reportDocAnchorItems(docSections)} />
-					</aside>
-				</div>
-			) : (
-				<div className="center">
+			{reportError && <Alert type="error" showIcon title={reportError} />}
+			{!report && !reportError ? (
+				<div className="center report-loading-placeholder">
 					<IconLoader2 className="spin" />
 					正在从真实证据生成报告
 				</div>
+			) : (
+				<Tabs
+					className="report-tabs"
+					activeKey={tab}
+					onChange={(key) => setTab(key as ReportTabKey)}
+					items={tabItems}
+				/>
 			)}
 		</Page>
 	);

@@ -41,11 +41,6 @@
 	color: var(--ink-3);
 }
 
-.article-status.reviewing {
-	background: var(--warning-soft);
-	color: var(--warning-strong);
-}
-
 .article-status.published {
 	background: var(--brand-soft);
 	color: var(--brand-strong);
@@ -124,17 +119,44 @@
 	line-height: 1.7;
 }
 
+/* 预览模式下表单保持挂载（保留输入值），只是不显示。 */
+.article-form-hidden {
+	display: none;
+}
+
 .article-preview {
 	border: 1px solid var(--line);
 	border-radius: var(--radius);
-	padding: var(--space-5) var(--space-6);
+	padding: var(--space-6) var(--space-7);
 	max-width: 820px;
+	min-width: 0;
 	line-height: 1.8;
+	background: var(--surface);
+}
+
+.article-preview-kicker {
+	margin: 0 0 var(--space-2);
+	font-size: 12px;
+	color: var(--ink-4);
+}
+
+.article-preview h1 {
+	margin: 0 0 var(--space-3);
+	font-size: 24px;
+	line-height: 1.35;
+}
+
+.article-preview-summary {
+	margin: 0 0 var(--space-5);
+	padding: var(--space-3) var(--space-4);
+	background: var(--surface-2);
+	border-radius: var(--radius-s);
+	color: var(--ink-2);
 }
 
 .article-preview .formatted-answer h2 {
-	margin-top: var(--space-4);
-	font-size: 20px;
+	margin-top: var(--space-5);
+	font-size: 19px;
 }
 
 @media (max-width: 900px) {

@@ -10,3 +10,8 @@
 .gap-table {
 	margin-bottom: 8px;
 }
+
+/* 置信度不是成败指标：100% 时也不用成功色 */
+.gap-table .finding-confidence .ant-progress-text {
+	color: var(--ink-3);
+}

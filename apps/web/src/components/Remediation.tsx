@@ -1,10 +1,19 @@
 import { IconCheck, IconFileText, IconPlus, IconTrash } from "@tabler/icons-react";
-import { Alert, Card, Descriptions, Input, Popconfirm, Select, Space, Tag } from "antd";
+import { Alert, Card, DatePicker, Descriptions, Input, Popconfirm, Select, Space, Tag } from "antd";
+import dayjs from "dayjs";
 import { useState } from "react";
 import { Button, useAgentRunPolling, usePermission } from "../access";
 import { api, patch, post } from "../api";
 import { usePaginated } from "../hooks/usePagination";
-import type { AgentRun, Paginated, Project, Task } from "../types";
+import {
+	type AgentRun,
+	agentStatusLabels,
+	DEFAULT_PAGE_SIZE,
+	type Paginated,
+	type Project,
+	type Task,
+	taskStatusLabels,
+} from "../types";
 import { Empty, Pagination } from "../ui/primitives";
 import { Page } from "./Page";
 import "./Remediation.css";
@@ -25,7 +34,7 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 	);
 	const agentRuns = agentRunsPage.items;
 	const [taskPage, setTaskPage] = useState(1);
-	const visibleTasks = project.tasks.slice((taskPage - 1) * 10, taskPage * 10);
+	const visibleTasks = project.tasks.slice((taskPage - 1) * DEFAULT_PAGE_SIZE, taskPage * DEFAULT_PAGE_SIZE);
 	const latestBatch = project.batches[0]?.id;
 	useAgentRunPolling(agentRuns, agentRunsPage.reload);
 	async function call(id: string, action: () => Promise<unknown>) {
@@ -48,8 +57,8 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 		<Page
 			breadcrumb={project.name}
 			eyebrow="整改中心"
-			title="证据驱动的待审批任务"
-			description="Pi Agent 只生成草稿；每项任务都要由负责人核对证据、验收标准和发布地址后批准。发布后填写真实 URL，系统重新抓取页面完成验收。"
+			title="整改任务"
+			description="Agent 只出草稿，负责人核对后批准；发布后填写地址，系统重抓验收。"
 			extra={
 				<div className="actions">
 					<Button
@@ -62,7 +71,7 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 							call("agent-plan", () => post(`/api/batches/${latestBatch}/agent`, { purpose: "remediation" }))
 						}
 					>
-						Pi Agent 规划草稿
+						HRouter Agent 规划草稿
 					</Button>
 					<Button
 						permission="remediation.manage"
@@ -79,7 +88,7 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 				</div>
 			}
 		>
-			{error && <Alert type="error" showIcon message={error} />}
+			{error && <Alert type="error" showIcon title={error} />}
 			{activeRuns.length > 0 && (
 				<div className="remediation-runs">
 					{activeRuns.map((run) => (
@@ -99,22 +108,15 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 			)}
 			<Pagination
 				page={taskPage}
-				pageSize={10}
+				pageSize={DEFAULT_PAGE_SIZE}
 				total={project.tasks.length}
-				totalPages={Math.max(1, Math.ceil(project.tasks.length / 10))}
+				totalPages={Math.max(1, Math.ceil(project.tasks.length / DEFAULT_PAGE_SIZE))}
 				onPage={setTaskPage}
 			/>
 		</Page>
 	);
 }
 
-export const taskStatusLabels: Record<string, string> = {
-	todo: "待处理",
-	in_progress: "处理中",
-	published: "已发布",
-	verified: "已验收",
-	done: "已完成",
-};
 
 export function taskPriorityMeta(priority: string): { className: string; label: string } {
 	if (priority === "high") return { className: "high", label: "高优先级" };
@@ -131,7 +133,7 @@ function AgentRunAlert({ run, reload, refresh }: { run: AgentRun; reload(): Prom
 			<Alert
 				type="warning"
 				showIcon
-				message={`Pi Agent ${purposeLabel}草稿待人工审批`}
+				title={`HRouter Agent ${purposeLabel}草稿待人工审批`}
 				action={
 					<Space size={8}>
 						<Button
@@ -163,12 +165,14 @@ function AgentRunAlert({ run, reload, refresh }: { run: AgentRun; reload(): Prom
 			<Alert
 				type="error"
 				showIcon
-				message={`Pi Agent ${purposeLabel}运行失败`}
+				title={`HRouter Agent ${purposeLabel}运行失败`}
 				description={run.error_message ?? undefined}
 			/>
 		);
 	}
-	return <Alert type="info" showIcon message={`Pi Agent ${purposeLabel}正在运行（${run.status}）`} />;
+	return (
+		<Alert type="info" showIcon title={`HRouter Agent ${purposeLabel}${agentStatusLabels[run.status]}`} />
+	);
 }
 
 function DraftView({ draft }: { draft: Record<string, unknown> }) {
@@ -250,6 +254,16 @@ export function TaskItem({
 			}
 			extra={
 				<Space size={4}>
+					<Button
+						permission="agent.run"
+						variant="secondary"
+						size="small"
+						busy={busy}
+						icon={<IconFileText size={14} />}
+						onClick={() => act(() => post(`/api/tasks/${task.id}/content`))}
+					>
+						生成内容草稿
+					</Button>
 					<Select
 						aria-label="任务状态"
 						className="task-status"
@@ -280,28 +294,35 @@ export function TaskItem({
 			}
 		>
 			<p className="task-detail">{task.detail}</p>
-			<dl className="task-facts">
-				<div>
-					<dt>预期指标</dt>
-					<dd>{task.expected_metric}</dd>
-				</div>
-				<div>
-					<dt>关联问题</dt>
-					<dd>{task.target_prompt_ids.length} 个</dd>
-				</div>
-				<div>
-					<dt>发布地址</dt>
-					<dd>
-						{task.published_url ? (
-							<a href={task.published_url} target="_blank" rel="noreferrer">
-								{task.published_url}
-							</a>
-						) : (
-							"待发布"
-						)}
-					</dd>
-				</div>
-			</dl>
+			<div className="task-meta">
+				<dl className="task-facts">
+					<div>
+						<dt>预期指标</dt>
+						<dd>{task.expected_metric}</dd>
+					</div>
+					<div>
+						<dt>关联问题</dt>
+						<dd>{task.target_prompt_ids.length} 个</dd>
+					</div>
+					<div>
+						<dt>发布地址</dt>
+						<dd>
+							{task.published_url ? (
+								<a href={task.published_url} target="_blank" rel="noreferrer">
+									{task.published_url}
+								</a>
+							) : (
+								"待发布"
+							)}
+						</dd>
+					</div>
+				</dl>
+				<Button variant="link" size="small" onClick={() => setExpanded((value) => !value)}>
+					{expanded
+						? "收起详情"
+						: `查看验收标准${task.content_brief ? "、内容简报" : ""}${task.draft_content ? "与初稿" : ""}`}
+				</Button>
+			</div>
 			<div className="task-form">
 				<div className="task-field">
 					<span>负责人</span>
@@ -315,12 +336,12 @@ export function TaskItem({
 				</div>
 				<div className="task-field">
 					<span>截止日期</span>
-					<Input
-						aria-label="截止时间"
-						type="date"
+					<DatePicker
+						aria-label="截止日期"
+						placeholder="选择日期"
 						disabled={!canManage}
-						value={dueDate}
-						onChange={(event) => setDueDate(event.target.value)}
+						value={dueDate ? dayjs(dueDate) : null}
+						onChange={(value) => setDueDate(value ? value.format("YYYY-MM-DD") : "")}
 					/>
 				</div>
 				<div className="task-field task-form-url">
@@ -364,23 +385,6 @@ export function TaskItem({
 						抓取验收
 					</Button>
 				</div>
-			</div>
-			<div className="task-footer">
-				<Button
-					permission="agent.run"
-					variant="secondary"
-					size="small"
-					busy={busy}
-					icon={<IconFileText size={15} />}
-					onClick={() => act(() => post(`/api/tasks/${task.id}/content`))}
-				>
-					Agent 生成内容草稿
-				</Button>
-				<Button variant="link" size="small" onClick={() => setExpanded((value) => !value)}>
-					{expanded
-						? "收起详情"
-						: `查看验收标准${task.content_brief ? "、内容简报" : ""}${task.draft_content ? "与初稿" : ""}`}
-				</Button>
 			</div>
 			{expanded && (
 				<div className="task-sections">

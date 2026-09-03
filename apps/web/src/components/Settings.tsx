@@ -1,5 +1,5 @@
 import { IconKey, IconLoader2, IconRefresh } from "@tabler/icons-react";
-import { App, Descriptions, Form, Input, Select, Space, Switch, Tabs, Tooltip } from "antd";
+import { App, AutoComplete, Descriptions, Form, Input, Select, Space, Switch, Tabs, Tooltip } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../access";
 import { api, post, put } from "../api";
@@ -13,8 +13,81 @@ import {
 	thinkingLevelOptions,
 } from "../types";
 import { SectionTitle } from "../ui/primitives";
+import { downloadJson, TransferButtons, transferFileName } from "../ui/transfer";
 import { Page } from "./Page";
 import "./Settings.css";
+
+type ProviderModelList = { models: string[]; source: "provider" | "unavailable"; message: string | null };
+type SettingsImportResult = {
+	hrouter: { applied: boolean; note: string | null };
+	providers: Array<{ providerId: string; enabled: boolean; note: string | null }>;
+};
+
+/** 从平台读取模型列表并整理成下拉选项；当前值不在列表里时追加一项，避免下拉把已保存的模型“吞掉”。 */
+function useProviderModels(provider: ProviderSetting, currentModel: string) {
+	const [modelList, setModelList] = useState<ProviderModelList | null>(null);
+	const [modelsLoading, setModelsLoading] = useState(false);
+	const loadProviderModels = useCallback(async () => {
+		setModelsLoading(true);
+		try {
+			setModelList(await api<ProviderModelList>(`/api/settings/providers/${provider.providerId}/models`));
+		} catch (reason) {
+			setModelList({
+				models: [],
+				source: "unavailable",
+				message: reason instanceof Error ? reason.message : "模型列表加载失败",
+			});
+		} finally {
+			setModelsLoading(false);
+		}
+	}, [provider.providerId]);
+	useEffect(() => {
+		setModelList(null);
+		if (provider.configured) void loadProviderModels();
+	}, [provider.configured, loadProviderModels]);
+	const models = modelList?.models ?? [];
+	const modelOptions = [
+		...models.map((id) => ({ value: id, label: id })),
+		...(currentModel && !models.includes(currentModel) ? [{ value: currentModel, label: `${currentModel}（当前值）` }] : []),
+	];
+	const modelHelp = modelsLoading
+		? "正在从平台读取模型列表…"
+		: modelList?.source === "provider"
+			? `已从平台读取 ${models.length} 个模型；也可以直接输入模型 ID`
+			: (modelList?.message ?? "保存 API Key 后自动读取平台模型列表；也可以直接输入模型 ID");
+	return { modelsLoading, loadProviderModels, modelOptions, modelHelp };
+}
+
+function providerTestStatus(provider: ProviderSetting): string {
+	const label =
+		provider.lastTestStatus === "ok" ? "连接正常" : provider.lastTestStatus === "failed" ? "连接失败" : "未测试";
+	return provider.lastTestMessage && provider.lastTestMessage !== label ? `${label} · ${provider.lastTestMessage}` : label;
+}
+
+function ProviderContract({ provider }: { provider: ProviderSetting }) {
+	return (
+		<Descriptions
+			className="provider-contract"
+			size="small"
+			colon={false}
+			column={{ xs: 1, sm: 2, md: 4 }}
+			items={[
+				{ key: "protocol", label: "协议", children: <code>{provider.protocol}</code> },
+				{ key: "searchTool", label: "搜索工具", children: provider.searchToolVersion },
+				{ key: "apiKey", label: "密钥", children: provider.configured ? "已配置" : "未配置" },
+				...(provider.secondaryConfigured !== null
+					? [
+							{
+								key: "secondaryKey",
+								label: "混元密钥",
+								children: provider.secondaryConfigured ? "已配置" : "未配置",
+							},
+						]
+					: []),
+			]}
+		/>
+	);
+}
 
 export function ProviderPanel({
 	provider,
@@ -29,6 +102,8 @@ export function ProviderPanel({
 	update(values: ProviderDraft): void;
 	runAction(name: string, run: () => Promise<unknown>): Promise<void>;
 }) {
+	const currentModel = String(draft.model ?? "");
+	const { modelsLoading, loadProviderModels, modelOptions, modelHelp } = useProviderModels(provider, currentModel);
 	return (
 		<article id="active-provider-panel" className="provider-panel">
 			<header>
@@ -46,29 +121,23 @@ export function ProviderPanel({
 					<span>启用</span>
 				</Space>
 			</header>
-			<Descriptions
-				className="provider-contract"
-				size="small"
-				column={{ xs: 1, sm: 2, md: 4 }}
-				items={[
-					{ key: "protocol", label: "协议", children: <code>{provider.protocol}</code> },
-					{ key: "searchTool", label: "搜索工具", children: provider.searchToolVersion },
-					{ key: "apiKey", label: "密钥", children: provider.configured ? "已配置" : "未配置" },
-					...(provider.secondaryConfigured !== null
-						? [
-								{
-									key: "secondaryKey",
-									label: "混元密钥",
-									children: provider.secondaryConfigured ? "已配置" : "未配置",
-								},
-							]
-						: []),
-				]}
-			/>
+			<ProviderContract provider={provider} />
 			<Form layout="vertical" className="provider-form">
 				<div className="settings-grid">
-					<Form.Item label="模型">
-						<Input value={String(draft.model ?? "")} onChange={(event) => update({ model: event.target.value })} />
+					<Form.Item label="模型" help={modelHelp}>
+						<AutoComplete
+							value={currentModel}
+							onChange={(value) => update({ model: String(value ?? "").trim() })}
+							options={modelOptions}
+							filterOption={(input, option) =>
+								String(option?.value ?? "")
+									.toLowerCase()
+									.includes(input.toLowerCase())
+							}
+							placeholder="选择或输入模型 ID"
+							allowClear
+							notFoundContent={modelsLoading ? "正在读取模型…" : null}
+						/>
 					</Form.Item>
 					<Form.Item label="API 地址">
 						<Input
@@ -103,11 +172,17 @@ export function ProviderPanel({
 				</div>
 			</Form>
 			<footer>
-				<span className={`status ${provider.lastTestStatus ?? "idle"}`}>
-					{provider.lastTestStatus === "ok" ? "连接正常" : provider.lastTestStatus === "failed" ? "连接失败" : "未测试"}
-					{provider.lastTestMessage ? ` · ${provider.lastTestMessage}` : ""}
-				</span>
+				<span className={`status ${provider.lastTestStatus ?? "idle"}`}>{providerTestStatus(provider)}</span>
 				<div className="actions">
+					<Button
+						permission="settings.manage"
+						variant="secondary"
+						busy={modelsLoading}
+						disabled={!provider.configured}
+						onClick={() => void loadProviderModels()}
+					>
+						刷新模型列表
+					</Button>
 					<Button
 						permission="settings.manage"
 						variant="secondary"
@@ -152,6 +227,8 @@ type AnalysisConfig = {
 	configured: boolean;
 };
 
+type HRouterModel = { id: string; ownedBy?: string | null };
+
 export function Settings() {
 	const { message } = App.useApp();
 	const [providers, setProviders] = useState<ProviderSetting[]>([]);
@@ -164,18 +241,22 @@ export function Settings() {
 		configured: false,
 	});
 	const [analysisKey, setAnalysisKey] = useState("");
-	const [models, setModels] = useState<Array<{ id: string }>>([]);
+	const [models, setModels] = useState<HRouterModel[]>([]);
 	const [modelsError, setModelsError] = useState<string | null>(null);
 	const [busy, setBusy] = useState<string | null>(null);
 	const loadModels = useCallback(async () => {
 		setBusy("hrouter-models");
 		try {
-			const result = await api<{ models: Array<{ id: string }> }>("/api/settings/hrouter/models");
+			const result = await api<{ models: HRouterModel[]; message: string | null }>("/api/settings/hrouter/models");
 			setModels(result.models);
-			setModelsError(result.models.length ? null : "HRouter 没有返回可用的 GPT 模型，可手动填写");
+			setModelsError(
+				result.models.length
+					? null
+					: (result.message ?? "HRouter 没有返回可用的 GPT 模型，可在下拉框中直接输入模型 ID"),
+			);
 		} catch (reason) {
 			setModels([]);
-			setModelsError(reason instanceof Error ? reason.message : "模型列表加载失败，可手动填写");
+			setModelsError(reason instanceof Error ? reason.message : "模型列表加载失败，可在下拉框中直接输入模型 ID");
 		} finally {
 			setBusy((current) => (current === "hrouter-models" ? null : current));
 		}
@@ -225,30 +306,68 @@ export function Settings() {
 	const activeProvider = providers.find((provider) => provider.providerId === activeProviderId) ?? providers[0];
 	const activeDraft = activeProvider ? (drafts[activeProvider.providerId] ?? activeProvider) : null;
 	const modelOptions = [
-		...models.map((item) => ({ value: item.id, label: item.id })),
+		...models.map((item) => ({
+			value: item.id,
+			label: (
+				<span className="hrouter-model-option">
+					<span>{item.id}</span>
+					{item.ownedBy && <small>{item.ownedBy}</small>}
+				</span>
+			),
+			text: item.id,
+		})),
 		...(analysis.model && !models.some((item) => item.id === analysis.model)
-			? [{ value: analysis.model, label: `${analysis.model}（当前值）` }]
+			? [{ value: analysis.model, label: `${analysis.model}（当前值）`, text: analysis.model }]
 			: []),
 	];
+	const modelHelp =
+		modelsError ??
+		(models.length
+			? `已从 HRouter 读取 ${models.length} 个 GPT 模型；也可以直接输入模型 ID`
+			: analysis.configured
+				? "点击“刷新模型列表”读取可用模型，或直接输入模型 ID"
+				: "先保存 API Key，系统会自动读取可用的 GPT 模型");
 	return (
 		<Page
 			eyebrow="平台设置"
 			title="模型与联网平台"
-			description="内置 Agent 使用 HRouter 上的 GPT 模型；五个联网平台使用云端 API 采集真实回答。密钥以主密钥信封加密保存。"
+			description="HRouter Agent 模型与五个联网平台的 API 配置；密钥加密保存。"
 			extra={
-				<Button variant="secondary" icon={<IconRefresh size={17} />} onClick={() => void load()}>
-					刷新状态
-				</Button>
+				<div className="actions">
+					<TransferButtons
+						expectedKind="geo-settings"
+						kindLabel="平台设置"
+						importPermission="settings.manage"
+						onExport={async () => {
+							downloadJson(transferFileName("geo-平台设置"), await api("/api/settings/export"));
+						}}
+						onImport={async (bundle) => {
+							const result = await post<SettingsImportResult>("/api/settings/import", bundle);
+							await load();
+							const missingKeys = result.providers.filter((item) => item.note).length;
+							return [
+								`已导入${result.hrouter.applied ? " HRouter 设置与" : ""} ${result.providers.length} 个平台的配置`,
+								missingKeys ? `${missingKeys} 个平台缺少 API Key，已按停用导入` : "",
+								result.hrouter.note ?? "",
+							]
+								.filter(Boolean)
+								.join("；");
+						}}
+					/>
+					<Button variant="secondary" icon={<IconRefresh size={17} />} onClick={() => void load()}>
+						刷新状态
+					</Button>
+				</div>
 			}
 		>
 			<SectionTitle
 				title={
 					<>
 						<IconKey size={16} />
-						内置 Agent 模型
+						HRouter Agent 模型
 					</>
 				}
-				description={`Pi Agent 与报告 Agent 通过受限领域工具调用下面选定的 GPT。密钥：${analysis.configured ? "已配置" : "未配置"}`}
+				description={`报告、诊断、优化文章与 AI 工作台都通过受限领域工具调用下面选定的 GPT。密钥：${analysis.configured ? "已配置" : "未配置"}`}
 			/>
 			<Form layout="vertical" className="settings-form hrouter-form">
 				<div className="settings-grid">
@@ -265,30 +384,24 @@ export function Settings() {
 							placeholder={analysis.configured ? "留空保持现有密钥" : "输入 HRouter API Key"}
 						/>
 					</Form.Item>
-					<Form.Item
-						label="GPT 模型"
-						help={modelsError ?? (models.length ? `已从 HRouter 读取 ${models.length} 个 GPT 模型` : undefined)}
-					>
-						{models.length ? (
-							<Select
-								showSearch
-								value={analysis.model || undefined}
-								onChange={(value) => setAnalysis({ ...analysis, model: value })}
-								options={modelOptions}
-								placeholder="选择模型"
-								loading={busy === "hrouter-models"}
-							/>
-						) : (
-							<Input
-								value={analysis.model}
-								onChange={(event) => setAnalysis({ ...analysis, model: event.target.value })}
-								placeholder="gpt-*"
-							/>
-						)}
+					<Form.Item label="GPT 模型" help={modelHelp}>
+						<AutoComplete
+							value={analysis.model}
+							onChange={(value) => setAnalysis({ ...analysis, model: String(value ?? "").trim() })}
+							options={modelOptions}
+							filterOption={(input, option) =>
+								String(option?.text ?? "")
+									.toLowerCase()
+									.includes(input.toLowerCase())
+							}
+							placeholder={models.length ? "选择或输入 GPT 模型" : "输入 GPT 模型 ID，如 gpt-5.5"}
+							notFoundContent={busy === "hrouter-models" ? "正在读取模型…" : null}
+							allowClear
+						/>
 					</Form.Item>
 					<Form.Item
 						label={
-							<Tooltip title="仅内置 Agent 使用：越高越慢越贵，但证据比对更完整。AI 工作台可按会话覆盖。">
+							<Tooltip title="仅 HRouter Agent 使用：越高越慢越贵，但证据比对更完整。AI 工作台可按会话覆盖。">
 								<span>思考强度</span>
 							</Tooltip>
 						}
@@ -305,18 +418,21 @@ export function Settings() {
 					<Button
 						permission="settings.manage"
 						busy={busy === "hrouter-save"}
-						disabled={!analysis.model}
+						disabled={!analysisKey && !analysis.configured}
 						onClick={() =>
 							action(
 								"hrouter-save",
-								() =>
-									put("/api/settings/hrouter", {
+								async () => {
+									await put("/api/settings/hrouter", {
 										baseUrl: analysis.baseUrl,
-										model: analysis.model,
+										model: analysis.model || null,
 										thinkingLevel: analysis.thinkingLevel,
 										...(analysisKey ? { apiKey: analysisKey } : {}),
-									}).then(() => setAnalysisKey("")),
-								"模型配置已保存",
+									});
+									setAnalysisKey("");
+									await loadModels();
+								},
+								analysis.model ? "模型配置已保存" : "密钥已保存，请从下拉框选择 GPT 模型后再次保存",
 							)
 						}
 					>
@@ -326,6 +442,7 @@ export function Settings() {
 						permission="settings.manage"
 						variant="secondary"
 						busy={busy === "hrouter-models"}
+						disabled={!analysis.configured}
 						onClick={() => void loadModels()}
 					>
 						刷新模型列表
@@ -334,6 +451,7 @@ export function Settings() {
 						permission="settings.manage"
 						variant="secondary"
 						busy={busy === "hrouter-test"}
+						disabled={!analysis.configured}
 						onClick={() =>
 							action(
 								"hrouter-test",

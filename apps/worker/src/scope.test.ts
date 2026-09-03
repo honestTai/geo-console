@@ -2,7 +2,8 @@ import { type FrozenBatchConfig, migrateDatabase, openMemoryDatabase } from "@ge
 import { describe, expect, it } from "vitest";
 import { frozenProviderContract } from "./cloud-runner";
 import { ensureProviderConfigs } from "./providers";
-import { confirmProject, createBatch, getProject } from "./service";
+import { confirmProject, createBatch, getProject, getProjectTrends } from "./service";
+import { sha256, stableJson } from "./utils";
 
 describe("监测范围版本", () => {
 	it("保留旧批次范围并允许同一竞品在新版本继续使用", async () => {
@@ -70,6 +71,40 @@ describe("监测范围版本", () => {
 				 FROM competitors WHERE project_id='project' AND domain='competitor.cn'`,
 			);
 			expect(versions.rows[0]).toMatchObject({ active: 1, total: 3 });
+		} finally {
+			await database.close();
+		}
+	});
+
+	it("同条件复测与基线在趋势中可比，且冻结配置哈希写库前后一致", async () => {
+		const database = openMemoryDatabase();
+		try {
+			await migrateDatabase(database);
+			await ensureProviderConfigs(database);
+			await database.query("UPDATE provider_configs SET enabled=true WHERE provider_id='kimi_api'");
+			await database.query(
+				`INSERT INTO projects (id,name,website_url,domain,region,language,aliases,status)
+				 VALUES ('project','客户','https://brand.cn','brand.cn','成都','zh-CN','["客户"]'::jsonb,'active')`,
+			);
+			await database.query(
+				`INSERT INTO prompts (id,project_id,question,intent,tags,approved,position)
+				 VALUES ('prompt-v1','project','旧问题是什么？','购买','[]'::jsonb,true,0)`,
+			);
+			const baseline = await createBatch(database, "project", { kind: "baseline", platforms: ["kimi_api"], repeats: 1 });
+			const retest = await createBatch(database, "project", { kind: "retest", compareToBatchId: baseline.id });
+			const rows = (
+				await database.query<{ id: string; config: FrozenBatchConfig; config_hash: string }>(
+					"SELECT id,config,config_hash FROM experiment_batches WHERE project_id='project'",
+				)
+			).rows;
+			const hashes = new Set(rows.map((row) => row.config_hash));
+			expect(hashes.size).toBe(1);
+			for (const row of rows) expect(sha256(stableJson(row.config))).toBe(row.config_hash);
+			await database.query("UPDATE experiment_batches SET status='complete' WHERE project_id='project'");
+			const trends = (await getProjectTrends(database, "project", retest.id)) as {
+				comparable: Array<{ id: string }>;
+			};
+			expect(trends.comparable.map((item) => item.id)).toEqual([baseline.id, retest.id]);
 		} finally {
 			await database.close();
 		}

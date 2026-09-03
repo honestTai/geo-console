@@ -25,7 +25,7 @@ description: Develop or review GEO Console application code, including the Web/A
 - 批次创建时冻结客户、竞品、Prompt、平台、重复次数、时间窗及完整 Provider 契约。复测必须逐字段复用正式基线 `config`；任何配置变化都创建新基线。
 - Provider 失败必须保留为该 Provider 的真实状态，不得切换模型、平台或用合成结果补齐。来源或 Fan-out 不可见时保留 `unavailable`，不是空数组代表的 0。
 - 指标保持确定性：品牌率只以成功回答为分母；总览按有效平台等权；失败平台进入覆盖率/失败率，不以零分拉低品牌率；未知费用保持 `null`。
-- Pi Agent 只能读取当前项目的领域数据并提交待审批结构化草稿。不得增加 Bash、任意文件、任意 SQL 或开放 HTTP；审批时重新校验证据、Prompt、任务和项目归属。
+- HRouter Agent 只能读取当前项目的领域数据并提交待审批结构化草稿。不得增加 Bash、任意文件、任意 SQL 或开放 HTTP；审批时重新校验证据、Prompt、任务和项目归属。
 - 网站抓取必须继续阻止私网、Loopback、非 HTTP(S) 和重定向后的内网目标。抓取失败表示证据不足，不能推断页面没有内容。
 - 报告先冻结 payload 与 SHA-256，再异步生成 PDF。只有批准的 Agent 草稿能进入正式业务记录或报告叙述。
 - 保持 API 口径披露，尤其 `yuanbao_hunyuan` 必须显示“元宝搜索源 + 混元合成”，不得冒充消费端 App 回答。

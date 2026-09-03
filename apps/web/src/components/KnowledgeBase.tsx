@@ -1,11 +1,12 @@
 import { IconPlus, IconSearch, IconTrash } from "@tabler/icons-react";
-import { Alert, App, Form, Input } from "antd";
+import { Alert, App, Form, Input, Popconfirm } from "antd";
 import { useState } from "react";
 import { Button } from "../access";
 import { api, post } from "../api";
 import { usePaginated } from "../hooks/usePagination";
 import type { LibraryQuestion, Paginated, Project } from "../types";
 import { date, Empty, FilterBar, Pagination, SectionTitle } from "../ui/primitives";
+import { downloadJson, TransferButtons, transferFileName } from "../ui/transfer";
 import "./KnowledgeBase.css";
 import { Page } from "./Page";
 
@@ -57,12 +58,32 @@ export function KnowledgeBase({
 		<Page
 			className="knowledge-base"
 			breadcrumb={project?.name}
-			eyebrow="机构知识资产"
+			eyebrow="问题知识库"
 			title="行业问题知识库"
-			description="新客户官网分析会自动合并同机构、同行业的问题；新增内容只由成员维护。"
+			description="同机构、同行业的问题在新客户建档时自动复用。"
+			extra={
+				<div className="actions">
+					<TransferButtons
+						exportLabel={industry ? `导出「${industry}」` : "导出知识库"}
+						importLabel="导入知识库"
+						expectedKind="geo-knowledge"
+						kindLabel="知识库"
+						importPermission="knowledge.manage"
+						onExport={async () => {
+							const params = industry ? `?industry=${encodeURIComponent(industry)}` : "";
+							downloadJson(transferFileName(`geo-知识库${industry ? `-${industry}` : ""}`), await api(`/api/knowledge/export${params}`));
+						}}
+						onImport={async (bundle) => {
+							const result = await post<{ total: number; imported: number; skipped: number }>("/api/knowledge/import", bundle);
+							await questionsPage.reload();
+							return `已导入 ${result.imported} 个问题${result.skipped ? `，${result.skipped} 个已存在跳过` : ""}`;
+						}}
+					/>
+				</div>
+			}
 		>
-			{error && <Alert type="error" showIcon message={error} />}
-			{!canWrite && <Alert type="info" showIcon message="当前为只读角色，可以查看知识库，但不能新增或归档问题。" />}
+			{error && <Alert type="error" showIcon title={error} />}
+			{!canWrite && <Alert type="info" showIcon title="当前为只读角色，可以查看知识库，但不能新增或归档问题。" />}
 			<FilterBar
 				extra={<span className="knowledge-count">{questionsPage.total ? `${questionsPage.total} 个问题` : ""}</span>}
 			>
@@ -135,24 +156,31 @@ export function KnowledgeBase({
 									{question.created_by_email ?? "系统"} · {date(question.created_at)}
 								</small>
 							</div>
-							<Button
-								permission="knowledge.manage"
-								variant="ghost"
-								icon={<IconTrash size={15} />}
-								disabled={!canWrite}
-								onClick={() =>
+							<Popconfirm
+								title="归档这个问题？"
+								description="归档后不再出现在知识库和新客户建档里，已引用它的项目问题不受影响。"
+								okText="归档"
+								cancelText="取消"
+								onConfirm={() =>
 									api(`/api/knowledge/questions/${question.id}`, { method: "DELETE" }).then(() =>
 										questionsPage.reload(),
 									)
 								}
 							>
-								归档
-							</Button>
+								<span>
+									<Button permission="knowledge.manage" variant="ghost" icon={<IconTrash size={15} />} disabled={!canWrite}>
+										归档
+									</Button>
+								</span>
+							</Popconfirm>
 						</article>
 					))}
 				</div>
 			) : (
-				<Empty title="该行业还没有问题" detail="添加首个问题后，后续同行业客户建档时会自动复用。" />
+				<Empty
+					title={industry ? `「${industry}」还没有问题` : "知识库还没有问题"}
+					detail="添加或导入问题后，同行业客户建档时会自动复用；归档的问题不再显示。"
+				/>
 			)}
 			<Pagination
 				{...questionsPage}

@@ -209,6 +209,22 @@ function bestPosition(captures: QueryCapture[], brandId: string): number | null 
 	return positions.length ? Math.min(...positions) : null;
 }
 
+/** 回答里的 Markdown 标记（加粗、链接、表格竖线）不是品牌描述的一部分，摘录时去掉。 */
+export function stripInlineMarkdown(value: string): string {
+	return value
+		.replace(/!\[[^\]]*]\([^)]*\)/g, "")
+		.replace(/\[([^\]]+)]\([^)]*\)/g, "$1")
+		.replace(/(\*\*|__)(.*?)\1/g, "$2")
+		.replace(/(^|[^*\w])[*_]([^*_\n]+)[*_](?=[^*\w]|$)/g, "$1$2")
+		.replace(/`([^`]+)`/g, "$1")
+		.replace(/\*\*|__|~~/g, "")
+		.replace(/^\s*\|?\s*/, "")
+		.replace(/\s*\|\s*$/, "")
+		.replace(/\s*\|\s*/g, "，")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Sentence filtering applies alias, scratch and length rules in one pass.
 function perceptionExcerpts(captures: QueryCapture[], aliases: string[]): ReportAnalysis["perceptionExcerpts"] {
 	const values: ReportAnalysis["perceptionExcerpts"] = [];
@@ -222,7 +238,10 @@ function perceptionExcerpts(captures: QueryCapture[], aliases: string[]): Report
 		for (const sentence of sentences) {
 			if (!aliases.some((alias) => sentence.toLowerCase().includes(alias.toLowerCase()))) continue;
 			if (isReasoningScratch(sentence)) continue;
-			const text = sentence.replace(/^[#*\-\d.\s]+/, "").slice(0, 260);
+			if (/^\|?\s*:?-{3,}/.test(sentence)) continue;
+			const text = stripInlineMarkdown(sentence)
+				.replace(/^[#>*\-\d.\s]+/, "")
+				.slice(0, 260);
 			if (text.length < 8) continue;
 			if (seen.has(text)) continue;
 			seen.add(text);

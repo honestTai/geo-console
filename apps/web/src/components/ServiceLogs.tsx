@@ -4,11 +4,11 @@ import {
 	Alert,
 	Button as AntdButton,
 	App,
-	Checkbox,
 	Collapse,
 	DatePicker,
 	Descriptions,
 	Input,
+	Popconfirm,
 	Select,
 	Space,
 	Switch,
@@ -19,9 +19,15 @@ import dayjs from "dayjs";
 import { useCallback, useEffect, useState } from "react";
 import { Button, usePermission } from "../access";
 import { api, post } from "../api";
-import type { ServiceLogFilters, ServiceLogLevel, ServiceLogResponse, ServiceLogRow } from "../types";
-import { date, Empty, FilterBar, IdChip, SectionTitle } from "../ui/primitives";
-import { Page } from "./Page";
+import {
+	DEFAULT_PAGE_SIZE,
+	type ServiceLogFilters,
+	type ServiceLogLevel,
+	type ServiceLogResponse,
+	type ServiceLogRow,
+} from "../types";
+import { date, Empty, FilterBar, IdChip, Pagination } from "../ui/primitives";
+import { LOADING_DELAY_MS, Page } from "./Page";
 import "./ServiceLogs.css";
 
 const { RangePicker } = DatePicker;
@@ -36,15 +42,18 @@ export const serviceLogLabels: Record<string, string> = {
 	"local-worker-coordinator": "Local Worker",
 };
 
-export function serviceLogParams(filters: ServiceLogFilters, cursor?: string | null): URLSearchParams {
+/** 列表用页码分页（与全站列表同口径）；不传 page 时只带筛选条件，供 CSV 导出整段下载。 */
+export function serviceLogParams(filters: ServiceLogFilters, page?: number, pageSize = DEFAULT_PAGE_SIZE): URLSearchParams {
 	const params = new URLSearchParams();
 	if (filters.service) params.set("service", filters.service);
 	if (filters.level) params.set("level", filters.level);
 	if (filters.search.trim()) params.set("search", filters.search.trim());
 	if (filters.from) params.set("from", new Date(`${filters.from}T00:00:00`).toISOString());
 	if (filters.to) params.set("to", new Date(`${filters.to}T23:59:59.999`).toISOString());
-	if (cursor) params.set("cursor", cursor);
-	params.set("limit", "100");
+	if (page) {
+		params.set("page", String(page));
+		params.set("pageSize", String(pageSize));
+	}
 	return params;
 }
 
@@ -116,7 +125,7 @@ const logColumns: NonNullable<TableProps<ServiceLogRow>["columns"]> = [
 		key: "relation",
 		width: 200,
 		render: (_, log) => (
-			<Space direction="vertical" size={2}>
+			<Space orientation="vertical" size={2}>
 				{log.trace_id && <IdChip value={log.trace_id} label="Trace" />}
 				{log.project_id && <IdChip value={log.project_id} label="项目" />}
 				{log.organization_id === null && <small className="muted">系统日志</small>}
@@ -131,28 +140,26 @@ export function ServiceLogs() {
 	const [filters, setFilters] = useState<ServiceLogFilters>(emptyServiceLogFilters);
 	const [logs, setLogs] = useState<ServiceLogRow[]>([]);
 	const [counts, setCounts] = useState<Record<ServiceLogLevel, number>>({ debug: 0, info: 0, warn: 0, error: 0 });
-	const [nextCursor, setNextCursor] = useState<string | null>(null);
-	const [cursorHistory, setCursorHistory] = useState<string[]>([]);
+	const [pagination, setPagination] = useState({ page: 1, pageSize: DEFAULT_PAGE_SIZE, total: 0, totalPages: 1 });
 	const [loadingLogs, setLoadingLogs] = useState(false);
 	const [autoRefresh, setAutoRefresh] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [health, setHealth] = useState<Record<string, unknown> | null>(null);
 	const [retentionDays, setRetentionDays] = useState(90);
-	const [retentionConfirmed, setRetentionConfirmed] = useState(false);
 	const [retentionBusy, setRetentionBusy] = useState(false);
 	const canExport = usePermission("logs.export");
 	const canRetention = usePermission("logs.retention");
 
 	const load = useCallback(
-		async (cursor: string | null = null) => {
+		async (page = 1) => {
 			setLoadingLogs(true);
 			setError(null);
 			try {
-				const params = serviceLogParams(filters, cursor);
+				const params = serviceLogParams(filters, page);
 				const result = await api<ServiceLogResponse>(`/api/service-logs?${params}`);
 				setLogs(result.logs);
 				setCounts(result.counts);
-				setNextCursor(result.nextCursor);
+				setPagination({ page: result.page, pageSize: result.pageSize, total: result.total, totalPages: result.totalPages });
 			} catch (reason) {
 				setError(reason instanceof Error ? reason.message : "运行日志加载失败");
 			} finally {
@@ -162,8 +169,7 @@ export function ServiceLogs() {
 		[filters],
 	);
 	useEffect(() => {
-		setCursorHistory([]);
-		void load(null);
+		void load(1);
 	}, [load]);
 	useEffect(() => {
 		void api<{ logService?: Record<string, unknown> }>("/api/health")
@@ -172,14 +178,10 @@ export function ServiceLogs() {
 	}, []);
 	useEffect(() => {
 		if (!autoRefresh) return;
-		const timer = window.setInterval(() => {
-			setCursorHistory([]);
-			void load(null);
-		}, 10_000);
+		const timer = window.setInterval(() => void load(1), 10_000);
 		return () => window.clearInterval(timer);
 	}, [autoRefresh, load]);
 	const exportParams = serviceLogParams(filters);
-	exportParams.delete("limit");
 	const rangeValue: [dayjs.Dayjs | null, dayjs.Dayjs | null] | null =
 		draftFilters.from || draftFilters.to
 			? [draftFilters.from ? dayjs(draftFilters.from) : null, draftFilters.to ? dayjs(draftFilters.to) : null]
@@ -189,9 +191,7 @@ export function ServiceLogs() {
 		setError(null);
 		try {
 			const result = await post<{ deleted: number }>("/api/service-logs/retention", { olderThanDays: retentionDays });
-			setRetentionConfirmed(false);
-			setCursorHistory([]);
-			await load(null);
+			await load(1);
 			message.success(`已清理 ${result.deleted} 条过期运行日志`);
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : "日志清理失败");
@@ -199,20 +199,10 @@ export function ServiceLogs() {
 			setRetentionBusy(false);
 		}
 	}
-	function goPrevPage() {
-		const history = cursorHistory.slice(0, -1);
-		setCursorHistory(history);
-		void load(history.at(-1) ?? null);
-	}
-	function goNextPage() {
-		if (!nextCursor) return;
-		setCursorHistory([...cursorHistory, nextCursor]);
-		void load(nextCursor);
-	}
 	return (
 		<Page
 			className="service-logs-view"
-			eyebrow="独立日志服务"
+			eyebrow="运行日志"
 			title="运行日志"
 			description={
 				health?.status === "ok"
@@ -232,15 +222,7 @@ export function ServiceLogs() {
 							导出 CSV
 						</AntdButton>
 					)}
-					<Button
-						variant="secondary"
-						icon={<IconRefresh size={16} />}
-						busy={loadingLogs}
-						onClick={() => {
-							setCursorHistory([]);
-							void load(null);
-						}}
-					>
+					<Button variant="secondary" icon={<IconRefresh size={16} />} busy={loadingLogs} onClick={() => void load(1)}>
 						刷新
 					</Button>
 				</div>
@@ -304,55 +286,45 @@ export function ServiceLogs() {
 					重置
 				</Button>
 			</FilterBar>
-			{error && <Alert type="error" showIcon message={error} />}
+			{canRetention && (
+				<div className="service-log-retention-row">
+					<span className="muted">默认保留 90 天，只清理当前机构的运行日志：</span>
+					<span>清理</span>
+					<Select
+						className="service-log-select narrow"
+						value={retentionDays}
+						onChange={setRetentionDays}
+						options={RETENTION_OPTIONS}
+					/>
+					<span>的日志</span>
+					<Popconfirm
+						title={`清理 ${retentionDays} 天前的运行日志？`}
+						description="删除后不可恢复；清理动作本身会写入业务审计。"
+						okText="确认清理"
+						okButtonProps={{ danger: true }}
+						cancelText="取消"
+						onConfirm={() => void prune()}
+					>
+						<span>
+							<Button variant="danger" icon={<IconTrash size={16} />} busy={retentionBusy}>
+								清理过期日志
+							</Button>
+						</span>
+					</Popconfirm>
+				</div>
+			)}
+			{error && <Alert type="error" showIcon title={error} />}
 			<Table<ServiceLogRow>
 				rowKey="id"
 				size="small"
-				loading={loadingLogs}
+				loading={{ spinning: loadingLogs, delay: LOADING_DELAY_MS }}
 				dataSource={logs}
 				columns={logColumns}
 				pagination={false}
 				scroll={{ x: 900 }}
 				locale={{ emptyText: <Empty title="当前筛选没有日志" detail="调整时间、服务、级别或关键字后重新筛选。" /> }}
-				footer={() => (
-					<div className="service-log-cursor-bar">
-						<span>第 {cursorHistory.length + 1} 页</span>
-						<Space size={8}>
-							<AntdButton size="small" disabled={!cursorHistory.length || loadingLogs} onClick={goPrevPage}>
-								上一页
-							</AntdButton>
-							<AntdButton size="small" disabled={!nextCursor || loadingLogs} onClick={goNextPage}>
-								下一页
-							</AntdButton>
-						</Space>
-					</div>
-				)}
 			/>
-			{canRetention && (
-				<div className="service-log-retention">
-					<SectionTitle title="日志保留" description="仅清理当前机构的运行日志，业务审计和证据不受影响。" />
-					<Space wrap size={12}>
-						<Select
-							className="service-log-select narrow"
-							value={retentionDays}
-							onChange={setRetentionDays}
-							options={RETENTION_OPTIONS}
-						/>
-						<Checkbox checked={retentionConfirmed} onChange={(event) => setRetentionConfirmed(event.target.checked)}>
-							确认清理
-						</Checkbox>
-						<Button
-							variant="danger"
-							icon={<IconTrash size={16} />}
-							busy={retentionBusy}
-							disabled={!retentionConfirmed}
-							onClick={() => void prune()}
-						>
-							清理过期日志
-						</Button>
-					</Space>
-				</div>
-			)}
+			<Pagination {...pagination} onPage={(page) => void load(page)} />
 		</Page>
 	);
 }

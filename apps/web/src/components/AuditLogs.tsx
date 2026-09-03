@@ -9,8 +9,8 @@ export function AuditLogs() {
 	return (
 		<Page
 			eyebrow="审计日志"
-			title="写操作与审批记录"
-			description="查看机构成员的写操作、审批、成员变更与平台设置记录。"
+			title="审计日志"
+			description="机构内的写操作、审批与设置变更记录。"
 		>
 			<AuditLogPanel />
 		</Page>
@@ -39,7 +39,6 @@ export function AuditLogPanel() {
 	const logs = usePaginated<AuditLogRow>(
 		(page, pageSize) => api<Paginated<AuditLogRow>>(`/api/audit-logs?page=${page}&pageSize=${pageSize}`),
 		[],
-		{ pageSize: 20 },
 	);
 	return (
 		<div className="audit-log-panel">

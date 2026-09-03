@@ -43,6 +43,7 @@ import { AppShell, type ShellNavigationItem } from "./components/Shell";
 import { WebsiteAudit } from "./components/WebsiteAudit";
 import { Workbench } from "./components/Workbench";
 import {
+	DEFAULT_PAGE_SIZE,
 	managementViews,
 	type NavigationItem,
 	type Paginated,
@@ -56,7 +57,7 @@ import { type EvidenceFocus, NavigationContext, type WorkspaceNavigation } from 
 const views: Array<{ id: View; label: string; icon: typeof IconActivity }> = [
 	{ id: "workbench", label: "AI 工作台", icon: IconSparkles },
 	{ id: "overview", label: "项目总览", icon: IconBuilding },
-	{ id: "monitor", label: "AI监测", icon: IconActivity },
+	{ id: "monitor", label: "AI 监测", icon: IconActivity },
 	{ id: "evidence", label: "证据中心", icon: IconDatabase },
 	{ id: "audit", label: "官网审计", icon: IconShieldCheck },
 	{ id: "diagnosis", label: "差距诊断", icon: IconSearch },
@@ -112,7 +113,7 @@ export function App() {
 	const [projectPagination, setProjectPagination] = useState<Paginated<ProjectSummary>>({
 		items: [],
 		page: 1,
-		pageSize: 10,
+		pageSize: DEFAULT_PAGE_SIZE,
 		total: 0,
 		totalPages: 1,
 	});

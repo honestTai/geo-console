@@ -20,6 +20,20 @@ describe("真实归因 CSV", () => {
 			const result = await getAttribution(database, "project", { page: 1, pageSize: 20, offset: 0, search: null });
 			expect(result.summary).toHaveLength(2);
 			await expect(importAttributionCsv(database, "project", input)).rejects.toThrow("已经导入过");
+			const daily = await importAttributionCsv(database, "project", {
+				sourceType: "gsc",
+				fileName: "gsc.csv",
+				csv: "日期,点击次数\n2026-08-29,5\n2026/8/30,6\n2026-08-30T09:30:00+08:00,7\n",
+			});
+			expect(daily.events).toBe(3);
+			const stored = await database.query<{ observed_at: Date | string }>(
+				"SELECT observed_at FROM attribution_events WHERE source_type='gsc' ORDER BY observed_at",
+			);
+			expect(stored.rows.map((row) => new Date(row.observed_at).toISOString())).toEqual([
+				"2026-08-28T16:00:00.000Z",
+				"2026-08-29T16:00:00.000Z",
+				"2026-08-30T01:30:00.000Z",
+			]);
 		} finally {
 			await database.close();
 		}

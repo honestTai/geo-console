@@ -724,10 +724,12 @@ export async function getProjectTrends(
 		)
 	).rows[0];
 	if (!anchor) return { anchorBatchId: null, comparable: [] };
+	// 可比性按冻结配置的语义相等判断（jsonb 比较），不依赖历史批次写入时的哈希实现。
 	const rows = await database.query<{ id: string }>(
-		`SELECT id FROM experiment_batches WHERE project_id=$1 AND config_hash=$2
-		 AND status IN ('complete','partial') ORDER BY created_at ASC LIMIT 50`,
-		[projectId, anchor.config_hash],
+		`SELECT b.id FROM experiment_batches b, experiment_batches anchor
+		 WHERE anchor.id=$2 AND b.project_id=$1 AND b.config=anchor.config
+		 AND b.status IN ('complete','partial') ORDER BY b.created_at ASC LIMIT 50`,
+		[projectId, anchor.id],
 	);
 	const batches = (await Promise.all(rows.rows.map((row) => getBatch(database, row.id)))).filter(Boolean) as Array<
 		Record<string, unknown>

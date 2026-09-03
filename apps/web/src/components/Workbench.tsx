@@ -237,26 +237,30 @@ function foldEvents(events: WorkbenchEvent[]): Bubble[] {
 	return bubbles;
 }
 
-function PlanSteps({ plan }: { plan: AgentSessionPlanStep[] }) {
+/** 会话已结束（完成/失败/终止）时，尚未跑完的步骤不再转圈，按结果标记。 */
+function PlanSteps({ plan, ended }: { plan: AgentSessionPlanStep[]; ended: boolean }) {
 	if (!plan.length) return null;
 	return (
 		<Steps
 			className="wb-plan"
 			size="small"
-			direction="vertical"
-			items={plan.map((step) => ({
-				title: step.label,
-				description: step.detail ?? undefined,
-				status:
-					step.status === "done"
-						? "finish"
-						: step.status === "failed"
-							? "error"
-							: step.status === "running"
-								? "process"
-								: "wait",
-				icon: step.status === "running" ? <IconLoader2 className="spin" size={16} /> : undefined,
-			}))}
+			orientation="vertical"
+			items={plan.map((step) => {
+				const running = step.status === "running" && !ended;
+				return {
+					title: step.label,
+					description: step.detail ?? undefined,
+					status:
+						step.status === "done"
+							? "finish"
+							: step.status === "failed" || (step.status === "running" && ended)
+								? "error"
+								: running
+									? "process"
+									: "wait",
+					icon: running ? <IconLoader2 className="spin" size={16} /> : undefined,
+				};
+			})}
 		/>
 	);
 }
@@ -364,6 +368,12 @@ export function Workbench({
 	const [events, setEvents] = useState<WorkbenchEvent[]>([]);
 	const [draft, setDraft] = useState(initialMessage ?? "");
 	const [busy, setBusy] = useState(false);
+	const [models, setModels] = useState<string[]>([]);
+	const [newSession, setNewSession] = useState<{ model: string | null; thinkingLevel: string | null; autoApprove: boolean }>({
+		model: null,
+		thinkingLevel: null,
+		autoApprove: true,
+	});
 	const lastSeq = useRef(0);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const loadSessions = useCallback(async () => {
@@ -392,6 +402,12 @@ export function Workbench({
 			})
 			.catch((reason) => message.error(reason instanceof Error ? reason.message : "会话加载失败"));
 	}, [loadSessions, message, activeId, initialMessage]);
+	useEffect(() => {
+		// 模型列表只用于下拉选择；读取失败时仍可用平台设置里的默认模型。
+		api<{ models: Array<{ id: string }> }>("/api/settings/hrouter/models")
+			.then((result) => setModels(result.models.map((item) => item.id)))
+			.catch(() => setModels([]));
+	}, []);
 	useEffect(() => {
 		if (!activeId) {
 			setSession(null);
@@ -429,7 +445,12 @@ export function Workbench({
 		if (!value) return;
 		setBusy(true);
 		try {
-			const created = await post<{ id: string }>(`/api/projects/${project.id}/workbench/sessions`, { message: value });
+			const created = await post<{ id: string }>(`/api/projects/${project.id}/workbench/sessions`, {
+				message: value,
+				autoApprove: newSession.autoApprove,
+				thinkingLevel: newSession.thinkingLevel,
+				model: newSession.model,
+			});
 			setDraft("");
 			onConsumeInitial();
 			await loadSessions();
@@ -464,7 +485,7 @@ export function Workbench({
 			message.error(reason instanceof Error ? reason.message : "提交失败");
 		}
 	}
-	async function updateSettings(values: { autoApprove?: boolean; thinkingLevel?: string | null }) {
+	async function updateSettings(values: { autoApprove?: boolean; thinkingLevel?: string | null; model?: string | null }) {
 		if (!activeId) return;
 		try {
 			await patch(`/api/workbench/sessions/${activeId}/settings`, values);
@@ -474,11 +495,18 @@ export function Workbench({
 		}
 	}
 	const inputDisabled = !canRun || busy || session?.status === "running" || session?.status === "waiting_user";
+	const modelOptions = (current: string | null) => [
+		{ value: "default", label: "跟随平台设置" },
+		...[...new Set([...models, ...(current && !models.includes(current) ? [current] : [])])].map((id) => ({
+			value: id,
+			label: id,
+		})),
+	];
 	const composerPlaceholder =
 		session?.status === "waiting_user"
-			? "请先在上方回答 Agent 的问题"
+			? "请先在上方回答 HRouter Agent 的问题"
 			: session?.status === "running"
-				? "Agent 正在执行…"
+				? "HRouter Agent 正在执行…"
 				: "输入指令，例如：跑一次正式基线并生成报告";
 
 	const sidebar = (
@@ -558,8 +586,50 @@ export function Workbench({
 					aria-label="发送"
 				/>
 			</div>
+			{(!session || ["done", "failed"].includes(session.status)) && (
+				<div className="wb-new-settings">
+					<span className="wb-setting">
+						模型
+						<Select
+							size="small"
+							className="wb-model-select"
+							value={newSession.model ?? "default"}
+							disabled={!canRun}
+							popupMatchSelectWidth={false}
+							onChange={(value) => setNewSession({ ...newSession, model: value === "default" ? null : value })}
+							options={modelOptions(newSession.model)}
+						/>
+					</span>
+					<span className="wb-setting">
+						思考强度
+						<Select
+							size="small"
+							className="wb-thinking"
+							value={newSession.thinkingLevel ?? "default"}
+							disabled={!canRun}
+							popupMatchSelectWidth={false}
+							onChange={(value) => setNewSession({ ...newSession, thinkingLevel: value === "default" ? null : value })}
+							options={[
+								{ value: "default", label: "跟随平台设置" },
+								...thinkingLevelOptions.map((item) => ({ value: item.value, label: item.label })),
+							]}
+						/>
+					</span>
+					<Tooltip title="开启后草稿生成即自动批准并写入审计；关闭则每一步都等你审批">
+						<span className="wb-setting">
+							<Switch
+								size="small"
+								checked={newSession.autoApprove}
+								disabled={!canRun}
+								onChange={(checked) => setNewSession({ ...newSession, autoApprove: checked })}
+							/>
+							自动批准
+						</span>
+					</Tooltip>
+				</div>
+			)}
 			<p className="wb-composer-hint">
-				Enter 发送，Shift+Enter 换行。Agent 只在当前客户项目内操作，草稿默认自动批准并记录审计。
+				Enter 发送，Shift+Enter 换行。HRouter Agent 只在当前客户项目内操作，每一步都会写入会话记录与审计日志。
 			</p>
 		</div>
 	);
@@ -569,8 +639,8 @@ export function Workbench({
 		main = (
 			<div className="wb-welcome">
 				<Empty
-					title="让 AI 工作台替你跑完整个流程"
-					detail="输入“跑基线”，Agent 会先和你确认监测问题，然后自动创建批次、等待采集、核验结果、审计官网、生成报告与优化文章。"
+					title="让 HRouter Agent 替你跑完整个流程"
+					detail="输入“跑基线”，HRouter Agent 会先和你确认监测问题，然后自动创建批次、等待采集、核验结果、审计官网、生成报告与优化文章。"
 				/>
 				{composer}
 			</div>
@@ -610,7 +680,18 @@ export function Workbench({
 								]}
 							/>
 						</span>
-						{session.model && <span className="wb-model">{session.model}</span>}
+						<span className="wb-setting">
+							模型
+							<Select
+								size="small"
+								className="wb-model-select"
+								value={session.model ?? "default"}
+								disabled={!canRun}
+								popupMatchSelectWidth={false}
+								onChange={(value) => void updateSettings({ model: value === "default" ? null : value })}
+								options={modelOptions(session.model)}
+							/>
+						</span>
 						{["running", "waiting_user", "waiting_job"].includes(session.status) && (
 							<Popconfirm
 								title="终止会话？"
@@ -678,7 +759,7 @@ export function Workbench({
 						{session.status === "running" && bubbles.at(-1)?.kind !== "assistant" && (
 							<div className="wb-thinking-indicator">
 								<IconLoader2 className="spin" size={14} />
-								Agent 正在思考…
+								HRouter Agent 正在思考…
 							</div>
 						)}
 					</div>
@@ -687,7 +768,7 @@ export function Workbench({
 							<IconTool size={14} />
 							执行进度
 						</h4>
-						<PlanSteps plan={session.plan} />
+						<PlanSteps plan={session.plan} ended={["done", "failed"].includes(session.status)} />
 						{!session.plan.length && <p className="wb-side-empty">开始执行后这里会显示每一步的状态。</p>}
 						{session.current_batch_id && (
 							<div className="wb-side-links">
@@ -715,8 +796,8 @@ export function Workbench({
 		<Page
 			breadcrumb={project.name}
 			eyebrow="AI 工作台"
-			title="让内置 Agent 一口气跑完监测、报告与优化"
-			description="用自然语言下达指令；Agent 会确认监测问题，然后自动采集、核验、审计、出报告并生成优化文章。"
+			title="让 HRouter Agent 跑完整个流程"
+			description="一句话下指令，Agent 自动采集、审计、出报告、写文章，全程留痕。"
 			className="wb-page"
 		>
 			<div className="wb-layout">

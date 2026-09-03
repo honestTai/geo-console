@@ -42,7 +42,7 @@ export async function listHRouterModels(
 	organizationId = "default",
 ): Promise<Array<{ id: string; ownedBy: string | null }>> {
 	const apiKey = await readEncryptedCredential(database, "hrouter_api_key", organizationId);
-	if (!apiKey) throw new Error("尚未配置 HRouter API Key");
+	if (!apiKey) throw new Error("保存 HRouter API Key 后可读取模型列表");
 	const config = await getHRouterConfig(database, organizationId);
 	const response = await fetch(`${config.baseUrl}/models`, {
 		headers: { authorization: `Bearer ${apiKey}` },
@@ -69,10 +69,13 @@ export async function listHRouterModels(
 
 const hrouterSettingsSchema = z.object({
 	baseUrl: z.url().default(DEFAULT_BASE_URL),
+	// 允许先保存密钥再从 HRouter 拉取模型列表；没有模型时 Agent 仍会拒绝入队。
 	model: z
 		.string()
 		.trim()
-		.regex(/^gpt(?:-|\.)/i, "报告与 Agent 模型必须是 GPT 系列"),
+		.regex(/^gpt(?:-|\.)/i, "报告与 Agent 模型必须是 GPT 系列")
+		.nullable()
+		.optional(),
 	thinkingLevel: z
 		.enum(agentThinkingLevels as [AgentThinkingLevel, ...AgentThinkingLevel[]])
 		.default(DEFAULT_THINKING_LEVEL),
@@ -84,15 +87,29 @@ export async function saveHRouterConfig(database: Database, input: unknown, orga
 	if (data.apiKey) await writeEncryptedCredential(database, "hrouter_api_key", data.apiKey, organizationId);
 	if (!(await readEncryptedCredential(database, "hrouter_api_key", organizationId)))
 		throw new Error("必须提供 HRouter API Key");
+	const current = await getHRouterConfig(database, organizationId);
+	await writeHRouterSettings(database, organizationId, {
+		baseUrl: data.baseUrl,
+		model: data.model === undefined ? current.model : data.model,
+		thinkingLevel: data.thinkingLevel,
+	});
+}
+
+/** 只写非密钥部分（配置导入也走这里，目标环境可以还没有密钥）。 */
+export async function writeHRouterSettings(
+	database: Database,
+	organizationId: string,
+	value: { baseUrl: string; model: string | null; thinkingLevel: string },
+): Promise<void> {
 	await database.query(
 		`INSERT INTO settings (key,value) VALUES ($1,$2::jsonb)
 		 ON CONFLICT (key) DO UPDATE SET value=excluded.value,updated_at=now()`,
 		[
 			hrouterSettingsKey(organizationId),
 			JSON.stringify({
-				baseUrl: data.baseUrl.replace(/\/$/, ""),
-				model: data.model,
-				thinkingLevel: data.thinkingLevel,
+				baseUrl: value.baseUrl.replace(/\/$/, ""),
+				model: value.model,
+				thinkingLevel: normalizeThinkingLevel(value.thinkingLevel),
 			}),
 		],
 	);

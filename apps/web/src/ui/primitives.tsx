@@ -1,5 +1,5 @@
 import { IconAlertTriangle, IconBolt, IconCheck, IconCopy, IconFileAnalytics } from "@tabler/icons-react";
-import { Pagination as AntdPagination, App, Select, Statistic, Tooltip, Typography } from "antd";
+import { Pagination as AntdPagination, App, Popover, Select, Statistic, Tooltip, Typography } from "antd";
 import type { ReactNode } from "react";
 import { batchKindLabel, type EvidenceIndexEntry, type Project, providerShortLabel } from "../types";
 import "./primitives.css";
@@ -7,6 +7,9 @@ import "./primitives.css";
 export const percentage = (value: number | null | undefined) => (value == null ? "-" : `${(value * 100).toFixed(1)}%`);
 export const date = (value: string | null | undefined) =>
 	value ? new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "-";
+/** 只到天的日期，如 “2026年8月31日”：给 GA4/GSC 这类日报口径的数据用，不显示无意义的零点时刻。 */
+export const dayDate = (value: string | null | undefined) =>
+	value ? new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium" }).format(new Date(value)) : "-";
 /** 短日期：卡片/表格里避免换行截断，如 “9月2日 09:38”。 */
 export const shortDate = (value: string | null | undefined) =>
 	value
@@ -247,77 +250,97 @@ export function IdChip({ value, label, length = 8 }: { value: string; label?: st
 
 export type EvidenceOpener = (captureId: string) => void;
 
+/** 单条证据引用的可读描述：平台 · 问题 · 第 n 次采样 · 时间（快照/审计用标题或网址）。 */
+export function evidenceRefTitle(entry: EvidenceIndexEntry): string {
+	return entry.kind === "capture"
+		? `${entry.platformLabel ?? providerShortLabel(entry.platform ?? "")} · “${entry.question ?? ""}” · 第 ${entry.attempt ?? 1} 次采样 · ${shortDate(entry.capturedAt)}`
+		: `${entry.platformLabel ?? ""} · ${entry.title ?? entry.url ?? ""}`;
+}
+
 /** 报告/诊断里的证据引用：把 UUID 变成 “[3] DeepSeek · 问题 · 第1次 · 时间”，可点击跳到证据中心。 */
 export function EvidenceRef({
 	ids,
 	index,
 	onOpen,
 	compact,
+	max,
 }: {
 	ids: string[];
 	index: Map<string, EvidenceIndexEntry> | EvidenceIndexEntry[] | undefined;
 	onOpen?: EvidenceOpener;
 	compact?: boolean;
+	/** 超过该数量的引用折叠进弹层，避免几十个编号把正文淹没。 */
+	max?: number;
 }) {
 	const lookup = Array.isArray(index) ? new Map(index.map((entry) => [entry.id, entry])) : index;
 	if (!ids.length) return null;
+	const limit = max && ids.length > max ? max : ids.length;
+	const visible = ids.slice(0, limit);
+	const hidden = ids.slice(limit);
+	const renderRef = (id: string, showText: boolean) => {
+		const entry = lookup?.get(id);
+		if (!entry)
+			return (
+				<Tooltip key={id} title={`证据 ${id}`}>
+					<span className="evidence-ref">
+						<b>[{id.slice(0, 6)}]</b>
+					</span>
+				</Tooltip>
+			);
+		const clickable = entry.kind === "capture" && onOpen;
+		const body = (
+			<span className="evidence-ref">
+				<b>[{entry.n}]</b>
+				{showText && (
+					<span className="evidence-ref-text">
+						{entry.kind === "capture" ? providerShortLabel(entry.platform ?? "") : (entry.platformLabel ?? "快照")}
+						{entry.question
+							? ` · ${entry.question.length > 22 ? `${entry.question.slice(0, 22)}…` : entry.question}`
+							: ""}
+					</span>
+				)}
+			</span>
+		);
+		return (
+			<Tooltip
+				key={id}
+				title={
+					<span>
+						{evidenceRefTitle(entry)}
+						{entry.sourceUrls.length ? (
+							<>
+								<br />
+								引用网址：{entry.sourceUrls.slice(0, 3).join("、")}
+								{entry.sourceUrls.length > 3 ? " …" : ""}
+							</>
+						) : null}
+					</span>
+				}
+			>
+				{clickable ? (
+					<button type="button" className="evidence-ref-button" onClick={() => onOpen(entry.id)}>
+						{body}
+					</button>
+				) : (
+					body
+				)}
+			</Tooltip>
+		);
+	};
 	return (
 		<span className={compact ? "evidence-refs compact" : "evidence-refs"}>
-			{/* biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Each reference resolves capture/snapshot/audit variants inline. */}
-			{ids.map((id) => {
-				const entry = lookup?.get(id);
-				if (!entry)
-					return (
-						<Tooltip key={id} title={`证据 ${id}`}>
-							<span className="evidence-ref">
-								<b>[{id.slice(0, 6)}]</b>
-							</span>
-						</Tooltip>
-					);
-				const title =
-					entry.kind === "capture"
-						? `${entry.platformLabel ?? providerShortLabel(entry.platform ?? "")} · “${entry.question ?? ""}” · 第 ${entry.attempt ?? 1} 次采样 · ${shortDate(entry.capturedAt)}`
-						: `${entry.platformLabel ?? ""} · ${entry.title ?? entry.url ?? ""}`;
-				const clickable = entry.kind === "capture" && onOpen;
-				const body = (
-					<span className="evidence-ref">
-						<b>[{entry.n}]</b>
-						{!compact && (
-							<span className="evidence-ref-text">
-								{entry.kind === "capture" ? providerShortLabel(entry.platform ?? "") : (entry.platformLabel ?? "快照")}
-								{entry.question
-									? ` · ${entry.question.length > 22 ? `${entry.question.slice(0, 22)}…` : entry.question}`
-									: ""}
-							</span>
-						)}
-					</span>
-				);
-				return (
-					<Tooltip
-						key={id}
-						title={
-							<span>
-								{title}
-								{entry.sourceUrls.length ? (
-									<>
-										<br />
-										引用网址：{entry.sourceUrls.slice(0, 3).join("、")}
-										{entry.sourceUrls.length > 3 ? " …" : ""}
-									</>
-								) : null}
-							</span>
-						}
-					>
-						{clickable ? (
-							<button type="button" className="evidence-ref-button" onClick={() => onOpen(entry.id)}>
-								{body}
-							</button>
-						) : (
-							body
-						)}
-					</Tooltip>
-				);
-			})}
+			{visible.map((id) => renderRef(id, !compact))}
+			{hidden.length > 0 && (
+				<Popover
+					title={`全部 ${ids.length} 条证据`}
+					trigger="click"
+					content={<div className="evidence-refs evidence-refs-popover">{ids.map((id) => renderRef(id, true))}</div>}
+				>
+					<button type="button" className="evidence-ref-more">
+						+{hidden.length} 条
+					</button>
+				</Popover>
+			)}
 		</span>
 	);
 }

@@ -2,7 +2,7 @@ import { migrateDatabase, openMemoryDatabase } from "@geo/core";
 import { describe, expect, it } from "vitest";
 import { approveAgentRun, createDomainTools } from "./agent";
 
-describe("Pi Agent 领域工具边界", () => {
+describe("HRouter Agent 领域工具边界", () => {
 	it("拒绝未知证据并只创建待审批草稿", async () => {
 		const database = openMemoryDatabase();
 		try {
