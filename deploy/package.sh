@@ -70,7 +70,7 @@ docker buildx build \
 	--file "$REPO_DIR/docker/Dockerfile.artifacts" \
 	--target export \
 	--output "type=tar,dest=$server_artifact" \
-	"${build_args[@]}" \
+	${build_args[@]+"${build_args[@]}"} \
 	"$REPO_DIR"
 [[ -s "$server_artifact" ]] || { printf 'Linux server artifact is missing\n' >&2; exit 1; }
 server_artifact_sha256="$(sha256_file "$server_artifact")"
