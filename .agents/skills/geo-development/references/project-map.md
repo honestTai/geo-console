@@ -44,8 +44,10 @@ Tauri 2 桌面客户端加载同一个工作台 URL，是所有角色的正式�
 | 官网抓取与审计 | `apps/worker/src/crawler.ts` | onboarding、audit、diagnosis、verification |
 | Provider 配置与密钥 | `apps/worker/src/providers.ts`、`packages/core/src/secrets.ts` | Settings、Capture Worker |
 | Agent 工具与审批 | `apps/worker/src/agent.ts`、`agent-jobs.ts` | Agent Worker、Web |
-| AI 工作台会话与协调 | `apps/worker/src/workbench.ts`（工具、回合、协调器、计划步骤状态）、`agent_sessions/agent_session_events` migration | Agent Worker、Web Workbench |
-| Agent 草稿展示与审批卡 | `apps/web/src/components/AgentDraft.tsx`（按用途分节渲染、`AgentDraftCard`）、`hooks/useEvidenceIndex.ts` | Diagnosis、Remediation、Report |
+| Agent 联网搜索证据 | `apps/worker/src/web-search.ts`（HRouter `web_search` 请求/解析/落库、`WEB_SEARCH_LIMITS` 配额与退化、按模型测试记录、竞品联网核实 `verifyCompetitors`）、`web_search_evidence` 与 `web_search_controls` migration | 工作台会话、`prompt_research/customer_profile` 草稿、建档分析、Settings、证据中心“联网搜索”分区 |
+| AI 工作台会话与协调 | `apps/worker/src/workbench.ts`（工具、`propose_questions` 候选与服务端确认写入、回合、协调器、计划步骤状态、快捷指令排序）、`agent_sessions/agent_session_events` migration | Agent Worker、Web Workbench |
+| 候选问题确认卡 | `apps/web/src/components/ScopeProposalCard.tsx`（可勾选/可编辑表格、竞品确认、知识库同步开关） | Workbench |
+| Agent 草稿展示与审批卡 | `apps/web/src/components/AgentDraft.tsx`（按用途分节渲染、`AgentDraftCard`）、`hooks/useEvidenceIndex.ts`（批次报告索引 + 项目联网搜索索引） | Diagnosis、Remediation、Report、Onboarding |
 | 优化文章 | `apps/worker/src/articles.ts`、`optimization_articles` 表、`agent.ts optimization_article` purpose | Web Articles、工作台 |
 | 报告证据索引与引用 | `apps/worker/src/report.ts buildEvidenceIndex`、`report-snapshots.ts citationMarks`、`docx.ts` | Report/PDF/Word/CSV、Web EvidenceRef |
 | 报告快照/PDF/Word/分享 | `apps/worker/src/report-snapshots.ts`、`report.ts`、`docx.ts` | Report Worker、Web |
@@ -61,17 +63,17 @@ Tauri 2 桌面客户端加载同一个工作台 URL，是所有角色的正式�
 
 ## 业务数据流
 
-1. 项目创建后抓取官网证据，生成画像、竞品和 Prompt 候选；人工确认后项目进入 active。
+1. 项目创建后抓取官网证据（最多 40 页、4 路并发，24 小时内重试复用快照），生成画像、竞品和 Prompt 候选；竞品候选以 `pending` 落库后在后台逐个联网核实（结论回写 `competitors.verification`，未通过的在建档页标“待确认”）；人工确认后项目进入 active，确认沿用未变化问题/竞品的 ID，确认时可把新问题回流到行业知识库。成员不知道该监测什么时，可在建档页“后台联网出题”（`prompt_research` 草稿，批准后进入候选列表）或到工作台让 Agent 用 `web_search` 联网研究买家问法；工作台以 `propose_questions` 提交候选，成员在表格里改字、勾选后确认，服务端写入范围并启用项目。
 2. 创建批次时读取已批准范围和启用 Provider，将完整配置写入 `experiment_batches.config` 与 hash，并为每个采样创建 capture job。
-3. Capture Worker 只按冻结 Provider 契约执行；原始响应先写对象存储，再以唯一 `job_id` 插入 QueryCapture v2，最后完成 job 和批次状态。
-4. 指标从采集证据确定性计算。规则诊断可更新派生 finding；模型诊断只产生待审批 Agent draft。
-5. finding 转整改任务；发布 URL 必须重新抓取形成网站快照，再进行相同 baseline config 的 retest。
-6. 报告叙述必须包含证据化口碑与 GEO 建议；批准后系统自动排队绑定该 run 的质量检查，质量检查批准通过后自动冻结 payload/hash 并进入 PDF/Word 队列。分享链接只存 token hash，支持过期与撤销。
+3. Capture Worker 只按冻结 Provider 契约执行；原始响应先写对象存储，再以唯一 `job_id` 插入 QueryCapture v2，最后完成 job 和批次状态。执行抛错走 `failJob` 并刷新批次；Worker 每分钟清扫租约过期且重试用尽的任务，批次总会收敛。周期监测到期时按当前范围构造配置，可比才复测否则新建基线，失败原因写在计划上。
+4. 指标从采集证据确定性计算。规则诊断可更新派生 finding；模型诊断只产生待审批 Agent draft。漂移告警跳过没有成功回答的平台。
+5. finding 转整改任务；技术类任务重跑官网审计验收，其余任务的发布 URL 必须在客户域名下并重新抓取形成网站快照，再进行相同 baseline config 的 retest。
+6. 报告叙述必须包含证据化口碑与 GEO 建议；批准后系统自动排队绑定该 run 的质量检查，质量检查批准通过后自动冻结 payload/hash 并进入 PDF/Word 队列；质检未通过时重试即重新生成叙述。分享链接只存 token hash，支持过期与撤销。
 7. 归因 CSV 按 `sourceType + csv` 内容 hash 防重复，和 GEO 指标并列展示，不自动声称因果。
 
 ## Web 工作台
 
-`App.tsx` 的组件注册表只负责把服务端 `navigation_key` 映射到真实组件（含 `workbench`、`articles`），并通过 `ui/navigation.tsx` 提供跨视图跳转（证据定位、批次定位 `openBatch`、工作台预填指令）；标签、顺序和可见性来自 `/api/rbac/navigation`。切换业务视图会重新拉取项目，AI 监测页停留期间定期刷新批次列表，工作台拿到 `current_batch_id` 时立即刷新——后台创建的批次不依赖整页刷新。工作台包含业务页面、机构管理、超管机构状态和分层 RBAC 编辑器。运营列表统一分页，运行日志使用不累积全部结果的游标翻页。证据回答使用安全结构化 Markdown；报告使用单一可续跑工作流展示叙述、质检、冻结和文档状态。
+`App.tsx` 的组件注册表只负责把服务端 `navigation_key` 映射到真实组件（含 `workbench`、`articles`），并通过 `ui/navigation.tsx` 提供跨视图跳转（证据定位、批次定位 `openBatch`、工作台预填指令）；标签、顺序和可见性来自 `/api/rbac/navigation`。切换业务视图会重新拉取项目，AI 监测页停留期间定期刷新批次列表，工作台拿到 `current_batch_id` 时立即刷新——后台创建的批次不依赖整页刷新。`useAgentRunPolling` 可指定触发轮询的 run 状态（文章页把 `awaiting_approval` 也算进去），建档页在竞品核实 `pending` 期间轮询项目，报告页 PDF 前台等待超时后转入快照轮询。工作台包含业务页面、机构管理、超管机构状态和分层 RBAC 编辑器。运营列表统一分页，运行日志使用不累积全部结果的游标翻页。证据回答使用安全结构化 Markdown；报告使用单一可续跑工作流展示叙述、质检、冻结和文档状态。
 
 图表、KPI 与平台卡只消费真实 API 响应；无批次时使用空状态，不能把视觉验收 fixture 放入 `apps/web/public` 或正式构建。UI 不再是单文件应用壳：`App.tsx` 只做装配，`components/` 一视图一文件，共享类型/权限/分页/反馈分别收敛在 `types.ts`、`access.tsx`、`ui/primitives.tsx`、`hooks/`;UI 控件统一走 antd 6，拆分与选用规则见 `.agents/skills/geo-development/references/frontend.md`。视觉纪律:品牌绿只用于主按钮/链接/选中态/logo,其余静态装饰一律中性灰,内容区次级分组小节平铺,不用嵌套 Tabs/Collapse。新增共享业务规则时不要继续堆入组件，应放回拥有该规则的 package/worker service。
 

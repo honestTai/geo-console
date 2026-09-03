@@ -48,7 +48,11 @@ describe("平台设置导入导出", () => {
 			const bundle = await exportSettings(database, "default");
 			expect(JSON.stringify(bundle)).not.toContain("source-kimi-key");
 			expect(JSON.stringify(bundle)).not.toContain("source-hrouter-key");
-			expect(bundle.hrouter).toEqual({ baseUrl: "https://hrouter.example.com/v1", model: "gpt-5.5", thinkingLevel: "high" });
+			expect(bundle.hrouter).toEqual({
+				baseUrl: "https://hrouter.example.com/v1",
+				model: "gpt-5.5",
+				thinkingLevel: "high",
+			});
 			const kimi = bundle.providers.find((provider) => provider.providerId === "kimi_api");
 			expect(kimi).toMatchObject({ enabled: true, model: "kimi-k3-custom", options: { region: "cn" } });
 
@@ -60,7 +64,11 @@ describe("平台设置导入导出", () => {
 				note: expect.stringContaining("缺少 API Key"),
 			});
 			const targetHRouter = await getHRouterConfig(database, "target");
-			expect(targetHRouter).toMatchObject({ baseUrl: "https://hrouter.example.com/v1", model: "gpt-5.5", thinkingLevel: "high" });
+			expect(targetHRouter).toMatchObject({
+				baseUrl: "https://hrouter.example.com/v1",
+				model: "gpt-5.5",
+				thinkingLevel: "high",
+			});
 			const targetProviders = (await getProviderSettings(database, "target")) as Array<Record<string, unknown>>;
 			expect(targetProviders.find((provider) => provider.providerId === "kimi_api")).toMatchObject({
 				enabled: false,

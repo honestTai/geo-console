@@ -7,7 +7,14 @@ import { chromium } from "playwright";
 import { z } from "zod";
 import { enqueueAgentDraft } from "./agent";
 import { renderReportDocx } from "./docx";
-import { PRODUCT_NAME, priorityLabel, reportTypeLabel, reputationLabel, sourceCategoryLabel, taskStatusLabel } from "./labels";
+import {
+	PRODUCT_NAME,
+	priorityLabel,
+	reportTypeLabel,
+	reputationLabel,
+	sourceCategoryLabel,
+	taskStatusLabel,
+} from "./labels";
 import { artifactExists, putArtifact } from "./object-store";
 import { type Paginated, type PaginationInput, paginated } from "./pagination";
 import { providerDefinitions } from "./providers";
@@ -72,27 +79,20 @@ export async function advanceReportWorkflow(
 	const activeNarrative = runs.find(
 		(run) => run.purpose === "report_narrative" && ["queued", "running", "awaiting_approval"].includes(run.status),
 	);
-	if (options.restart) {
-		if (activeNarrative)
-			return { state: activeRunState(activeNarrative, "narrative"), runId: activeNarrative.id, reportId: null };
+	// 正在生成的新叙述优先于已批准的旧叙述：重启或质检未通过后的重生成期间，不能再拿旧叙述往下冻结。
+	if (activeNarrative)
+		return { state: activeRunState(activeNarrative, "narrative"), runId: activeNarrative.id, reportId: null };
+	const queueNarrative = async (): Promise<ReportWorkflowResult> => {
 		const queued = await enqueueAgentDraft(database, {
 			projectId: batch.project_id,
 			batchId,
 			purpose: "report_narrative",
 		});
 		return { state: "narrative_queued", runId: queued.id, reportId: null };
-	}
+	};
+	if (options.restart) return queueNarrative();
 	const narrative = runs.find((run) => run.purpose === "report_narrative" && run.status === "approved");
-	if (!narrative) {
-		if (activeNarrative)
-			return { state: activeRunState(activeNarrative, "narrative"), runId: activeNarrative.id, reportId: null };
-		const queued = await enqueueAgentDraft(database, {
-			projectId: batch.project_id,
-			batchId,
-			purpose: "report_narrative",
-		});
-		return { state: "narrative_queued", runId: queued.id, reportId: null };
-	}
+	if (!narrative) return queueNarrative();
 	const qualityRuns = runs.filter(
 		(run) =>
 			run.purpose === "quality_review" &&
@@ -121,12 +121,8 @@ export async function advanceReportWorkflow(
 	};
 	if (qualityDraft.verdict !== "pass") {
 		if (!options.allowRetry) return { state: "quality_blocked", runId: approvedQuality.id, reportId: null };
-		const queued = await enqueueAgentDraft(database, {
-			projectId: batch.project_id,
-			batchId,
-			purpose: "quality_review",
-		});
-		return { state: "quality_queued", runId: queued.id, reportId: null };
+		// 质检未通过说明叙述本身有问题：重试是重新生成叙述（批准后自动绑定新的质检），而不是对同一份叙述反复质检。
+		return queueNarrative();
 	}
 	const existing = (
 		await database.query<{ id: string; pdf_artifact_key: string | null; word_artifact_key: string | null }>(

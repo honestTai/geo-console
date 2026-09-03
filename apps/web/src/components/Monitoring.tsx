@@ -33,6 +33,7 @@ import {
 	captureStatusLabel,
 	DEFAULT_PAGE_SIZE,
 	type DriftAlert,
+	type MonitoringSchedule,
 	type Paginated,
 	type Project,
 	type ProviderId,
@@ -81,6 +82,22 @@ export function captureLogMessage(capture: Capture): string {
 const costOperationLabels: Record<string, string> = {
 	hrouter_gpt: "GPT 分析",
 };
+
+/** 周期监测“已启用”但到期未能创建批次时的提示：不能让计划静默空转几周。 */
+function ScheduleFailureAlert({ schedule }: { schedule: MonitoringSchedule | null }) {
+	if (!schedule?.enabled || !schedule.last_error) return null;
+	const failures = schedule.failure_count ?? 0;
+	return (
+		<Alert
+			type="warning"
+			showIcon
+			className="schedule-error"
+			title={`周期监测已启用，但上次到期未能创建批次（${date(schedule.last_error_at)}${
+				failures > 1 ? `，已连续失败 ${failures} 次` : ""
+			}）：${schedule.last_error}。系统每小时重试一次；修正后重新保存计划可清除此提示。`}
+		/>
+	);
+}
 
 /** 批次条一页的卡片数：横向卡片比表格占地大，不沿用列表默认页长。 */
 const BATCH_PAGE_SIZE = 10;
@@ -460,6 +477,7 @@ export function Monitoring({
 				}
 			/>
 			<div className="schedule-section">
+				<ScheduleFailureAlert schedule={project.monitoringSchedule} />
 				<p className="schedule-hint">
 					<Switch
 						checked={scheduleEnabled}

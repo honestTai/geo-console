@@ -18,8 +18,10 @@ import {
 	type AgentSessionStatus,
 	type Paginated,
 	type Project,
+	type ScopeProposal,
 	sessionStatusLabel,
 	thinkingLevelOptions,
+	type WebSearchTestStatus,
 	type WorkbenchEvent,
 	type WorkbenchQuickCommand,
 	type WorkbenchSession,
@@ -28,6 +30,7 @@ import { FormattedAnswer } from "../ui/markdown";
 import { useWorkspaceNavigation } from "../ui/navigation";
 import { Empty, shortDate } from "../ui/primitives";
 import { Page } from "./Page";
+import { type ScopeProposalAnswer, ScopeProposalCard } from "./ScopeProposalCard";
 import "./Workbench.css";
 
 type SessionList = Paginated<WorkbenchSession> & { quickCommands: WorkbenchQuickCommand[] };
@@ -36,8 +39,10 @@ const toolLabels: Record<string, string> = {
 	read_project_context: "读取客户项目",
 	read_batch_evidence_index: "读取证据索引",
 	read_evidence: "读取证据",
+	web_search: "联网搜索",
 	suggest_questions: "整理问题候选",
 	ask_user: "向你提问",
+	propose_questions: "提交问题候选",
 	apply_scope: "应用监测问题",
 	create_batch: "创建采集批次",
 	get_batch_status: "查看批次状态",
@@ -85,7 +90,25 @@ function describeToolEnd(tool: string, details: unknown): string | null {
 		case "wait_for":
 			return value.alreadyDone ? "对象已完成" : "已挂起等待";
 		case "suggest_questions":
-			return `现有 ${Array.isArray(value.current) ? value.current.length : 0} 个问题 · 知识库候选 ${Array.isArray(value.libraryCandidates) ? value.libraryCandidates.length : 0} 个`;
+			return `现有 ${Array.isArray(value.current) ? value.current.length : 0} 个问题 · 建档候选 ${Array.isArray(value.pendingCandidates) ? value.pendingCandidates.length : 0} 个 · 知识库候选 ${Array.isArray(value.libraryCandidates) ? value.libraryCandidates.length : 0} 个`;
+		case "propose_questions":
+			return `等待你确认 ${value.questionCount ?? "?"} 个候选问题`;
+		case "web_search": {
+			if (value.unavailable) return "联网搜索不可用，已改用官网快照与知识库";
+			const sources = Array.isArray(value.sources) ? (value.sources as Array<{ url?: string }>) : [];
+			const domains = [
+				...new Set(
+					sources.flatMap((source) => {
+						try {
+							return source.url ? [new URL(source.url).hostname.replace(/^www\./, "")] : [];
+						} catch {
+							return [];
+						}
+					}),
+				),
+			].slice(0, 4);
+			return `「${String(value.query ?? "")}」· ${sources.length} 个来源${domains.length ? ` · ${domains.join("、")}` : ""}`;
+		}
 		default:
 			return null;
 	}
@@ -104,6 +127,14 @@ type Bubble =
 			at: string;
 			answered: boolean;
 	  }
+	| {
+			kind: "proposal";
+			seq: number;
+			proposal: ScopeProposal;
+			at: string;
+			answered: boolean;
+			answeredText: string | null;
+	  }
 	| { kind: "system"; seq: number; text: string; tone: "info" | "success" | "error"; at: string };
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Event folding needs to consider every event type in one pass to keep bubble ordering stable.
@@ -116,12 +147,37 @@ function foldEvents(events: WorkbenchEvent[]): Bubble[] {
 		switch (event.type) {
 			case "user_message":
 			case "user_answer": {
-				const last = bubbles.at(-1);
-				if (last?.kind === "question") last.answered = true;
-				for (const bubble of bubbles) if (bubble.kind === "question") bubble.answered = true;
-				bubbles.push({ kind: "user", seq: event.seq, text: String(payload.text ?? ""), at });
+				const text = String(payload.text ?? "");
+				for (const bubble of bubbles) {
+					if (bubble.kind === "question") bubble.answered = true;
+					if (bubble.kind === "proposal" && !bubble.answered) {
+						bubble.answered = true;
+						bubble.answeredText = event.type === "user_answer" ? text : null;
+					}
+				}
+				// 候选确认的结果已经显示在卡片里，不再重复一条用户气泡。
+				if (event.type === "user_answer" && payload.applied !== undefined) break;
+				bubbles.push({ kind: "user", seq: event.seq, text, at });
 				break;
 			}
+			case "proposal":
+				bubbles.push({
+					kind: "proposal",
+					seq: event.seq,
+					proposal: {
+						intro: String(payload.intro ?? ""),
+						questions: Array.isArray(payload.questions) ? (payload.questions as ScopeProposal["questions"]) : [],
+						competitors: Array.isArray(payload.competitors)
+							? (payload.competitors as ScopeProposal["competitors"])
+							: [],
+						industry: typeof payload.industry === "string" ? payload.industry : null,
+						evidence: Array.isArray(payload.evidence) ? (payload.evidence as ScopeProposal["evidence"]) : [],
+					},
+					at,
+					answered: false,
+					answeredText: null,
+				});
+				break;
 			case "assistant_delta": {
 				const turn = Number(payload.turn ?? 0);
 				const index = streaming.get(turn);
@@ -231,12 +287,38 @@ function foldEvents(events: WorkbenchEvent[]): Bubble[] {
 			case "session_cancelled":
 				bubbles.push({ kind: "system", seq: event.seq, tone: "error", text: "会话已终止。", at });
 				break;
+			case "step":
+				if (payload.key === "scope" && payload.status === "done")
+					bubbles.push({
+						kind: "system",
+						seq: event.seq,
+						tone: "success",
+						text: `监测范围已写入：${String(payload.detail ?? "")}`,
+						at,
+					});
+				break;
 			default:
 				break;
 		}
 	}
 	return bubbles;
 }
+
+/** 会话选中的模型（或平台默认模型）在联网搜索测试里的状态；未测试过为 null。 */
+function webSearchModelState(
+	status: WebSearchTestStatus | null,
+	model: string | null,
+): { model: string | null; state: "ok" | "failed" | "untested" } {
+	const resolved = model ?? status?.defaultModel ?? null;
+	const test = resolved ? status?.tests[resolved] : undefined;
+	return { model: resolved, state: test ? test.status : "untested" };
+}
+
+const modelSuffix: Record<"ok" | "failed" | "untested", string> = {
+	ok: "",
+	failed: " · 联网测试失败",
+	untested: " · 联网未验证",
+};
 
 type StepsStatus = "wait" | "process" | "finish" | "error";
 
@@ -385,14 +467,18 @@ export function Workbench({
 	const [draft, setDraft] = useState(initialMessage ?? "");
 	const [busy, setBusy] = useState(false);
 	const [models, setModels] = useState<string[]>([]);
+	const [webSearchStatus, setWebSearchStatus] = useState<WebSearchTestStatus | null>(null);
+	const [testingModel, setTestingModel] = useState<string | null>(null);
 	const [newSession, setNewSession] = useState<{
 		model: string | null;
 		thinkingLevel: string | null;
 		autoApprove: boolean;
+		webSearchEnabled: boolean;
 	}>({
 		model: null,
 		thinkingLevel: null,
 		autoApprove: true,
+		webSearchEnabled: true,
 	});
 	const lastSeq = useRef(0);
 	const scrollRef = useRef<HTMLDivElement>(null);
@@ -422,12 +508,38 @@ export function Workbench({
 			})
 			.catch((reason) => message.error(reason instanceof Error ? reason.message : "会话加载失败"));
 	}, [loadSessions, message, activeId, initialMessage]);
+	const loadWebSearchStatus = useCallback(async () => {
+		// 按模型记住的联网搜索测试结果；读不到时不阻塞工作台，只是不显示提示。
+		try {
+			setWebSearchStatus(await api<WebSearchTestStatus>("/api/settings/hrouter/web-search-status"));
+		} catch {
+			setWebSearchStatus(null);
+		}
+	}, []);
 	useEffect(() => {
 		// 模型列表只用于下拉选择；读取失败时仍可用平台设置里的默认模型。
 		api<{ models: Array<{ id: string }> }>("/api/settings/hrouter/models")
 			.then((result) => setModels(result.models.map((item) => item.id)))
 			.catch(() => setModels([]));
-	}, []);
+		void loadWebSearchStatus();
+	}, [loadWebSearchStatus]);
+	async function testWebSearchModel(model: string | null) {
+		const target = model ?? webSearchStatus?.defaultModel ?? null;
+		setTestingModel(target ?? "default");
+		try {
+			const result = await post<{ searchTriggered: boolean; model: string; message: string | null }>(
+				"/api/settings/hrouter/test-web-search",
+				{ model: target },
+			);
+			if (result.searchTriggered) message.success(`${result.model} 联网搜索可用`);
+			else message.error(`${result.model} 未触发联网搜索${result.message ? `：${result.message}` : ""}`);
+			await loadWebSearchStatus();
+		} catch (reason) {
+			message.error(reason instanceof Error ? reason.message : "联网搜索测试失败");
+		} finally {
+			setTestingModel(null);
+		}
+	}
 	useEffect(() => {
 		if (!activeId) {
 			setSession(null);
@@ -475,6 +587,7 @@ export function Workbench({
 				autoApprove: newSession.autoApprove,
 				thinkingLevel: newSession.thinkingLevel,
 				model: newSession.model,
+				webSearchEnabled: newSession.webSearchEnabled,
 			});
 			setDraft("");
 			onConsumeInitial();
@@ -510,10 +623,30 @@ export function Workbench({
 			message.error(reason instanceof Error ? reason.message : "提交失败");
 		}
 	}
+	/** 候选问题表格的确认/不采用：确认由服务端直接写入监测范围，失败原因原样提示。 */
+	async function answerProposal(body: ScopeProposalAnswer | { answer: string }) {
+		if (!activeId) return;
+		try {
+			const result = await post<{ applied?: boolean; promptCount?: number; libraryAdded?: number }>(
+				`/api/workbench/sessions/${activeId}/answer`,
+				body,
+			);
+			if (result.applied)
+				message.success(
+					`已写入 ${result.promptCount ?? 0} 个监测问题${result.libraryAdded ? `，知识库新增 ${result.libraryAdded} 条` : ""}`,
+				);
+			await loadSession(activeId, false);
+			await refresh();
+		} catch (reason) {
+			message.error(reason instanceof Error ? reason.message : "提交失败");
+			throw reason;
+		}
+	}
 	async function updateSettings(values: {
 		autoApprove?: boolean;
 		thinkingLevel?: string | null;
 		model?: string | null;
+		webSearchEnabled?: boolean;
 	}) {
 		if (!activeId) return;
 		try {
@@ -525,12 +658,37 @@ export function Workbench({
 	}
 	const inputDisabled = !canRun || busy || session?.status === "running" || session?.status === "waiting_user";
 	const modelOptions = (current: string | null) => [
-		{ value: "default", label: "跟随平台设置" },
+		{
+			value: "default",
+			label: `跟随平台设置${webSearchStatus?.defaultModel ? modelSuffix[webSearchModelState(webSearchStatus, null).state] : ""}`,
+		},
 		...[...new Set([...models, ...(current && !models.includes(current) ? [current] : [])])].map((id) => ({
 			value: id,
-			label: id,
+			label: `${id}${modelSuffix[webSearchModelState(webSearchStatus, id).state]}`,
 		})),
 	];
+	/** 联网开着但所选模型没通过联网测试时给一句提示，并允许当场测试该模型。 */
+	const webSearchHint = (enabled: boolean, model: string | null) => {
+		if (!enabled || !webSearchStatus) return null;
+		const state = webSearchModelState(webSearchStatus, model);
+		if (state.state === "ok" || !state.model) return null;
+		return (
+			<span className="wb-model-hint">
+				{state.state === "failed"
+					? `${state.model} 联网搜索测试失败，出题将只能用本地证据`
+					: `${state.model} 尚未验证联网搜索`}
+				<Button
+					variant="link"
+					size="small"
+					permission="workbench.run"
+					busy={testingModel === (state.model ?? "default")}
+					onClick={() => void testWebSearchModel(model)}
+				>
+					测试此模型
+				</Button>
+			</span>
+		);
+	};
 	const composerPlaceholder =
 		session?.status === "waiting_user"
 			? "请先在上方回答 HRouter Agent 的问题"
@@ -655,6 +813,18 @@ export function Workbench({
 							自动批准
 						</span>
 					</Tooltip>
+					<Tooltip title="关闭后 Agent 不会联网搜索，出题只用官网快照与知识库；每次联网搜索都计入 HRouter 费用">
+						<span className="wb-setting">
+							<Switch
+								size="small"
+								checked={newSession.webSearchEnabled}
+								disabled={!canRun}
+								onChange={(checked) => setNewSession({ ...newSession, webSearchEnabled: checked })}
+							/>
+							联网搜索
+						</span>
+					</Tooltip>
+					{webSearchHint(newSession.webSearchEnabled, newSession.model)}
 				</div>
 			)}
 			<p className="wb-composer-hint">
@@ -721,6 +891,18 @@ export function Workbench({
 								options={modelOptions(session.model)}
 							/>
 						</span>
+						<Tooltip title="关闭后下一回合起 Agent 不再联网搜索；每次联网搜索都计入 HRouter 费用">
+							<span className="wb-setting">
+								<Switch
+									size="small"
+									checked={session.web_search_enabled}
+									disabled={!canRun}
+									onChange={(checked) => void updateSettings({ webSearchEnabled: checked })}
+								/>
+								联网搜索
+							</span>
+						</Tooltip>
+						{webSearchHint(session.web_search_enabled, session.model)}
 						{["running", "waiting_user", "waiting_job"].includes(session.status) && (
 							<Popconfirm
 								title="终止会话？"
@@ -769,6 +951,23 @@ export function Workbench({
 											bubble={bubble}
 											disabled={!canRun || session.status !== "waiting_user"}
 											onAnswer={answer}
+										/>
+									</div>
+								);
+							if (bubble.kind === "proposal")
+								return (
+									<div className="wb-bubble assistant wb-bubble-wide" key={key}>
+										<span className="wb-avatar">
+											<IconSparkles size={15} />
+										</span>
+										<ScopeProposalCard
+											proposal={bubble.proposal}
+											answered={bubble.answered}
+											answeredText={bubble.answeredText}
+											disabled={!canRun || session.status !== "waiting_user"}
+											onOpenEvidence={(id, kind) => navigation.openEvidence(id, session.current_batch_id, kind)}
+											onConfirm={answerProposal}
+											onReject={(reason) => answerProposal({ answer: reason })}
 										/>
 									</div>
 								);

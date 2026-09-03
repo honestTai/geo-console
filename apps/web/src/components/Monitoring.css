@@ -37,6 +37,10 @@
 	margin: 14px 0;
 }
 
+.schedule-error {
+	margin-bottom: var(--space-3);
+}
+
 .schedule-summary {
 	display: inline-flex;
 	align-items: center;

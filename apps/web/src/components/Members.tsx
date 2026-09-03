@@ -11,11 +11,7 @@ import { Page } from "./Page";
 
 export function Members({ localBypass }: { localBypass: boolean }) {
 	return (
-		<Page
-			eyebrow="机构成员"
-			title="机构成员"
-			description="维护成员、角色与访问状态；停用即撤销会话。"
-		>
+		<Page eyebrow="机构成员" title="机构成员" description="维护成员、角色与访问状态；停用即撤销会话。">
 			{localBypass ? (
 				<Alert
 					type="info"

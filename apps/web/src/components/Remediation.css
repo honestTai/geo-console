@@ -3,6 +3,10 @@
 	gap: var(--space-3);
 }
 
+.remediation-batch {
+	min-width: 190px;
+}
+
 .remediation-item .task-title {
 	font-size: 14.5px;
 	font-weight: 650;

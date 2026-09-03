@@ -38,9 +38,7 @@ function observedAt(value: string | null, row: number): string {
 	if (!value) throw new Error(`第 ${row} 行缺少日期 observed_at/date/日期`);
 	const dayOnly = value.match(/^(\d{4})-?(\d{2})-?(\d{2})$/) ?? value.match(/^(\d{4})[/.](\d{1,2})[/.](\d{1,2})$/);
 	const parsed = new Date(
-		dayOnly
-			? `${dayOnly[1]}-${dayOnly[2].padStart(2, "0")}-${dayOnly[3].padStart(2, "0")}T00:00:00+08:00`
-			: value,
+		dayOnly ? `${dayOnly[1]}-${dayOnly[2].padStart(2, "0")}-${dayOnly[3].padStart(2, "0")}T00:00:00+08:00` : value,
 	);
 	if (Number.isNaN(parsed.getTime())) throw new Error(`第 ${row} 行日期无法解析：${value}`);
 	return parsed.toISOString();

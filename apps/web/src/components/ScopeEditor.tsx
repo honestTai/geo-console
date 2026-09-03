@@ -1,5 +1,5 @@
 import { IconCheck } from "@tabler/icons-react";
-import { Alert, Modal } from "antd";
+import { Alert, App, Modal } from "antd";
 import { useState } from "react";
 import { Button } from "../access";
 import { post } from "../api";
@@ -31,6 +31,7 @@ export function ScopeEditor({
 	onClose(): void;
 	refresh(): Promise<void>;
 }) {
+	const { message } = App.useApp();
 	const [aliases, setAliases] = useState(project.aliases ?? [project.name]);
 	const [competitors, setCompetitors] = useState<Competitor[]>(project.competitors ?? []);
 	const [prompts, setPrompts] = useState<Prompt[]>(project.prompts ?? []);
@@ -41,7 +42,12 @@ export function ScopeEditor({
 		setBusy(true);
 		setError(null);
 		try {
-			await post(`/api/projects/${project.id}/confirm`, { aliases, competitors, prompts });
+			const result = await post<{ libraryUnlinked?: number; promptsKept?: number }>(
+				`/api/projects/${project.id}/confirm`,
+				{ aliases, competitors, prompts },
+			);
+			if (result.libraryUnlinked)
+				message.info(`${result.libraryUnlinked} 个问题引用了其他机构或已归档的知识库记录，已去掉引用后保存`);
 			await refresh();
 			onClose();
 		} catch (reason) {
@@ -79,7 +85,10 @@ export function ScopeEditor({
 								setAliases(scope.aliases.length ? scope.aliases : aliases);
 								setCompetitors(scope.competitors);
 								setPrompts(scope.prompts);
-								const source = bundle.project && typeof bundle.project === "object" ? (bundle.project as { name?: unknown }).name : null;
+								const source =
+									bundle.project && typeof bundle.project === "object"
+										? (bundle.project as { name?: unknown }).name
+										: null;
 								setImported(
 									`已载入${typeof source === "string" && source ? `「${source}」的` : ""}范围：${scope.competitors.length} 个竞品、${scope.prompts.length} 个问题；核对后点“保存新范围版本”才会生效。`,
 								);
@@ -100,7 +109,10 @@ export function ScopeEditor({
 				</>
 			}
 		>
-			<p className="muted">保存后只影响新基线；历史批次、回答证据和报告继续保留原问题与竞品。</p>
+			<p className="muted">
+				保存后只影响新基线；历史批次、回答证据和报告继续保留原问题与竞品。没改动的问题和竞品沿用原
+				ID，同条件趋势不会中断。
+			</p>
 			{error && <Alert type="error" showIcon title={error} />}
 			{imported && <Alert type="info" showIcon closable title={imported} onClose={() => setImported(null)} />}
 			<EditableList joined title="品牌别名" items={aliases} onChange={setAliases} placeholder="多个别名用逗号分隔" />

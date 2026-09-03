@@ -54,7 +54,9 @@ export function ManagementWorkspace({
 				showIcon
 				title="这里是机构级设置：模型与平台密钥、问题知识库、成员与权限、日志。客户项目的监测、报告与文章请返回客户列表后进入对应客户。"
 			/>
-			{view === "knowledge" && <KnowledgeBase initialIndustry={null} canWrite={hasPermission(user, "knowledge.manage")} />}
+			{view === "knowledge" && (
+				<KnowledgeBase initialIndustry={null} canWrite={hasPermission(user, "knowledge.manage")} />
+			)}
 			{view === "settings" && <Settings />}
 			{view === "members" && <Members localBypass={user.localBypass} />}
 			{view === "auditLogs" && <AuditLogs />}

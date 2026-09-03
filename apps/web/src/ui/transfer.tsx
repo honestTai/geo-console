@@ -14,7 +14,11 @@ export function downloadJson(fileName: string, data: unknown): void {
 }
 
 /** 读取用户选中的 JSON 文件并校验最外层 kind，不合格时直接抛中文错误。 */
-export async function readJsonBundle(file: File, expectedKind: string, label: string): Promise<Record<string, unknown>> {
+export async function readJsonBundle(
+	file: File,
+	expectedKind: string,
+	label: string,
+): Promise<Record<string, unknown>> {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(await file.text());
@@ -87,7 +91,12 @@ export function TransferButtons({
 					return false;
 				}}
 			>
-				<Button permission={importPermission} variant="secondary" icon={<IconUpload size={16} />} busy={busy === "import"}>
+				<Button
+					permission={importPermission}
+					variant="secondary"
+					icon={<IconUpload size={16} />}
+					busy={busy === "import"}
+				>
 					{importLabel}
 				</Button>
 			</Upload>

@@ -7,11 +7,7 @@ import { Page } from "./Page";
 
 export function AuditLogs() {
 	return (
-		<Page
-			eyebrow="审计日志"
-			title="审计日志"
-			description="机构内的写操作、审批与设置变更记录。"
-		>
+		<Page eyebrow="审计日志" title="审计日志" description="机构内的写操作、审批与设置变更记录。">
 			<AuditLogPanel />
 		</Page>
 	);

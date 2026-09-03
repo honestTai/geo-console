@@ -19,7 +19,12 @@ const taskStatusLabels: Record<string, string> = {
 	done: "已完成",
 };
 
-const priorityLabels: Record<string, string> = { high: "高优先级", medium: "中优先级", mid: "中优先级", low: "低优先级" };
+const priorityLabels: Record<string, string> = {
+	high: "高优先级",
+	medium: "中优先级",
+	mid: "中优先级",
+	low: "低优先级",
+};
 
 const reputationLabels: Record<string, string> = {
 	positive: "正面为主",

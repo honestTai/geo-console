@@ -80,3 +80,18 @@ export async function failJob(database: Database, jobId: string, owner: string, 
 		[jobId, owner, message.slice(0, 2000)],
 	);
 }
+
+/**
+ * 租约已过期且重试次数用尽的 capture 任务不会再被任何 Worker 领取（claim 要求 attempts < max_attempts），
+ * 若执行进程在 failJob 之前崩溃，它会永久停在 leased 并让批次卡在“采集中”。
+ * 这里把这类任务标为 failed 并返回受影响批次，由调用方刷新批次状态。
+ */
+export async function failExpiredCaptureJobs(database: Database): Promise<string[]> {
+	const result = await database.query<{ batch_id: string | null }>(
+		`UPDATE jobs SET status = 'failed'::job_status, lease_owner = NULL, lease_expires_at = NULL,
+		 last_error = COALESCE(last_error, '执行进程中断：租约过期且已达最大重试次数'), updated_at = now()
+		 WHERE type = 'capture' AND status = 'leased' AND lease_expires_at < now() AND attempts >= max_attempts
+		 RETURNING payload->>'batchId' AS batch_id`,
+	);
+	return [...new Set(result.rows.flatMap((row) => (row.batch_id ? [row.batch_id] : [])))];
+}

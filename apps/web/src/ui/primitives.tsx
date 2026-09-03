@@ -248,16 +248,32 @@ export function IdChip({ value, label, length = 8 }: { value: string; label?: st
 	);
 }
 
-export type EvidenceOpener = (captureId: string) => void;
+export type EvidenceOpener = (evidenceId: string, kind: EvidenceIndexEntry["kind"]) => void;
 
-/** 单条证据引用的可读描述：平台 · 问题 · 第 n 次采样 · 时间（快照/审计用标题或网址）。 */
+/** 单条证据引用的可读描述：平台 · 问题 · 第 n 次采样 · 时间（快照/审计用标题或网址，联网搜索用检索问题）。 */
 export function evidenceRefTitle(entry: EvidenceIndexEntry): string {
-	return entry.kind === "capture"
-		? `${entry.platformLabel ?? providerShortLabel(entry.platform ?? "")} · “${entry.question ?? ""}” · 第 ${entry.attempt ?? 1} 次采样 · ${shortDate(entry.capturedAt)}`
-		: `${entry.platformLabel ?? ""} · ${entry.title ?? entry.url ?? ""}`;
+	if (entry.kind === "capture")
+		return `${entry.platformLabel ?? providerShortLabel(entry.platform ?? "")} · “${entry.question ?? ""}” · 第 ${entry.attempt ?? 1} 次采样 · ${shortDate(entry.capturedAt)}`;
+	if (entry.kind === "web_search")
+		return `联网搜索 · “${entry.question ?? ""}” · ${shortDate(entry.capturedAt)}${entry.sourceUrls.length ? ` · ${entry.sourceUrls.length} 个来源` : ""}`;
+	return `${entry.platformLabel ?? ""} · ${entry.title ?? entry.url ?? ""}`;
 }
 
-/** 报告/诊断里的证据引用：把 UUID 变成 “[3] DeepSeek · 问题 · 第1次 · 时间”，可点击跳到证据中心。 */
+const truncate = (value: string, length: number) => (value.length > length ? `${value.slice(0, length)}…` : value);
+
+/** 引用芯片里的短文字：回答证据“平台 · 问题”，联网搜索只放检索问题，快照/审计放来源标签。 */
+function evidenceRefText(entry: EvidenceIndexEntry): string {
+	const question = entry.question ? truncate(entry.question, 22) : "";
+	if (entry.kind === "web_search") return question;
+	const label = entry.kind === "capture" ? providerShortLabel(entry.platform ?? "") : (entry.platformLabel ?? "快照");
+	return question ? `${label} · ${question}` : label;
+}
+
+/** 引用芯片里的编号：报告证据用 [n]，联网搜索不占编号显示 [联网]。 */
+const evidenceRefBadge = (entry: EvidenceIndexEntry): string =>
+	entry.kind === "web_search" ? "联网" : String(entry.n);
+
+/** 报告/诊断里的证据引用：把 UUID 变成 “[3] DeepSeek · 问题 · 第1次 · 时间”，可点击跳到证据中心；联网搜索显示为 “[联网] 问题”。 */
 export function EvidenceRef({
 	ids,
 	index,
@@ -287,18 +303,11 @@ export function EvidenceRef({
 					</span>
 				</Tooltip>
 			);
-		const clickable = entry.kind === "capture" && onOpen;
+		const clickable = (entry.kind === "capture" || entry.kind === "web_search") && onOpen;
 		const body = (
 			<span className="evidence-ref">
-				<b>[{entry.n}]</b>
-				{showText && (
-					<span className="evidence-ref-text">
-						{entry.kind === "capture" ? providerShortLabel(entry.platform ?? "") : (entry.platformLabel ?? "快照")}
-						{entry.question
-							? ` · ${entry.question.length > 22 ? `${entry.question.slice(0, 22)}…` : entry.question}`
-							: ""}
-					</span>
-				)}
+				<b>[{evidenceRefBadge(entry)}]</b>
+				{showText && <span className="evidence-ref-text">{evidenceRefText(entry)}</span>}
 			</span>
 		);
 		return (
@@ -318,7 +327,7 @@ export function EvidenceRef({
 				}
 			>
 				{clickable ? (
-					<button type="button" className="evidence-ref-button" onClick={() => onOpen(entry.id)}>
+					<button type="button" className="evidence-ref-button" onClick={() => onOpen(entry.id, entry.kind)}>
 						{body}
 					</button>
 				) : (

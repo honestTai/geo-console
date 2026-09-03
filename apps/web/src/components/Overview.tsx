@@ -4,14 +4,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { Button } from "../access";
 import { api } from "../api";
 import { useDelayedLoading } from "../hooks/useDelayedLoading";
-import {
-	type BatchSummary,
-	batchKindLabel,
-	type Project,
-	shortDate,
-	type Task,
-	type TrendResponse,
-} from "../types";
+import { type BatchSummary, batchKindLabel, type Project, shortDate, type Task, type TrendResponse } from "../types";
 import { Empty, percentage, SectionTitle } from "../ui/primitives";
 import { LineTrendChart, MentionBarChart, overallMetric, overallPercent, perPlatformMention } from "./charts";
 import { Page } from "./Page";

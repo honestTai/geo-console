@@ -4,6 +4,8 @@ import {
 	claimCaptureJob,
 	type Database,
 	type FrozenBatchConfig,
+	failExpiredCaptureJobs,
+	failJob,
 	renewJobLease,
 	type SearchProviderId,
 	searchProviderIds,
@@ -12,7 +14,7 @@ import { StructuredLogger, safeErrorMessage } from "@geo/logging";
 import { ADAPTER_VERSION, type ProviderCaptureResult } from "@geo/search-providers";
 import { putArtifact } from "./object-store";
 import { buildProviderAdapter, providerDefinitions } from "./providers";
-import { storeCloudCapture } from "./service";
+import { refreshBatchStatus, storeCloudCapture } from "./service";
 import { parseJsonColumn, sha256, stableJson } from "./utils";
 
 type FrozenProvider = NonNullable<FrozenBatchConfig["providers"]>[number];
@@ -200,16 +202,40 @@ export async function runOneCloudCapture(database: Database): Promise<boolean> {
 		else captureLogger.warn("capture.provider_failed", "联网采集返回失败状态", context);
 		return true;
 	} catch (error) {
-		captureLogger.error("capture.failed", safeErrorMessage(error), {
+		const context = {
 			organizationId,
 			projectId: job.payload.projectId,
 			traceId: job.id,
 			metadata: { batchId: job.payload.batchId, providerId, attempt: job.payload.attempt },
-		});
+		};
+		captureLogger.error("capture.failed", safeErrorMessage(error), context);
+		// 任务不能停留在 leased：未用尽重试则 30 秒后重新排队，否则标为 failed 并让批次状态收敛为 partial。
+		try {
+			await failJob(database, job.id, executorId, error instanceof Error ? error.message : "采集任务执行失败");
+			await refreshBatchStatus(database, job.payload.batchId);
+		} catch (cleanupError) {
+			captureLogger.error("capture.failure_cleanup_failed", safeErrorMessage(cleanupError), context);
+		}
 		throw error;
 	} finally {
 		clearInterval(renewTimer);
 	}
+}
+
+/**
+ * 执行进程崩溃后残留的过期租约（且重试已用尽）不会再被领取；定期把它们标为 failed 并刷新批次，
+ * 否则批次永远停在“采集中”。返回本轮收敛的批次数。
+ */
+export async function sweepExpiredCaptureJobs(database: Database): Promise<number> {
+	const batchIds = await failExpiredCaptureJobs(database);
+	for (const batchId of batchIds) {
+		await refreshBatchStatus(database, batchId);
+		captureLogger.warn("capture.stale_jobs_failed", "过期租约任务已标记失败，批次状态已刷新", {
+			traceId: batchId,
+			metadata: { batchId },
+		});
+	}
+	return batchIds.length;
 }
 
 export function startCloudRunner(database: Database): () => void {
@@ -226,11 +252,20 @@ export function startCloudRunner(database: Database): () => void {
 				});
 		}
 	};
+	const sweep = (): void => {
+		sweepExpiredCaptureJobs(database).catch((error) =>
+			captureLogger.error("capture.sweep_failed", safeErrorMessage(error)),
+		);
+	};
 	const timer = setInterval(tick, 1_000);
+	const sweepTimer = setInterval(sweep, 60_000);
+	sweepTimer.unref();
+	sweep();
 	tick();
 	return () => {
 		stopped = true;
 		clearInterval(timer);
+		clearInterval(sweepTimer);
 	};
 }
 

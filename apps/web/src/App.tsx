@@ -130,8 +130,8 @@ export function App() {
 	const workspaceNavigation = useMemo<WorkspaceNavigation>(
 		() => ({
 			openView: setView,
-			openEvidence: (captureId, batchId = null) => {
-				setEvidenceFocus({ captureId, batchId });
+			openEvidence: (evidenceId, batchId = null, kind = "capture") => {
+				setEvidenceFocus({ evidenceId, batchId, kind });
 				setView("evidence");
 			},
 			openBatch: (batchId) => {
@@ -343,7 +343,7 @@ export function App() {
 						<div className="center">
 							<IconLoader2 className="spin" />
 						</div>
-					) : project.status !== "active" && !managementViews.includes(view) ? (
+					) : project.status !== "active" && !managementViews.includes(view) && view !== "workbench" ? (
 						<Onboarding
 							project={project}
 							refresh={async () => {

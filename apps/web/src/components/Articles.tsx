@@ -222,7 +222,9 @@ export function Articles({ project }: { project: Project }) {
 		if (batchId !== "all") params.set("batchId", batchId);
 		const [list, runList] = await Promise.all([
 			api<Paginated<ArticleSummary>>(`/api/projects/${project.id}/articles?${params}`),
-			api<Paginated<AgentRun>>(`/api/projects/${project.id}/agent-runs?purposes=optimization_article&pageSize=${DEFAULT_PAGE_SIZE}`),
+			api<Paginated<AgentRun>>(
+				`/api/projects/${project.id}/agent-runs?purposes=optimization_article&pageSize=${DEFAULT_PAGE_SIZE}`,
+			),
 		]);
 		setArticles(list);
 		setRuns(runList.items);
@@ -230,7 +232,8 @@ export function Articles({ project }: { project: Project }) {
 	useEffect(() => {
 		void load().catch((reason) => message.error(reason instanceof Error ? reason.message : "文章加载失败"));
 	}, [load, message]);
-	useAgentRunPolling(runs, load);
+	// 文章草稿到 awaiting_approval 后由协调器在后台物化，所以等待批准期间也要继续轮询。
+	useAgentRunPolling(runs, load, ["queued", "running", "awaiting_approval"]);
 	const generating = runs.filter((run) => ["queued", "running", "awaiting_approval"].includes(run.status));
 	async function generate(target: string) {
 		setBusy("generate");

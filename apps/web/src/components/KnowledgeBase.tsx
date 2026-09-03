@@ -71,10 +71,16 @@ export function KnowledgeBase({
 						importPermission="knowledge.manage"
 						onExport={async () => {
 							const params = industry ? `?industry=${encodeURIComponent(industry)}` : "";
-							downloadJson(transferFileName(`geo-知识库${industry ? `-${industry}` : ""}`), await api(`/api/knowledge/export${params}`));
+							downloadJson(
+								transferFileName(`geo-知识库${industry ? `-${industry}` : ""}`),
+								await api(`/api/knowledge/export${params}`),
+							);
 						}}
 						onImport={async (bundle) => {
-							const result = await post<{ total: number; imported: number; skipped: number }>("/api/knowledge/import", bundle);
+							const result = await post<{ total: number; imported: number; skipped: number }>(
+								"/api/knowledge/import",
+								bundle,
+							);
 							await questionsPage.reload();
 							return `已导入 ${result.imported} 个问题${result.skipped ? `，${result.skipped} 个已存在跳过` : ""}`;
 						}}
@@ -168,7 +174,12 @@ export function KnowledgeBase({
 								}
 							>
 								<span>
-									<Button permission="knowledge.manage" variant="ghost" icon={<IconTrash size={15} />} disabled={!canWrite}>
+									<Button
+										permission="knowledge.manage"
+										variant="ghost"
+										icon={<IconTrash size={15} />}
+										disabled={!canWrite}
+									>
 										归档
 									</Button>
 								</span>

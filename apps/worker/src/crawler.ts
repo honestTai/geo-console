@@ -27,6 +27,8 @@ async function assertPublicUrl(value: string): Promise<URL> {
 	return url;
 }
 
+/** 站内页面并发抓取数：对客户官网保持礼貌，同时让建档不再逐页串行等 15 秒超时。 */
+const CRAWL_CONCURRENCY = 4;
 const auditUserAgent = "GEOConsole/0.1 (+website evidence audit)";
 const browserUserAgent =
 	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
@@ -558,35 +560,57 @@ export async function crawlWebsite(
 	const { root, userAgent } = await resolveCrawlAccess(requested);
 	const urls = await discoverUrls(root, Math.min(100, Math.max(1, limit)), userAgent);
 	const pages: CrawledPage[] = [];
-	for (const url of urls) {
+	const crawlOne = async (url: URL): Promise<CrawledPage | null> => {
+		const { body, contentType } = await fetchText(url, 15_000, userAgent);
+		if (!contentType.includes("html")) return null;
+		const page = pageFromHtml(url, body);
+		if (!page.text) return null;
+		const artifactKey = join("websites", projectId, `${page.id}.html`);
+		await putArtifact(artifactKey, body, "text/html; charset=utf-8");
+		await database.query(
+			`INSERT INTO website_snapshots
+			(id, project_id, url, domain, title, content_text, structured_data, content_hash, artifact_key, fetched_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,now())`,
+			[
+				page.id,
+				projectId,
+				page.url,
+				page.domain,
+				page.title,
+				page.text,
+				JSON.stringify(page.structuredData),
+				page.contentHash,
+				artifactKey,
+			],
+		);
+		return page;
+	};
+	// 首页先单独抓：它失败且没有任何页面时整站视为不可读；其余页面按小并发抓取，慢站不再逐页串行等超时。
+	const [first, ...rest] = urls;
+	if (first) {
 		try {
-			const { body, contentType } = await fetchText(url, 15_000, userAgent);
-			if (!contentType.includes("html")) continue;
-			const page = pageFromHtml(url, body);
-			if (!page.text) continue;
-			const artifactKey = join("websites", projectId, `${page.id}.html`);
-			await putArtifact(artifactKey, body, "text/html; charset=utf-8");
-			await database.query(
-				`INSERT INTO website_snapshots
-				(id, project_id, url, domain, title, content_text, structured_data, content_hash, artifact_key, fetched_at)
-				VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,now())`,
-				[
-					page.id,
-					projectId,
-					page.url,
-					page.domain,
-					page.title,
-					page.text,
-					JSON.stringify(page.structuredData),
-					page.contentHash,
-					artifactKey,
-				],
-			);
-			pages.push(page);
+			const page = await crawlOne(first);
+			if (page) pages.push(page);
 		} catch (error) {
-			if (url.href === root.href && pages.length === 0) throw error;
+			if (first.href === root.href) throw error;
 		}
 	}
+	const results: Array<CrawledPage | null> = new Array(rest.length).fill(null);
+	let cursor = 0;
+	await Promise.all(
+		Array.from({ length: Math.min(CRAWL_CONCURRENCY, rest.length) }, async () => {
+			while (cursor < rest.length) {
+				const index = cursor;
+				cursor += 1;
+				try {
+					results[index] = await crawlOne(rest[index]);
+				} catch {
+					// 单页不可达只减少证据，不影响其他页面。
+				}
+			}
+		}),
+	);
+	for (const page of results) if (page) pages.push(page);
 	if (pages.length === 0) throw new Error("官网没有可读取的公开 HTML 页面");
 	return pages;
 }

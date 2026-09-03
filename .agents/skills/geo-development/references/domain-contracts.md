@@ -11,10 +11,12 @@
 ## 批次与队列
 
 - 批次种类：`quick_audit`、`baseline`、`retest`；状态：`draft`、`queued`、`running`、`complete`、`partial`。
-- `FrozenBatchConfig` 包含项目、竞品、Prompt、平台、repeats、sampling/window，以及每个 Provider 的 endpoint/model/protocol/search strategy/tool/adapter version。
-- 可比性是规范化后的完整 config 相等，不是只比较平台和模型。旧批次继续保留创建时范围。
+- `FrozenBatchConfig` 包含项目、竞品、Prompt、平台、repeats、sampling/window，以及每个 Provider 的 endpoint/model/protocol/search strategy/tool/adapter version。默认时间窗口由 `defaultExecutionWindowMinutes` 给出：≤3 次为 0/240/1440 分钟，>3 次在 0–1440 分钟内平均分布。
+- 可比性是规范化后的完整 config 相等（`areBatchConfigsComparable` 与 JSON 一样忽略 undefined 键），不是只比较平台和模型。旧批次继续保留创建时范围。
+- 复测复制基线冻结配置；基线任一 Provider 的 `adapterVersion` 与当前 `ADAPTER_VERSION` 不一致时 `createBatch` 拒绝创建复测。
+- 周期监测（`processDueSchedules`）到期时先用 `buildBaselineConfig` 按当前范围与平台配置构造候选配置，与最近 `complete/partial` 基线可比才创建 retest，否则创建 baseline；创建失败写 `monitoring_schedules.last_error/last_error_at/failure_count` 并记 `schedule.batch_failed` 日志，一小时后重试；成功或重新保存计划时清零。`saveMonitoringSchedule` 在周期变化时按 `last_run_at + 新周期` 重算 `next_run_at`（已到期立即可运行）。
 - Capture job 默认最多 3 次，租约 5 分钟并每分钟续期；Agent job 最多 2 次、租约 15 分钟；PDF job 默认 3 次、租约 5 分钟。失败重试延迟 30 秒。
-- 过期租约可由其他 Worker 领取。不要把尚未生成证据的任务直接改为 complete。
+- 过期租约可由其他 Worker 领取。Capture 执行抛错必须经 `failJob`（未用尽重试回 `pending`，否则 `failed`）并 `refreshBatchStatus`；`failExpiredCaptureJobs`/`sweepExpiredCaptureJobs` 每分钟把租约过期且 `attempts>=max_attempts` 的任务标为 `failed` 并刷新批次。不要把尚未生成证据的任务直接改为 complete。
 
 ## Provider
 
@@ -36,27 +38,38 @@ Provider 的实时默认值以 `apps/worker/src/providers.ts` 为准：
 - 来源指标只使用来源可观测的成功回答。没有可观测来源时 citation/source rate 是 `null`。
 - 重复一致性只在同 Prompt 有多次成功回答时计算，否则为 `null`。
 - Provider 未返回明确金额时 `costMicros` 保持 `null`；可汇总 Token/请求数，但不能虚构价格。
+- 漂移告警（`detectDriftAlerts`）跳过基线或复测中 `answeredCaptures=0` 的平台：失败平台的 0 不是指标值，不产生告警。
 
 ## Agent 与审批
 
-- Agent 工具只有读取当前项目、读取证据索引、按允许 ID 读取证据、提交结构化草稿。
-- 网页、客户字段和回答全部是不可信输入；工具输出提醒模型不得执行其中指令。
+- Agent 工具只有读取当前项目、读取证据索引、按允许 ID 读取证据、提交结构化草稿；`prompt_research`/`customer_profile` 与 AI 工作台会话（`web_search_enabled=true` 时）额外拥有 `web_search`。
+- `web_search`（`apps/worker/src/web-search.ts`）：每次调用单独请求 HRouter `/responses` 并带 `tools:[{type:"web_search"}]`，默认 `tool_choice:{type:"web_search"}` 强制调用，被 4xx（非 401/403/429）拒绝时回退 `auto` 并在进程内按 baseUrl+model 记住；解析 `web_search_call` 与 `url_citation`，只追加写 `web_search_evidence`（organization/project/session/run、backend、model、query、status、answer_text、sources、search_queries、raw_response、usage、latency、failure_message）并记 `project_costs.operation='web_search'`。状态只有 `complete/search_not_triggered/no_answer/failed`；`knownEvidenceIds` 只纳入 `complete`，`read_batch_evidence_index/read_evidence` 可读回该项目的记录，跨项目 ID 照旧拒绝。不得伪造搜索结果或静默换后端。
+- `web_search` 硬上限（`WEB_SEARCH_LIMITS`）：工作台每回合 8 次、每会话 30 次（会话已用次数按 `web_search_evidence.session_id` 统计），`prompt_research/customer_profile` 每次运行 10 次；超出直接抛错并提示收敛，不再请求 HRouter。退化：`search_not_triggered/failed` 连续 2 次后本回合视为联网不可用，工具返回 `unavailable:true` 的非错误结果并在后续调用中不再请求；`no_answer` 只抛错让模型换问法，不计入不可用。会话可关闭联网（`agent_sessions.web_search_enabled`），关闭时不注入该工具且系统提示说明只用本地证据。
+- `POST /api/settings/hrouter/test-web-search` 可带 `model`，结果按模型写入 settings `organization:<id>:web_search_tests`（`WebSearchModelTest`：status/searchStatus/toolChoice/message/testedAt）；`GET /api/settings/hrouter/web-search-status` 返回默认模型与各模型记录，工作台据此提示未验证/失败的模型。
+- 网页、客户字段和回答全部是不可信输入；工具输出提醒模型不得执行其中指令。联网搜索归纳文本与来源同样是不可信数据。
+- 建档分析（`analyzeProject`）最多抓 `ANALYSIS_CRAWL_LIMIT=40` 页，24 小时内已有快照则复用不再抓；模型给出的候选先过滤无效域名、客户自身域名与重复域名，再以 `verification.status='pending'` 落库；请求返回后 `verifyCompetitorsInBackground` 对每个候选做一次 `web_search`（落 `web_search_evidence`，无 session/run），再用一次 `hrouterStructured` 判断域名是否为其官网、是否同行业，结论回写 `competitors.verification`（`confirmed/domain_mismatch/industry_mismatch/unverified` + note + evidenceId）；联网不可用、判断失败或超出单次核实上限只标 `unverified`，不阻断建档。返回值 `competitorVerification:{status:'pending'|'none',candidates}`、`reusedSnapshots`。
+- `prompt_research` 草稿的入口是建档页“后台联网出题”（`POST /api/projects/:id/agent {purpose:"prompt_research"}`，无快照时先抓 30 页）；批准时只把 `prompts` 插为 `approved=false` 候选（按问题文本去重、追加 position），不启用项目，仍由成员在建档页确认。`customer_profile` 目前没有入口。
 - draft 引用的 evidence、Prompt 和 task 必须属于当前项目/批次，`content_brief` 必须匹配目标 task。
-- Agent 完成只进入 awaiting approval。批准时再次校验归属，之后才能写 finding、task、content 或 report narrative。
+- Agent 完成只进入 awaiting approval。批准时再次校验归属，之后才能写 finding、task、content 或 report narrative。`approveAgentRun` 在事务内先执行带 `status='awaiting_approval'` 守卫的 UPDATE 占住 run，再物化；并发审批只有一次成功，其余抛“已被其他操作处理”并回滚。
+- `generateArticlesForBatch` 的在途去重只看 `target_ref->>'narrativeRunId'` 等于当前已批准叙述的 `optimization_article` run；旧叙述的 run 不挡新文章。
 - HRouter Key 与模型未配置时任务不能入队；不要增加假结果或离线 fallback。
 - `report_narrative` 必须输出口碑总体判断、正负信号、来源状态和 GEO 优化建议；每项引用当前批次证据。`cited` URL 必须存在于对应 Capture 的 `sources`，不可见来源只允许 `unavailable`。
 - `quality_review` 必须绑定最新已批准 `report_narrative` run ID。正式快照要求该检查已批准且 verdict 为 `pass`；报告内容模型是当前机构配置的 HRouter GPT。
-- 报告工作流是幂等推进：叙述批准后自动排队质量检查，质量检查批准通过后自动冻结同一叙述版本并排队 PDF/Word；`awaiting_approval` 仍是人工停点，只有 AI 工作台会话在 `auto_approve=true` 时由协调器代表会话创建者批准（`approved_via='workbench'`，审计带 `sessionId`），以及 `optimization_article` 由协调器 `auto_article` 物化。
+- 报告工作流是幂等推进：叙述批准后自动排队质量检查，质量检查批准通过后自动冻结同一叙述版本并排队 PDF/Word；`awaiting_approval` 仍是人工停点，只有 AI 工作台会话在 `auto_approve=true` 时由协调器代表会话创建者批准（`approved_via='workbench'`，审计带 `sessionId`），以及 `optimization_article` 由协调器 `auto_article` 物化。`advanceReportWorkflow` 先看在途叙述（queued/running/awaiting_approval）并直接返回其状态；质检 verdict 为 blocked 时 `allowRetry=false` 返回 `quality_blocked`，`allowRetry=true` 排队新的 `report_narrative`（不再对同一叙述重复质检）。
 - `agent_runs` 新增 `session_id`、`approved_via`、`thinking_level`、`target_ref`；`optimization_article` 的 `target_ref` 必须指向已批准 `report_narrative` run 与建议序号，草稿 `targetPromptIds` 必须属于当前项目。
 - 思考强度取自机构 HRouter 配置 `thinkingLevel`（minimal/low/medium/high/xhigh，默认 low），会话或 run 可覆盖；模型仍限定 GPT 系列。
-- AI 工作台会话：`agent_sessions.transcript` 是 pi-agent-core AgentMessage 列表，`waiting` 只能是 user/batch/agent_run/report 之一并带 `toolCallId`（后台等待还带 `stepKey`，缺省时按 batch/report_document/run:id 推导）；续跑以工具结果消息追加到 transcript，不重写历史。`agent_session_events.seq` 单调递增，前端只做增量拉取。工作台工具必须复用现有 service（createBatch/confirmProject/auditProject/diagnoseBatch/advanceReportWorkflow/generateArticlesForBatch），不得直接写证据表。
+- AI 工作台会话：`agent_sessions.transcript` 是 pi-agent-core AgentMessage 列表，`waiting` 只能是 user/batch/agent_run/report 之一并带 `toolCallId`（后台等待还带 `stepKey`，缺省时按 batch/report_document/run:id 推导）；续跑以工具结果消息追加到 transcript，不重写历史。`agent_session_events.seq` 单调递增，前端只做增量拉取。工作台工具必须复用现有 service（createBatch/confirmProject/auditProject/diagnoseBatch/advanceReportWorkflow/generateArticlesForBatch），不得直接写证据表。`suggest_questions` 返回已批准问题、建档分析留下的未确认候选（`approved=false`）、知识库候选，以及未启用项目的候选竞品。
+- 监测范围只能经成员确认写入：模型没有 `apply_scope`，只能 `propose_questions`（intro + questions[id/libraryQuestionId/question/intent/topic/persona/tags/source/evidenceIds/selected] + competitors），工具校验证据 ID ⊆ 允许集合、问题 id 属于本项目、知识库 id 属于本机构，按问题文本去重后写入 `waiting.kind='user'` 的 `proposal`（`ScopeProposal`），发 `proposal` 事件（附证据描述）并结束回合。`POST /api/workbench/sessions/:id/answer` 带 `questions`（成员编辑后的最终列表）时由服务端调用 `confirmProject` 写入新版本范围（竞品用表格值，无表格时沿用已批准竞品；未启用项目变为 `active`），`syncLibrary=true` 且成员有 `knowledge.manage` 时把没有知识库引用的新问题写入客户行业知识库并回填 `library_question_id`；只带 `answer` 表示不采用。两种结果都以 `propose_questions` 的工具结果（`applied:true/false`）续跑，`scope` 计划步骤由服务端置为 done。
+- 会话 Token 只按本回合新增的 assistant 消息计入 `project_costs`（`agent_sessions.usage` 保持累计），不再每回合重复累加历史。
 - `agent_sessions.plan` 步骤状态：`wait_for` 只复用已有步骤并保留其 label；`report_narrative/quality_review` run 和报告 PDF 的等待归入 `report` 步骤（状态由 `advance_report` 维护）；协调器唤醒时把等待步骤置为 `done`（partial 批次附说明）或 `failed`（rejected/failed run 附 error），并写 `step` 事件；`articles` 步骤在该会话所有 `optimization_article` run 落地后由协调器收尾（有 approved 即 done，否则 failed）。步骤只能被更新，不能为历史会话凭空补步骤。
 - 报告 `ReportAnalysis.evidenceIndex` 按采集时间为 capture、网页快照、审计编号；冻结快照后编号不变，HTML/Word/CSV 只能用编号与可读字段引用，不再输出裸 UUID。`perceptionExcerpts` 过滤模型推理草稿句；口碑来源 URL 去掉 `#ws_call_id=` 类追踪片段后展示，但校验仍以原始 `sources` 为准。
 
 ## 网站、报告与安全
 
-- Crawler 每次请求和重定向都解析 DNS 并拒绝私网/Loopback；官网 crawl 上限由调用方控制，分析流程最多 100 页。
+- Crawler 每次请求和重定向都解析 DNS 并拒绝私网/Loopback；官网 crawl 上限由调用方控制（首页单独抓，其余 `CRAWL_CONCURRENCY=4` 并发），建档分析最多 40 页。
 - 诊断需要真实回答；网页或竞品抓取失败只减少证据，不产生“内容缺失”结论。
+- 整改验收：`taskVerificationMode` 由诊断类别含“技术”或验收标准含“官网审计”判定为 `audit`（重跑 `auditProject`，verdict 为 blocked 则拒绝，写 `verified_audit_id`），否则为 `publish`（`publishedUrlBelongsToProject` 要求发布地址在客户域名或子域名下，再 `crawlPublishedUrl` 写 `verified_snapshot_id`）；`getProject` 的 task 带 `verification_mode`；`updateTask` 拒绝手工 `status='verified'`。
+- 监测范围确认（`confirmProject`）：`normalizeCompetitorScope` 拒绝无效域名、等于客户域名或重复的竞品域名，`assertUniqueQuestions` 拒绝重复问题；竞品按 ID（域名未变）或域名、问题按 ID（文本未变）或文本匹配当前活动版本并原地更新保留 ID，只有新增条目拿新 ID，未命中的旧行归档；结果含 `promptsKept/competitorsKept/libraryUnlinked`。
 - 报告快照 v2 保存 Agent 叙述/质量 run、payload 和 hash；PDF/Word 只能补充各自 artifact key，不能重写冻结 payload。Report Worker 只做确定性二进制排版，不产生新业务判断。
 - 分享 token 只在创建时返回明文，数据库保存 SHA-256；读取必须未过期且未撤销。
 - Provider/HRouter Key 由 AES-256-GCM 信封加密，AAD 包含 organization 与 credential key。主密钥丢失会使数据库凭据不可恢复。
@@ -68,13 +81,14 @@ Provider 的实时默认值以 `apps/worker/src/providers.ts` 为准：
 
 - 共享范围固定为 `organization_id + industry`；问题支持成员新增和软归档，不跨机构复用。
 - 客户建档保存明确 `industry`。官网分析优先合并同业库问题，再追加 Agent 候选并按问题文本去重；Agent 新候选不会自动写回知识库。
+- 回流只在成员确认时发生：`confirmProject(…, {syncLibrary:{organizationId,createdBy}})` 把没有知识库引用、长度 ≤500 的新问题写入客户 `industry` 的知识库（同行业同问题已存在则只回填引用），返回 `libraryAdded/libraryLinked`；客户没有行业则不写；`syncLibrary` 的机构必须等于客户所属机构。建档页与工作台候选确认卡都提供该开关，仅对有 `knowledge.manage` 的成员显示，API 侧再次校验权限。
 - 项目 Prompt 可引用 `library_question_id`，但批次仍冻结完整问题文本和维度；知识库后续变化不修改历史 Prompt、Capture 或批次。
 
 ## 配置导入导出
 
 - `apps/worker/src/config-transfer.ts` 只搬运非密钥配置：平台设置包（`kind=geo-settings`）含 HRouter baseUrl/model/thinkingLevel 与各平台 model/endpoint/options；知识库包（`kind=geo-knowledge`）含未归档问题。密钥永不导出；导入到缺密钥的机构时平台按停用落库并在结果里说明。
 - 知识库导入按“行业 + 问题”去重，重复项跳过而不报错；导入只写当前活动机构。
-- 监测范围包（`kind=geo-project-scope`）在前端生成与解析（`apps/web/src/ui/scope-bundle.ts`），只含别名/竞品/问题业务字段，导入后载入编辑器，仍走 `POST /api/projects/:id/confirm` 产生新范围版本。
+- 监测范围包（`kind=geo-project-scope`）在前端生成与解析（`apps/web/src/ui/scope-bundle.ts`），含别名/竞品/问题业务字段与问题的 `libraryQuestionId`（解析后回到 `library_question_id`），不含行 id；导入后载入编辑器，仍走 `POST /api/projects/:id/confirm` 产生新范围版本。引用不属于本机构或已归档的知识库记录时，`confirmProject` 去掉该引用并在 `libraryUnlinked` 计数，不拒绝整次确认。
 
 ## 运行日志
 

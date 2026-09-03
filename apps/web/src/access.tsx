@@ -64,8 +64,18 @@ export function Button({
 	);
 }
 
-export function useAgentRunPolling(runs: AgentRun[], reload: () => Promise<void>): void {
-	const active = runs.some((run) => run.status === "queued" || run.status === "running");
+const DEFAULT_POLLING_STATUSES: AgentRun["status"][] = ["queued", "running"];
+
+/**
+ * 有 run 处于 `activeStatuses` 时每 2 秒刷新。默认只在排队/执行中轮询；
+ * 由协调器在后台物化的用途（如优化文章）要把 `awaiting_approval` 也算进去，否则页面会停在“正在生成”。
+ */
+export function useAgentRunPolling(
+	runs: AgentRun[],
+	reload: () => Promise<void>,
+	activeStatuses: AgentRun["status"][] = DEFAULT_POLLING_STATUSES,
+): void {
+	const active = runs.some((run) => activeStatuses.includes(run.status));
 	useEffect(() => {
 		if (!active) return;
 		const timer = window.setInterval(() => void reload().catch(() => undefined), 2_000);

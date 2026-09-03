@@ -190,3 +190,16 @@
 		position: static;
 	}
 }
+
+/* 联网搜索分区：平台标签带图标，状态标签用中性灰 */
+.ev-platform svg {
+	vertical-align: -2px;
+	margin-right: 2px;
+}
+
+.ev-status-tag.ant-tag {
+	margin: 0;
+	background: var(--surface-2);
+	border-color: transparent;
+	color: var(--ink-3);
+}

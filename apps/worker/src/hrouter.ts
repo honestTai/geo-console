@@ -140,13 +140,16 @@ export async function hrouterStructured<T>(
 		input: string;
 		validate: z.ZodType<T>;
 		organizationId?: string;
+		/** 测试注入；缺省用全局 fetch。 */
+		fetch?: typeof globalThis.fetch;
 	},
 ): Promise<T> {
 	const organizationId = options.organizationId ?? "default";
 	const config = await getHRouterConfig(database, organizationId);
 	const apiKey = await readEncryptedCredential(database, "hrouter_api_key", organizationId);
 	if (!apiKey || !config.model) throw new Error("尚未配置 HRouter API Key 与 GPT 模型");
-	const response = await fetch(`${config.baseUrl}/responses`, {
+	const fetchImpl = options.fetch ?? globalThis.fetch;
+	const response = await fetchImpl(`${config.baseUrl}/responses`, {
 		method: "POST",
 		signal: AbortSignal.timeout(180_000),
 		headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
