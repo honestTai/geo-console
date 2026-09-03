@@ -1,4 +1,4 @@
-import { IconRefresh } from "@tabler/icons-react";
+import { IconHelpCircle, IconRefresh } from "@tabler/icons-react";
 import { Alert, Form, Input, Space, Tag } from "antd";
 import { useEffect, useState } from "react";
 import { Button } from "../access";
@@ -63,6 +63,9 @@ export function Login({ error, onLogin }: { error: string | null; onLogin(user: 
 				{message && <Alert type="error" title={message} showIcon />}
 				<Button htmlType="submit" busy={busy} block>
 					登录
+				</Button>
+				<Button variant="link" icon={<IconHelpCircle size={16} />} href="/help/" target="_blank" block>
+					查看操作手册
 				</Button>
 			</Form>
 		</main>

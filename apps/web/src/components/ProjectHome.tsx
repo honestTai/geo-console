@@ -1,4 +1,4 @@
-import { IconChevronRight, IconPlus, IconSearch, IconSettings } from "@tabler/icons-react";
+import { IconChevronRight, IconHelpCircle, IconPlus, IconSearch, IconSettings } from "@tabler/icons-react";
 import { App as AntdApp, Button as AntdButton, Card, Form, Input, Modal, Space, Tag, Typography } from "antd";
 import { type ReactNode, useState } from "react";
 import { Button, usePermission } from "../access";
@@ -55,6 +55,9 @@ export function ProjectHome({
 				</div>
 				<div className="home-actions">
 					<Space size="middle" wrap>
+						<Button variant="secondary" icon={<IconHelpCircle size={17} />} href="/help/" target="_blank">
+							帮助
+						</Button>
 						{managementEntry && (
 							<Button
 								variant="secondary"
