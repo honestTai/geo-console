@@ -125,6 +125,7 @@ export function App() {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [evidenceFocus, setEvidenceFocus] = useState<EvidenceFocus>(null);
+	const [batchFocus, setBatchFocus] = useState<string | null>(null);
 	const [workbenchDraft, setWorkbenchDraft] = useState<string | null>(null);
 	const workspaceNavigation = useMemo<WorkspaceNavigation>(
 		() => ({
@@ -132,6 +133,10 @@ export function App() {
 			openEvidence: (captureId, batchId = null) => {
 				setEvidenceFocus({ captureId, batchId });
 				setView("evidence");
+			},
+			openBatch: (batchId) => {
+				setBatchFocus(batchId);
+				setView("monitor");
 			},
 			openWorkbench: (message) => {
 				setWorkbenchDraft(message ?? null);
@@ -222,6 +227,12 @@ export function App() {
 		if (availableViews.length && !availableViews.some((item) => item.id === view))
 			setView(availableViews[0]?.id ?? "overview");
 	}, [availableViews, view]);
+	// 切换业务视图时重新拉取项目：Agent、周期监测或其他成员在别的页面创建的批次/任务不能停留在打开项目时的快照里
+	const projectLoaded = project !== null && project.id === projectId;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: view 是触发时机；首次加载由 loadProject 的 effect 负责
+	useEffect(() => {
+		if (projectLoaded && !managementViews.includes(view)) void loadProject();
+	}, [view]);
 	// 切换视图时清掉报告页 Anchor 留下的 location.hash，避免残留到其他页面
 	// biome-ignore lint/correctness/useExhaustiveDependencies: view 是触发时机，effect 只操作 window.location
 	useEffect(() => {
@@ -351,7 +362,14 @@ export function App() {
 								/>
 							)}
 							{view === "overview" && <Overview project={project} refresh={loadProject} />}
-							{view === "monitor" && <Monitoring project={project} refresh={loadProject} />}
+							{view === "monitor" && (
+								<Monitoring
+									project={project}
+									refresh={loadProject}
+									focusBatchId={batchFocus}
+									onConsumeFocus={() => setBatchFocus(null)}
+								/>
+							)}
 							{view === "evidence" && (
 								<Evidence project={project} focus={evidenceFocus} onConsumeFocus={() => setEvidenceFocus(null)} />
 							)}

@@ -1,26 +1,22 @@
 import { IconCheck, IconFileText, IconPlus, IconTrash } from "@tabler/icons-react";
-import { Alert, Card, DatePicker, Descriptions, Input, Popconfirm, Select, Space, Tag } from "antd";
+import { Alert, Card, DatePicker, Input, Popconfirm, Select, Space, Tag } from "antd";
 import dayjs from "dayjs";
 import { useState } from "react";
 import { Button, useAgentRunPolling, usePermission } from "../access";
 import { api, patch, post } from "../api";
+import { useEvidenceIndex } from "../hooks/useEvidenceIndex";
 import { usePaginated } from "../hooks/usePagination";
-import {
-	type AgentRun,
-	agentStatusLabels,
-	DEFAULT_PAGE_SIZE,
-	type Paginated,
-	type Project,
-	type Task,
-	taskStatusLabels,
-} from "../types";
-import { Empty, Pagination } from "../ui/primitives";
+import { type AgentRun, DEFAULT_PAGE_SIZE, type Paginated, type Project, type Task, taskStatusLabels } from "../types";
+import { useWorkspaceNavigation } from "../ui/navigation";
+import { Empty, Pagination, SectionTitle } from "../ui/primitives";
+import { AgentDraftCard } from "./AgentDraft";
 import { Page } from "./Page";
 import "./Remediation.css";
 
 export function Remediation({ project, refresh }: { project: Project; refresh(): Promise<void> }) {
 	const [busy, setBusy] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const navigation = useWorkspaceNavigation();
 	const agentRunsPage = usePaginated<AgentRun>(
 		(page, pageSize) => {
 			const params = new URLSearchParams({
@@ -37,6 +33,12 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 	const visibleTasks = project.tasks.slice((taskPage - 1) * DEFAULT_PAGE_SIZE, taskPage * DEFAULT_PAGE_SIZE);
 	const latestBatch = project.batches[0]?.id;
 	useAgentRunPolling(agentRuns, agentRunsPage.reload);
+	const activeRuns = agentRuns.filter((run) =>
+		["queued", "running", "awaiting_approval", "failed"].includes(run.status),
+	);
+	// 草稿引用的证据按其批次翻译；待审批草稿通常都来自最近一个完成批次
+	const draftBatchId = activeRuns.find((run) => run.batch_id)?.batch_id ?? latestBatch ?? null;
+	const evidenceIndex = useEvidenceIndex(draftBatchId);
 	async function call(id: string, action: () => Promise<unknown>) {
 		setBusy(id);
 		setError(null);
@@ -50,9 +52,6 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 			setBusy(null);
 		}
 	}
-	const activeRuns = agentRuns.filter((run) =>
-		["queued", "running", "awaiting_approval", "failed"].includes(run.status),
-	);
 	return (
 		<Page
 			breadcrumb={project.name}
@@ -90,13 +89,26 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 		>
 			{error && <Alert type="error" showIcon title={error} />}
 			{activeRuns.length > 0 && (
-				<div className="remediation-runs">
-					{activeRuns.map((run) => (
-						<AgentRunAlert key={run.id} run={run} reload={agentRunsPage.reload} refresh={refresh} />
-					))}
-				</div>
+				<>
+					<SectionTitle title="Agent 草稿" count={activeRuns.length} description="批准后才会写入任务或内容简报。" />
+					<div className="agent-draft-list">
+						{activeRuns.map((run) => (
+							<AgentDraftCard
+								key={run.id}
+								run={run}
+								evidenceIndex={evidenceIndex}
+								onOpenEvidence={(captureId) => navigation.openEvidence(captureId, run.batch_id)}
+								tasks={project.tasks}
+								busy={busy === run.id}
+								onReject={() => call(run.id, () => post(`/api/agent-runs/${run.id}/reject`))}
+								onApprove={() => call(run.id, () => post(`/api/agent-runs/${run.id}/approve`))}
+							/>
+						))}
+					</div>
+					<Pagination {...agentRunsPage} onPage={(page) => void agentRunsPage.reload(page)} />
+				</>
 			)}
-			<Pagination {...agentRunsPage} onPage={(page) => void agentRunsPage.reload(page)} />
+			<SectionTitle title="整改任务" count={project.tasks.length || undefined} />
 			{project.tasks.length === 0 ? (
 				<Empty title="还没有整改任务" detail="先完成诊断，再把有证据的结论转换为可跟踪任务。" />
 			) : (
@@ -117,7 +129,6 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 	);
 }
 
-
 export function taskPriorityMeta(priority: string): { className: string; label: string } {
 	if (priority === "high") return { className: "high", label: "高优先级" };
 	if (priority === "medium" || priority === "mid") return { className: "mid", label: "中优先级" };
@@ -125,98 +136,6 @@ export function taskPriorityMeta(priority: string): { className: string; label: 
 }
 
 const STATUS_SELECT_OPTIONS = Object.entries(taskStatusLabels).map(([value, label]) => ({ value, label }));
-
-function AgentRunAlert({ run, reload, refresh }: { run: AgentRun; reload(): Promise<void>; refresh(): Promise<void> }) {
-	const purposeLabel = run.purpose === "content_brief" ? "内容简报" : "整改规划";
-	if (run.status === "awaiting_approval") {
-		return (
-			<Alert
-				type="warning"
-				showIcon
-				title={`HRouter Agent ${purposeLabel}草稿待人工审批`}
-				action={
-					<Space size={8}>
-						<Button
-							permission="agent.approve"
-							variant="secondary"
-							onClick={() => void post(`/api/agent-runs/${run.id}/reject`).then(() => reload())}
-						>
-							拒绝
-						</Button>
-						<Button
-							permission="agent.approve"
-							onClick={() =>
-								void post(`/api/agent-runs/${run.id}/approve`).then(async () => {
-									await reload();
-									await refresh();
-								})
-							}
-						>
-							批准并入库
-						</Button>
-					</Space>
-				}
-				description={run.draft ? <DraftView draft={run.draft} /> : undefined}
-			/>
-		);
-	}
-	if (run.status === "failed") {
-		return (
-			<Alert
-				type="error"
-				showIcon
-				title={`HRouter Agent ${purposeLabel}运行失败`}
-				description={run.error_message ?? undefined}
-			/>
-		);
-	}
-	return (
-		<Alert type="info" showIcon title={`HRouter Agent ${purposeLabel}${agentStatusLabels[run.status]}`} />
-	);
-}
-
-function DraftView({ draft }: { draft: Record<string, unknown> }) {
-	const entries = Object.entries(draft);
-	if (entries.length === 0) return <p className="muted">草稿为空。</p>;
-	return (
-		<Descriptions
-			size="small"
-			column={1}
-			bordered
-			items={entries.map(([key, value]) => ({ key, label: key, children: <DraftValue value={value} depth={0} /> }))}
-		/>
-	);
-}
-
-function DraftValue({ value, depth }: { value: unknown; depth: number }) {
-	if (value == null) return <>-</>;
-	if (typeof value === "string") return <>{value}</>;
-	if (typeof value === "number" || typeof value === "boolean") return <>{String(value)}</>;
-	if (depth >= 2) return <pre className="draft-leaf">{JSON.stringify(value, null, 2)}</pre>;
-	if (Array.isArray(value)) {
-		if (value.length === 0) return <>（空列表）</>;
-		return (
-			<ul className="draft-list">
-				{value.map((entry, index) => (
-					// biome-ignore lint/suspicious/noArrayIndexKey: 草稿为只读快照，无稳定 id，顺序即语义
-					<li key={index}>
-						<DraftValue value={entry} depth={depth + 1} />
-					</li>
-				))}
-			</ul>
-		);
-	}
-	return (
-		<ul className="draft-list">
-			{Object.entries(value as Record<string, unknown>).map(([key, entry]) => (
-				<li key={key}>
-					<b>{key}：</b>
-					<DraftValue value={entry} depth={depth + 1} />
-				</li>
-			))}
-		</ul>
-	);
-}
 
 export function TaskItem({
 	task,

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { runOneAgentJob } from "./agent-jobs";
 import { answerQuestion, cancelSession, listSessionEvents, resumeWaitingSessions, sendMessage } from "./workbench";
 
-async function seedSession(status = "idle", waiting: unknown = null, autoApprove = true) {
+async function seedSession(status = "idle", waiting: unknown = null, autoApprove = true, plan: unknown[] = []) {
 	const database = openMemoryDatabase();
 	await migrateDatabase(database);
 	await database.query(
@@ -14,11 +14,20 @@ async function seedSession(status = "idle", waiting: unknown = null, autoApprove
 		`INSERT INTO users (id,organization_id,email,display_name,password_hash,role) VALUES ('user','default','a@b.c','成员','x','admin')`,
 	);
 	await database.query(
-		`INSERT INTO agent_sessions (id,organization_id,project_id,title,status,auto_approve,waiting,created_by)
-		 VALUES ('session','default','project','跑基线',$1,$2,$3::jsonb,'user')`,
-		[status, autoApprove, waiting ? JSON.stringify(waiting) : null],
+		`INSERT INTO agent_sessions (id,organization_id,project_id,title,status,auto_approve,waiting,plan,created_by)
+		 VALUES ('session','default','project','跑基线',$1,$2,$3::jsonb,$4::jsonb,'user')`,
+		[status, autoApprove, waiting ? JSON.stringify(waiting) : null, JSON.stringify(plan)],
 	);
 	return database;
+}
+
+async function readPlan(database: Awaited<ReturnType<typeof seedSession>>) {
+	const row = (
+		await database.query<{ plan: Array<{ key: string; label: string; status: string; detail: string | null }> }>(
+			"SELECT plan FROM agent_sessions WHERE id='session'",
+		)
+	).rows[0];
+	return row.plan;
 }
 
 describe("AI 工作台会话", () => {
@@ -109,20 +118,21 @@ describe("AI 工作台会话", () => {
 		}
 	});
 
-	it("批次完成后唤醒等待中的会话", async () => {
-		const database = await seedSession("waiting_job", {
-			kind: "batch",
-			id: "batch",
-			label: "正式基线采集",
-			toolCallId: "call-2",
-		});
+	it("批次完成后唤醒等待中的会话，并把采集步骤标记为完成", async () => {
+		const database = await seedSession(
+			"waiting_job",
+			{ kind: "batch", id: "batch", label: "等待正式基线采集完成", toolCallId: "call-2", stepKey: "batch" },
+			true,
+			[{ key: "batch", label: "正式基线采集", status: "running", ref: "batch", detail: "3 个采集任务" }],
+		);
 		try {
 			await database.query(
 				`INSERT INTO experiment_batches (id,project_id,kind,status,config,config_hash)
 				 VALUES ('batch','project','baseline','running','{"project":{"name":"客户","domain":"brand.example","region":"成都","language":"zh-CN","aliases":["客户"]},"competitors":[],"prompts":[],"platforms":["deepseek_api"],"repeats":1}'::jsonb,'hash')`,
 			);
 			expect(await resumeWaitingSessions(database)).toBe(0);
-			await database.query("UPDATE experiment_batches SET status='complete' WHERE id='batch'");
+			expect((await readPlan(database))[0].status).toBe("running");
+			await database.query("UPDATE experiment_batches SET status='partial' WHERE id='batch'");
 			expect(await resumeWaitingSessions(database)).toBe(1);
 			const job = (
 				await database.query<{ payload: { trigger: string; message: string } }>(
@@ -130,9 +140,64 @@ describe("AI 工作台会话", () => {
 				)
 			).rows[0];
 			expect(job.payload.trigger).toBe("resume");
-			expect(job.payload.message).toContain("complete");
+			expect(job.payload.message).toContain("partial");
 			const events = await listSessionEvents(database, "session", 0);
 			expect(events.items.some((event) => event.type === "resumed")).toBe(true);
+			expect(events.items.some((event) => event.type === "step")).toBe(true);
+			const [step] = await readPlan(database);
+			expect(step).toMatchObject({ key: "batch", label: "正式基线采集", status: "done" });
+			expect(step.detail).toBe("3 个采集任务 · 部分平台失败，原始证据已保留");
+		} finally {
+			await database.close();
+		}
+	});
+
+	it("报告工作流的等待不改 report 步骤，旧会话缺少 stepKey 时按 run 推导", async () => {
+		const database = await seedSession(
+			"waiting_job",
+			{ kind: "agent_run", id: "run", label: "等待报告叙述完成", toolCallId: "call-2b", stepKey: "report" },
+			true,
+			[
+				{ key: "report", label: "报告叙述与质检", status: "running", detail: "叙述生成中" },
+				{ key: "run:draft", label: "模型诊断", status: "running" },
+			],
+		);
+		try {
+			await database.query(
+				`INSERT INTO agent_runs (id,project_id,purpose,status,model,prompt_version,session_id)
+				 VALUES ('run','project','report_narrative','approved','gpt-test','test','session'),
+				        ('draft','project','diagnosis','failed','gpt-test','test','session')`,
+			);
+			expect(await resumeWaitingSessions(database)).toBe(1);
+			expect((await readPlan(database))[0]).toMatchObject({ key: "report", status: "running", detail: "叙述生成中" });
+			await database.query(`UPDATE agent_sessions SET status='waiting_job',waiting=$1::jsonb WHERE id='session'`, [
+				JSON.stringify({ kind: "agent_run", id: "draft", label: "模型诊断", toolCallId: "call-2c" }),
+			]);
+			await database.query("UPDATE agent_runs SET error_message='模型超时' WHERE id='draft'");
+			expect(await resumeWaitingSessions(database)).toBe(1);
+			expect((await readPlan(database))[1]).toMatchObject({ key: "run:draft", status: "failed", detail: "模型超时" });
+		} finally {
+			await database.close();
+		}
+	});
+
+	it("文章草稿全部落地后收尾会话的优化文章步骤", async () => {
+		const database = await seedSession("done", null, true, [
+			{ key: "articles", label: "优化文章", status: "running", ref: "batch", detail: "2 篇排队" },
+		]);
+		try {
+			await database.query(
+				`INSERT INTO agent_runs (id,project_id,purpose,status,model,prompt_version,session_id)
+				 VALUES ('a1','project','optimization_article','approved','gpt-test','test','session'),
+				        ('a2','project','optimization_article','queued','gpt-test','test','session')`,
+			);
+			await resumeWaitingSessions(database);
+			expect((await readPlan(database))[0].status).toBe("running");
+			await database.query("UPDATE agent_runs SET status='failed' WHERE id='a2'");
+			await resumeWaitingSessions(database);
+			expect((await readPlan(database))[0]).toMatchObject({ status: "done", detail: "1 篇已生成，1 篇失败" });
+			const events = await listSessionEvents(database, "session", 0);
+			expect(events.items.filter((event) => event.type === "step")).toHaveLength(1);
 		} finally {
 			await database.close();
 		}

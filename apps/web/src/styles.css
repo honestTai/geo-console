@@ -1618,18 +1618,7 @@ input[type="radio"] {
 	margin-top: 2px;
 }
 
-/* ---- Agent 草稿与漂移告警 ---- */
-
-.agent-draft {
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) auto;
-	gap: 18px;
-	border: 1px solid var(--line);
-	background: var(--surface);
-	border-radius: var(--radius);
-	padding: 16px;
-	margin: 14px 0;
-}
+/* ---- 漂移告警 / 成本条 ---- */
 
 .cost-strip {
 	display: grid;
@@ -1669,32 +1658,6 @@ input[type="radio"] {
 	font-size: 13px;
 	margin: 4px 0;
 	font-variant-numeric: tabular-nums;
-}
-
-.agent-draft h3,
-.agent-draft p {
-	margin: 4px 0;
-}
-
-.agent-draft h3 {
-	font-size: 15px;
-}
-
-.agent-draft p {
-	font-size: 13px;
-	line-height: 1.6;
-	color: var(--ink-2);
-}
-
-.agent-draft pre {
-	max-height: 260px;
-	overflow: auto;
-	white-space: pre-wrap;
-	font-size: 12px;
-	line-height: 1.6;
-	background: var(--surface-2);
-	border-radius: var(--radius-s);
-	padding: 10px;
 }
 
 /* ---- 报告工作台 ---- */
@@ -1919,36 +1882,6 @@ input[type="radio"] {
 	margin: 4px 0 0;
 	color: #8f2b1e;
 	white-space: pre-wrap;
-}
-
-.agent-draft-content {
-	display: grid;
-	gap: 1px;
-	margin-top: 10px;
-	background: var(--line);
-	border: 1px solid var(--line);
-	border-radius: var(--radius);
-	overflow: hidden;
-}
-
-.agent-draft-content > div {
-	padding: 11px 13px;
-	background: var(--surface-2);
-}
-
-/* 只作用于每个分组的标题 span，避免把引用芯片等内联 span 也变成块级 */
-.agent-draft-content > div > span {
-	display: block;
-	font-size: 12px;
-	font-weight: 700;
-	color: var(--ink-3);
-}
-
-.agent-draft-content p,
-.agent-draft-content ul {
-	margin: 6px 0 0;
-	line-height: 1.6;
-	font-size: 12.5px;
 }
 
 /* ---- 报告资产 / 分享 / 快照 ---- */

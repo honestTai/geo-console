@@ -351,7 +351,7 @@ export type AgentSessionPlanStep = {
 };
 export type AgentSessionWaiting =
 	| { kind: "user"; question: string; options: string[]; multiple: boolean; toolCallId: string }
-	| { kind: "batch" | "agent_run" | "report"; id: string; label: string; toolCallId: string };
+	| { kind: "batch" | "agent_run" | "report"; id: string; label: string; toolCallId: string; stepKey?: string };
 export type WorkbenchSession = {
 	id: string;
 	title: string;

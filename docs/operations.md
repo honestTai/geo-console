@@ -55,7 +55,7 @@ Agent 请求只创建 `agent_draft` 数据库任务并立即返回。Agent Worke
 
 ## AI 工作台
 
-会话状态：`idle`（等待指令）、`running`（Agent 回合执行中）、`waiting_user`（等待成员回答问题或手动审批）、`waiting_job`（等待批次/Agent run/报告 PDF 完成）、`done`、`failed`。协调器由 Agent Worker 每 5 秒运行：自动批准工作台草稿并推进报告工作流，唤醒等待对象已完成的会话（入队 `agent_session_turn`）。会话卡在 `waiting_job` 时先看等待对象本身（批次是否完成、Agent run 是否终态、报告是否有 `pdf_artifact_key`）；卡在 `running` 超过 20 分钟且无 pending/leased 回合任务会被自动标为 failed，成员重新发送消息即可续跑（transcript 保留）。不要手工修改 `transcript`；终止会话只改状态，不会取消已排队的批次。
+会话状态：`idle`（等待指令）、`running`（Agent 回合执行中）、`waiting_user`（等待成员回答问题或手动审批）、`waiting_job`（等待批次/Agent run/报告 PDF 完成）、`done`、`failed`。协调器由 Agent Worker 每 5 秒运行：自动批准工作台草稿并推进报告工作流，唤醒等待对象已完成的会话（入队 `agent_session_turn`），并把 `agent_sessions.plan` 中对应步骤按结果改为 `done/failed`；会话 `done` 后仍在后台生成的优化文章由协调器在全部 run 落地后收尾。会话卡在 `waiting_job` 时先看等待对象本身（批次是否完成、Agent run 是否终态、报告是否有 `pdf_artifact_key`）；卡在 `running` 超过 20 分钟且无 pending/leased 回合任务会被自动标为 failed，成员重新发送消息即可续跑（transcript 保留）。工作台“执行进度”里某步长期显示“后台进行中”，对应看该会话 `optimization_article` run 是否卡在 `queued/running`。不要手工修改 `transcript` 或 `plan`；终止会话只改状态，不会取消已排队的批次。
 
 优化文章 run（`purpose='optimization_article'`）到 `awaiting_approval` 后由协调器自动物化到 `optimization_articles`，失败会写 `error_message`；重新生成会覆盖同一建议的文章并递增 `version`。
 

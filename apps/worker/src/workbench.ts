@@ -332,6 +332,31 @@ function planUpsert(plan: AgentSessionPlanStep[], step: AgentSessionPlanStep): A
 	return next;
 }
 
+/** 只更新已存在的步骤；步骤不存在时原样返回，避免为历史会话凭空补步骤。 */
+function planPatch(
+	plan: AgentSessionPlanStep[],
+	key: string,
+	patch: Pick<AgentSessionPlanStep, "status"> & { detail?: string | null },
+): AgentSessionPlanStep[] {
+	if (!plan.some((step) => step.key === key)) return plan;
+	return plan.map((step) =>
+		step.key === key
+			? { ...step, status: patch.status, ...(patch.detail !== undefined ? { detail: patch.detail } : {}) }
+			: step,
+	);
+}
+
+type WaitTarget = Exclude<AgentSessionWaiting, { kind: "user" }>;
+
+/** 报告叙述/质检/PDF 的等待都归入 advance_report 维护的 report 步骤，不再各自生成一条“等待…”。 */
+const REPORT_WORKFLOW_PURPOSES = new Set(["report_narrative", "quality_review"]);
+
+/** 等待对象对应的计划步骤 key；旧会话的 waiting 没有 stepKey 时按原规则推导。 */
+function waitStepKey(waiting: WaitTarget): string {
+	if (waiting.stepKey) return waiting.stepKey;
+	return waiting.kind === "batch" ? "batch" : waiting.kind === "report" ? "report_document" : `run:${waiting.id}`;
+}
+
 const platformsSchema = Type.Array(Type.Union(searchProviderIds.map((id) => Type.Literal(id))), {
 	minItems: 1,
 	description: "监测平台 ID 列表",
@@ -348,13 +373,14 @@ async function createWorkbenchTools(
 	const projectId = session.project_id;
 	const organizationId = session.organization_id;
 	const allowedEvidence = await knownEvidenceIds(database, projectId, session.current_batch_id);
-	const waitFor = async (waiting: AgentSessionWaiting, stepKey: string, label: string) => {
-		control.waiting = waiting;
+	const waitFor = async (waiting: WaitTarget, stepKey: string, label: string) => {
+		control.waiting = { ...waiting, stepKey };
+		const existing = control.plan.find((step) => step.key === stepKey);
 		control.plan = planUpsert(control.plan, {
 			key: stepKey,
-			label,
+			label: existing?.label ?? label,
 			status: "running",
-			ref: "id" in waiting ? waiting.id : null,
+			ref: waiting.id,
 		});
 		await persistControl();
 		await emit("waiting", { waiting });
@@ -618,6 +644,7 @@ async function createWorkbenchTools(
 			// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: wait_for validates ownership and completion for each waitable kind.
 			execute: async (toolCallId, params) => {
 				const { kind, id, label } = params as { kind: "batch" | "agent_run" | "report"; id: string; label: string };
+				let stepKey = kind === "batch" ? "batch" : kind === "report" ? "report" : `run:${id}`;
 				if (kind === "batch") {
 					const batch = await ensureBatch(id);
 					if (["complete", "partial"].includes(String(batch.status)))
@@ -625,14 +652,15 @@ async function createWorkbenchTools(
 				}
 				if (kind === "agent_run") {
 					const run = (
-						await database.query<{ status: string; project_id: string }>(
-							"SELECT status,project_id FROM agent_runs WHERE id=$1",
+						await database.query<{ status: string; project_id: string; purpose: string }>(
+							"SELECT status,project_id,purpose FROM agent_runs WHERE id=$1",
 							[id],
 						)
 					).rows[0];
 					if (!run || run.project_id !== projectId) throw new Error("Agent 运行不存在或不属于当前客户");
 					if (["approved", "rejected", "failed"].includes(run.status))
 						return toolResult({ alreadyDone: true, status: run.status });
+					if (REPORT_WORKFLOW_PURPOSES.has(run.purpose)) stepKey = "report";
 				}
 				if (kind === "report") {
 					const report = (
@@ -644,7 +672,6 @@ async function createWorkbenchTools(
 					if (!report || report.project_id !== projectId) throw new Error("报告不存在或不属于当前客户");
 					if (report.pdf_artifact_key) return toolResult({ alreadyDone: true, status: "ready" });
 				}
-				const stepKey = kind === "batch" ? "batch" : kind === "report" ? "report_document" : `run:${id}`;
 				return waitFor({ kind, id, label, toolCallId }, stepKey, label);
 			},
 		},
@@ -808,15 +835,16 @@ async function createWorkbenchTools(
 				const { batchId } = params as { batchId: string };
 				await ensureBatch(batchId);
 				const result = await generateArticlesForBatch(database, batchId, { sessionId: session.id });
+				const status = result.queued.length ? "running" : "done";
 				control.plan = planUpsert(control.plan, {
 					key: "articles",
 					label: "优化文章",
-					status: result.queued.length ? "running" : "done",
+					status,
 					ref: batchId,
 					detail: `${result.queued.length} 篇排队`,
 				});
 				await persistControl();
-				await emit("step", { key: "articles", status: "running", detail: `${result.queued.length} 篇排队` });
+				await emit("step", { key: "articles", status, detail: `${result.queued.length} 篇排队` });
 				return toolResult(result);
 			},
 		},
@@ -1061,7 +1089,11 @@ type WaitingSession = {
 	auto_approve: boolean;
 	created_by: string | null;
 	waiting: unknown;
+	plan: unknown;
 };
+
+/** 等待对象到达终态后，对应计划步骤的结果；report 步骤由 advance_report 维护，这里不改。 */
+type WaitOutcome = { status: "done" | "failed"; detail?: string | null };
 
 async function describeBatch(database: Database, batchId: string): Promise<string> {
 	const batch = await getBatch(database, batchId);
@@ -1140,18 +1172,28 @@ export async function resumeWaitingSessions(database: Database): Promise<number>
 	// 2. 唤醒等待后台对象的会话。
 	const waitingSessions = (
 		await database.query<WaitingSession>(
-			"SELECT id,project_id,auto_approve,created_by,waiting FROM agent_sessions WHERE status='waiting_job' AND waiting IS NOT NULL",
+			"SELECT id,project_id,auto_approve,created_by,waiting,plan FROM agent_sessions WHERE status='waiting_job' AND waiting IS NOT NULL",
 		)
 	).rows;
 	for (const session of waitingSessions) {
 		const waiting = parseJsonColumn<AgentSessionWaiting>(session.waiting as string | AgentSessionWaiting);
 		if (waiting.kind === "user") continue;
+		const plan = parseJsonColumn<AgentSessionPlanStep[]>(session.plan as string | AgentSessionPlanStep[]);
+		const stepKey = waitStepKey(waiting);
+		const stepDetail = plan.find((step) => step.key === stepKey)?.detail ?? null;
 		let summary: string | null = null;
+		let outcome: WaitOutcome | null = null;
 		if (waiting.kind === "batch") {
 			const batch = (
 				await database.query<{ status: string }>("SELECT status FROM experiment_batches WHERE id=$1", [waiting.id])
 			).rows[0];
-			if (batch && ["complete", "partial"].includes(batch.status)) summary = await describeBatch(database, waiting.id);
+			if (batch && ["complete", "partial"].includes(batch.status)) {
+				summary = await describeBatch(database, waiting.id);
+				outcome =
+					batch.status === "partial"
+						? { status: "done", detail: [stepDetail, "部分平台失败，原始证据已保留"].filter(Boolean).join(" · ") }
+						: { status: "done" };
+			}
 		} else if (waiting.kind === "agent_run") {
 			const run = (
 				await database.query<{ status: string; purpose: string; error_message: string | null; draft: unknown }>(
@@ -1164,6 +1206,13 @@ export async function resumeWaitingSessions(database: Database): Promise<number>
 					? parseJsonColumn<Record<string, unknown>>(run.draft as string | Record<string, unknown>)
 					: {};
 				summary = `${purposeLabels[run.purpose] ?? run.purpose} ${waiting.id} 状态 ${run.status}${run.error_message ? `：${run.error_message}` : ""}${draft.summary ? `。摘要：${String(draft.summary).slice(0, 600)}` : ""}${draft.verdict ? `。质检结论：${String(draft.verdict)}` : ""}`;
+				outcome =
+					run.status === "approved"
+						? { status: "done" }
+						: {
+								status: "failed",
+								detail: (run.error_message ?? (run.status === "rejected" ? "草稿已拒绝" : "运行失败")).slice(0, 120),
+							};
 			} else if (run && run.status === "awaiting_approval" && !session.auto_approve) {
 				// 手动模式：把审批交还用户。
 				await database.query(
@@ -1194,13 +1243,56 @@ export async function resumeWaitingSessions(database: Database): Promise<number>
 					[waiting.id],
 				)
 			).rows[0];
-			if (report?.pdf_artifact_key) summary = `报告《${report.title}》PDF 已生成（报告 ID ${waiting.id}）。`;
+			if (report?.pdf_artifact_key) {
+				summary = `报告《${report.title}》PDF 已生成（报告 ID ${waiting.id}）。`;
+				outcome = { status: "done", detail: "PDF/Word 已生成" };
+			}
 		}
-		if (!summary) continue;
-		await database.query("UPDATE agent_sessions SET status='running',updated_at=now() WHERE id=$1", [session.id]);
+		if (!summary || !outcome) continue;
+		const nextPlan = stepKey === "report" ? plan : planPatch(plan, stepKey, outcome);
+		await database.query("UPDATE agent_sessions SET status='running',plan=$2::jsonb,updated_at=now() WHERE id=$1", [
+			session.id,
+			JSON.stringify(nextPlan),
+		]);
+		if (nextPlan !== plan)
+			await appendEvent(database, session.id, "step", {
+				key: stepKey,
+				status: outcome.status,
+				detail: outcome.detail ?? null,
+			});
 		await appendEvent(database, session.id, "resumed", { kind: waiting.kind, id: waiting.id, summary });
 		await enqueueTurn(database, { sessionId: session.id, trigger: "resume", message: summary });
 		resumed += 1;
+	}
+	// 3. 文章草稿是后台物化的，会话通常在它们完成前就已结束：全部落地后再收尾“优化文章”步骤。
+	const articleSessions = (
+		await database.query<{ id: string; plan: unknown; pending: number; approved: number; failed: number }>(
+			`SELECT s.id,s.plan,
+			   count(*) FILTER (WHERE r.status IN ('queued','running','awaiting_approval'))::int AS pending,
+			   count(*) FILTER (WHERE r.status='approved')::int AS approved,
+			   count(*) FILTER (WHERE r.status IN ('failed','rejected'))::int AS failed
+			 FROM agent_sessions s JOIN agent_runs r ON r.session_id=s.id AND r.purpose='optimization_article'
+			 WHERE s.plan @> '[{"key":"articles","status":"running"}]'::jsonb
+			 GROUP BY s.id,s.plan`,
+		)
+	).rows;
+	for (const session of articleSessions) {
+		if (session.pending > 0) continue;
+		const outcome: WaitOutcome = {
+			status: session.approved > 0 ? "done" : "failed",
+			detail:
+				session.failed > 0 ? `${session.approved} 篇已生成，${session.failed} 篇失败` : `${session.approved} 篇已生成`,
+		};
+		const plan = parseJsonColumn<AgentSessionPlanStep[]>(session.plan as string | AgentSessionPlanStep[]);
+		await database.query("UPDATE agent_sessions SET plan=$2::jsonb,updated_at=now() WHERE id=$1", [
+			session.id,
+			JSON.stringify(planPatch(plan, "articles", outcome)),
+		]);
+		await appendEvent(database, session.id, "step", {
+			key: "articles",
+			status: outcome.status,
+			detail: outcome.detail,
+		});
 	}
 	return resumed;
 }

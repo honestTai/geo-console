@@ -46,6 +46,8 @@ Tauri 2 桌面客户端是所有用户的正式产品壳，正式版加载同域
 - 平台设置用本地真实品牌 Logo 的平台导航切换五个平台，每次只渲染当前平台表单；HRouter GPT 配置保持独立。
 - 桌面使用固定侧栏；390px 移动端使用可横向滚动的底部图标导航，避免菜单增加后压缩点击目标。
 - 总览和监测图表只渲染 API 返回的真实、可比批次数据；没有数据时显示空状态，不内置示例客户或指标。
+- 项目数据不是打开客户时的一次性快照：切换业务视图会重新拉取项目，AI 监测页在停留期间定期刷新批次列表并在批次详情状态与列表不一致时同步；工作台会话拿到 `current_batch_id` 时立即刷新，“查看批次”通过 `openBatch` 跳转并选中该批次。Agent、周期监测或其他成员创建的批次因此无需整页刷新即可出现。
+- Agent 草稿（诊断、整改规划、内容简报、报告叙述、质检、文章）统一由 `components/AgentDraft.tsx` 按用途分节渲染：首屏只放结论摘要与概览标签（大纲/事实缺口/证据条数），完整草稿收进“查看草稿详情”；证据 ID 显示为 `EvidenceRef` 引用、任务 ID 显示为任务标题、其余 ID 走 `IdChip`，不再按 JSON 键名平铺英文字段或裸 UUID。
 - AI 监测运行面板以批次状态、预期样本数和 `query_captures` 生成真实进度与采集日志；重新运行会创建实际批次，不使用前端动画伪造后台结果。
 - 复测报告先显示管理摘要、核心指标和整改前后对比，再进入证据、叙述与导出等详细内容。
 - 官网与工作台共用一个 Web 镜像但目录隔离：`/srv` 是官网，本地生成的 Vite dist 位于 `/srv/app`。官网“进入工作台”只导航到 `/app/`。
@@ -70,6 +72,8 @@ Tauri 2 桌面客户端是所有用户的正式产品壳，正式版加载同域
 `agent_sessions` 保存一段与内置 HRouter Agent 的对话：`transcript` 是 pi-agent-core 的 AgentMessage 列表，每回合用 `initialState.messages` 恢复后继续；`agent_session_events` 以递增 `seq` 记录用户消息、Agent 增量文本、工具调用、提问、等待与自动批准事件，前端按 `after=seq` 增量轮询。工作台工具只复用现有 service：`suggest_questions/apply_scope`（版本化监测范围）、`create_batch`、`run_site_audit`、`run_rule_diagnosis`、`run_agent_draft`、`advance_report`、`generate_articles`、`verify_batch`，以及只读证据工具。
 
 会话不会阻塞 Worker：`ask_user` 与 `wait_for` 都以 `terminate` 结束当前回合并把 `waiting` 写入会话；用户回答或协调器发现批次 `complete/partial`、Agent run 终态、报告 PDF 就绪后，入队 `agent_session_turn(resume)` 续跑。`auto_approve=true` 时协调器代表会话创建者批准该会话产生的草稿，`agent_runs.approved_via='workbench'` 且审计日志带 `sessionId`；关闭自动模式则回到 `waiting_user` 等待成员在对应页面审批。文章草稿 run 由协调器以 `auto_article` 直接物化，不需要人工审批。运行 20 分钟以上且无待处理任务的会话会被置为 failed。
+
+`agent_sessions.plan` 是右侧“执行进度”的事实源：工具创建步骤时写 `running`，`wait_for` 只把已有步骤（`waiting.stepKey`）置为等待，不再另起“等待…”条目；报告叙述/质检/PDF 的等待都归入 `advance_report` 维护的 `report` 步骤。协调器唤醒会话时按结果把等待步骤改为 `done/failed`（partial 批次、被拒绝或失败的 run 写入 `detail`），并追加 `step` 事件；会话结束后仍在后台生成的优化文章步骤由协调器在全部 run 落地后收尾。前端不再把“会话已完成但步骤仍 running”渲染为失败，只有会话本身失败/终止时才这样标记。
 
 ## 不变量
 

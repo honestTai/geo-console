@@ -49,7 +49,8 @@ Provider 的实时默认值以 `apps/worker/src/providers.ts` 为准：
 - 报告工作流是幂等推进：叙述批准后自动排队质量检查，质量检查批准通过后自动冻结同一叙述版本并排队 PDF/Word；`awaiting_approval` 仍是人工停点，只有 AI 工作台会话在 `auto_approve=true` 时由协调器代表会话创建者批准（`approved_via='workbench'`，审计带 `sessionId`），以及 `optimization_article` 由协调器 `auto_article` 物化。
 - `agent_runs` 新增 `session_id`、`approved_via`、`thinking_level`、`target_ref`；`optimization_article` 的 `target_ref` 必须指向已批准 `report_narrative` run 与建议序号，草稿 `targetPromptIds` 必须属于当前项目。
 - 思考强度取自机构 HRouter 配置 `thinkingLevel`（minimal/low/medium/high/xhigh，默认 low），会话或 run 可覆盖；模型仍限定 GPT 系列。
-- AI 工作台会话：`agent_sessions.transcript` 是 pi-agent-core AgentMessage 列表，`waiting` 只能是 user/batch/agent_run/report 之一并带 `toolCallId`；续跑以工具结果消息追加到 transcript，不重写历史。`agent_session_events.seq` 单调递增，前端只做增量拉取。工作台工具必须复用现有 service（createBatch/confirmProject/auditProject/diagnoseBatch/advanceReportWorkflow/generateArticlesForBatch），不得直接写证据表。
+- AI 工作台会话：`agent_sessions.transcript` 是 pi-agent-core AgentMessage 列表，`waiting` 只能是 user/batch/agent_run/report 之一并带 `toolCallId`（后台等待还带 `stepKey`，缺省时按 batch/report_document/run:id 推导）；续跑以工具结果消息追加到 transcript，不重写历史。`agent_session_events.seq` 单调递增，前端只做增量拉取。工作台工具必须复用现有 service（createBatch/confirmProject/auditProject/diagnoseBatch/advanceReportWorkflow/generateArticlesForBatch），不得直接写证据表。
+- `agent_sessions.plan` 步骤状态：`wait_for` 只复用已有步骤并保留其 label；`report_narrative/quality_review` run 和报告 PDF 的等待归入 `report` 步骤（状态由 `advance_report` 维护）；协调器唤醒时把等待步骤置为 `done`（partial 批次附说明）或 `failed`（rejected/failed run 附 error），并写 `step` 事件；`articles` 步骤在该会话所有 `optimization_article` run 落地后由协调器收尾（有 approved 即 done，否则 failed）。步骤只能被更新，不能为历史会话凭空补步骤。
 - 报告 `ReportAnalysis.evidenceIndex` 按采集时间为 capture、网页快照、审计编号；冻结快照后编号不变，HTML/Word/CSV 只能用编号与可读字段引用，不再输出裸 UUID。`perceptionExcerpts` 过滤模型推理草稿句；口碑来源 URL 去掉 `#ws_call_id=` 类追踪片段后展示，但校验仍以原始 `sources` 为准。
 
 ## 网站、报告与安全
