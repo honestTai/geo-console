@@ -323,9 +323,9 @@ export type AgentSessionStatus = "idle" | "running" | "waiting_user" | "waiting_
 
 export type AgentSessionWaiting =
 	| { kind: "user"; question: string; options: string[]; multiple: boolean; toolCallId: string }
-	| { kind: "batch"; id: string; label: string; toolCallId: string }
-	| { kind: "agent_run"; id: string; label: string; toolCallId: string }
-	| { kind: "report"; id: string; label: string; toolCallId: string };
+	| { kind: "batch"; id: string; label: string; toolCallId: string; stepKey?: string }
+	| { kind: "agent_run"; id: string; label: string; toolCallId: string; stepKey?: string }
+	| { kind: "report"; id: string; label: string; toolCallId: string; stepKey?: string };
 
 export type AgentSessionPlanStep = {
 	key: string;

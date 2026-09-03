@@ -15,6 +15,7 @@ import { Button, usePermission } from "../access";
 import { api, patch, post } from "../api";
 import {
 	type AgentSessionPlanStep,
+	type AgentSessionStatus,
 	type Paginated,
 	type Project,
 	sessionStatusLabel,
@@ -237,9 +238,29 @@ function foldEvents(events: WorkbenchEvent[]): Bubble[] {
 	return bubbles;
 }
 
-/** 会话已结束（完成/失败/终止）时，尚未跑完的步骤不再转圈，按结果标记。 */
-function PlanSteps({ plan, ended }: { plan: AgentSessionPlanStep[]; ended: boolean }) {
+type StepsStatus = "wait" | "process" | "finish" | "error";
+
+const EVIDENCE_UUID_REF = /\[([0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\]/gi;
+
+/** Agent 偶尔把证据 UUID 原样写进回复；展示时缩成“[证据 2cd12b7e]”，完整 ID 仍留在会话记录与审计日志里。 */
+export function humanizeEvidenceRefs(text: string): string {
+	return text.replace(EVIDENCE_UUID_REF, "[证据 $1]");
+}
+
+/**
+ * 计划步骤 → antd Steps 状态。会话结束后尚未跑完的步骤不再转圈：会话失败/终止时按失败标记；
+ * 会话正常完成时这些步骤（如仍在后台生成的优化文章）显示为进行中，等协调器把它们收尾。
+ */
+function planStepStatus(step: AgentSessionPlanStep, sessionStatus: AgentSessionStatus): StepsStatus {
+	if (step.status === "done") return "finish";
+	if (step.status === "failed") return "error";
+	if (step.status !== "running") return "wait";
+	return sessionStatus === "failed" ? "error" : "process";
+}
+
+function PlanSteps({ plan, sessionStatus }: { plan: AgentSessionPlanStep[]; sessionStatus: AgentSessionStatus }) {
 	if (!plan.length) return null;
+	const ended = ["done", "failed"].includes(sessionStatus);
 	return (
 		<Steps
 			className="wb-plan"
@@ -247,17 +268,12 @@ function PlanSteps({ plan, ended }: { plan: AgentSessionPlanStep[]; ended: boole
 			orientation="vertical"
 			items={plan.map((step) => {
 				const running = step.status === "running" && !ended;
+				const background = step.status === "running" && sessionStatus === "done";
+				const detail = step.detail ?? undefined;
 				return {
 					title: step.label,
-					description: step.detail ?? undefined,
-					status:
-						step.status === "done"
-							? "finish"
-							: step.status === "failed" || (step.status === "running" && ended)
-								? "error"
-								: running
-									? "process"
-									: "wait",
+					content: background ? [detail, "后台进行中"].filter(Boolean).join(" · ") : detail,
+					status: planStepStatus(step, sessionStatus),
 					icon: running ? <IconLoader2 className="spin" size={16} /> : undefined,
 				};
 			})}
@@ -280,7 +296,7 @@ function QuestionCard({
 	return (
 		<div className="wb-question">
 			<div className="wb-question-text">
-				<FormattedAnswer value={bubble.question} />
+				<FormattedAnswer value={humanizeEvidenceRefs(bubble.question)} />
 			</div>
 			{!bubble.answered && (
 				<>
@@ -369,7 +385,11 @@ export function Workbench({
 	const [draft, setDraft] = useState(initialMessage ?? "");
 	const [busy, setBusy] = useState(false);
 	const [models, setModels] = useState<string[]>([]);
-	const [newSession, setNewSession] = useState<{ model: string | null; thinkingLevel: string | null; autoApprove: boolean }>({
+	const [newSession, setNewSession] = useState<{
+		model: string | null;
+		thinkingLevel: string | null;
+		autoApprove: boolean;
+	}>({
 		model: null,
 		thinkingLevel: null,
 		autoApprove: true,
@@ -434,6 +454,11 @@ export function Workbench({
 			void refresh().catch(() => undefined);
 		}
 	}, [session?.status, session, loadSessions, refresh]);
+	// Agent 创建批次后立即刷新项目，项目总览/AI 监测拿到的批次列表才包含它。
+	const currentBatchId = session?.current_batch_id ?? null;
+	useEffect(() => {
+		if (currentBatchId) void refresh().catch(() => undefined);
+	}, [currentBatchId, refresh]);
 	const bubbles = useMemo(() => foldEvents(events), [events]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: 事件数量变化时滚到底部。
 	useEffect(() => {
@@ -485,7 +510,11 @@ export function Workbench({
 			message.error(reason instanceof Error ? reason.message : "提交失败");
 		}
 	}
-	async function updateSettings(values: { autoApprove?: boolean; thinkingLevel?: string | null; model?: string | null }) {
+	async function updateSettings(values: {
+		autoApprove?: boolean;
+		thinkingLevel?: string | null;
+		model?: string | null;
+	}) {
 		if (!activeId) return;
 		try {
 			await patch(`/api/workbench/sessions/${activeId}/settings`, values);
@@ -725,7 +754,7 @@ export function Workbench({
 											<IconSparkles size={15} />
 										</span>
 										<div className="wb-bubble-body">
-											<FormattedAnswer value={bubble.text || "…"} />
+											<FormattedAnswer value={humanizeEvidenceRefs(bubble.text || "…")} />
 										</div>
 									</div>
 								);
@@ -768,11 +797,15 @@ export function Workbench({
 							<IconTool size={14} />
 							执行进度
 						</h4>
-						<PlanSteps plan={session.plan} ended={["done", "failed"].includes(session.status)} />
+						<PlanSteps plan={session.plan} sessionStatus={session.status} />
 						{!session.plan.length && <p className="wb-side-empty">开始执行后这里会显示每一步的状态。</p>}
 						{session.current_batch_id && (
 							<div className="wb-side-links">
-								<Button variant="link" size="small" onClick={() => navigation.openView("monitor")}>
+								<Button
+									variant="link"
+									size="small"
+									onClick={() => session.current_batch_id && navigation.openBatch(session.current_batch_id)}
+								>
 									查看批次
 								</Button>
 								<Button variant="link" size="small" onClick={() => navigation.openView("report")}>

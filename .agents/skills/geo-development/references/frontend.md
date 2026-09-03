@@ -56,3 +56,5 @@ apps/web/src/
 - 表单：表单字段用 `Form layout="vertical"` + 网格类（如 `.settings-grid`、`.knowledge-form-grid`），不用 `layout="inline"` 堆一行；避免 inline `style={{ width }}`，宽度写在视图 CSS。
 - 原生 `input/select/textarea` 的全局边框只作用于非 antd 控件（`styles.css` 用 `:not([class*="ant-"])` 与祖先排除），避免双边框。
 - 状态与失败码要翻译成中文（批次 `batchStatusLabel`、采集 `captureLogMessage`、文章/会话状态映射），界面不出现英文枚举值。
+- Agent 草稿一律通过 `components/AgentDraft.tsx` 渲染：`AgentDraftCard` 是差距诊断/整改中心共用的审批卡（首屏 = 摘要 + 概览标签 + 查看草稿详情 + 批准/拒绝），`AgentDraftContent` 按 purpose 分节；新增 purpose 时在该文件加分支和 `draftFieldLabels` 中文字段名，不在视图里重新 `Object.entries(draft)`。证据 ID 用 `EvidenceRef`（索引来自 `hooks/useEvidenceIndex`），任务 ID 显示任务标题，其余 ID 用 `IdChip`。
+- 项目级数据（批次、任务、诊断）不是打开客户时的一次性快照：需要跨视图定位时走 `ui/navigation.tsx`（`openEvidence`/`openBatch`/`openWorkbench`）并在目标视图消费焦点；后台任务会创建数据的页面要自行安排列表刷新，不能只轮询当前选中项。

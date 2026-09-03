@@ -62,6 +62,7 @@ import {
 	SectionTitle,
 	shortDate,
 } from "../ui/primitives";
+import { AgentDraftContent, agentPurposeLabel, agentRunDuration, agentRunPhase, agentToolLabels } from "./AgentDraft";
 import { BatchMetrics, ComparisonDeltaChart, platformUnavailable } from "./charts";
 import { Page } from "./Page";
 import "./Report.css";
@@ -128,217 +129,6 @@ export function ReportExecutiveOverview({
 				</div>
 			) : null}
 		</section>
-	);
-}
-
-export const agentToolLabels: Record<string, string> = {
-	read_project_context: "读取项目",
-	read_batch_evidence_index: "建立证据索引",
-	read_evidence: "核验原始证据",
-	submit_draft: "校验草稿",
-};
-
-const purposeLabels: Record<string, string> = {
-	report_narrative: "报告叙述",
-	quality_review: "质量检查",
-	diagnosis: "模型诊断",
-	remediation: "整改规划",
-	content_brief: "内容草稿",
-	optimization_article: "优化文章",
-};
-
-export function agentPurposeLabel(purpose: string): string {
-	return purposeLabels[purpose] ?? purpose;
-}
-
-export function agentRunPhase(run: AgentRun): string {
-	if (run.status === "queued") return run.error_message ?? "等待 Agent Worker 领取任务";
-	if (run.status === "awaiting_approval") return "结构化草稿已完成，等待人工审批";
-	if (run.status === "approved") return "草稿已批准，可冻结到新的报告版本";
-	if (run.status === "rejected") return "草稿已拒绝，不会进入报告版本";
-	if (run.status === "failed") return run.error_message ?? "Agent 执行失败";
-	const latest = run.tool_trace.at(-1);
-	if (!latest) return "正在连接模型并准备分析";
-	if (latest.tool === "submit_draft" && latest.type === "end" && latest.isError)
-		return "草稿校验未通过，Agent 正在修正后重新提交";
-	if (latest.type === "start") return `正在${agentToolLabels[latest.tool] ?? latest.tool}`;
-	if (latest.tool === "read_project_context") return "项目范围已确认，正在建立证据索引";
-	if (latest.tool === "read_batch_evidence_index") return "证据索引已建立，正在选择支撑证据";
-	if (latest.tool === "read_evidence") return "原始证据已读取，正在形成结论";
-	return "正在整理结构化草稿";
-}
-
-export function agentRunDuration(run: AgentRun): string {
-	const seconds = Math.max(
-		0,
-		Math.round((new Date(run.completed_at ?? Date.now()).getTime() - new Date(run.created_at).getTime()) / 1000),
-	);
-	return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
-}
-
-function formatDraftValue(value: unknown): string {
-	if (value == null) return "-";
-	if (typeof value === "string") return value;
-	if (typeof value === "number" || typeof value === "boolean") return String(value);
-	if (Array.isArray(value)) return value.map((item) => formatDraftValue(item)).join("；");
-	const text = JSON.stringify(value) ?? "-";
-	return text.length > 240 ? `${text.slice(0, 240)}…` : text;
-}
-
-/** 去掉平台附带的追踪片段（如 #ws_call_id=…），只显示可访问地址。 */
-export const cleanSourceUrl = (url: string): string =>
-	url.replace(/#(?:ws_call_id|call_id|ref|utm_[a-z]+)=[^#]*$/i, "").replace(/#$/, "");
-
-const priorityLabels: Record<string, string> = { high: "高优先级", medium: "中优先级", low: "低优先级" };
-const reputationLabels: Record<string, string> = {
-	positive: "正面为主",
-	mixed: "正负混合",
-	negative: "负面为主",
-	neutral: "中性",
-	not_observed: "未观察到口碑",
-};
-
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Purpose-specific approved schemas intentionally render in one auditable component.
-export function AgentDraftContent({
-	run,
-	evidenceIndex,
-	onOpenEvidence,
-}: {
-	run: AgentRun;
-	evidenceIndex?: EvidenceIndexEntry[];
-	onOpenEvidence?(captureId: string): void;
-}) {
-	if (!run.draft) return null;
-	const refs = (ids: unknown) =>
-		Array.isArray(ids) && ids.length ? (
-			<EvidenceRef ids={ids.map(String)} index={evidenceIndex} onOpen={onOpenEvidence} max={4} />
-		) : null;
-	if (run.purpose === "report_narrative") {
-		const limitations = Array.isArray(run.draft.limitations) ? run.draft.limitations.map(String) : [];
-		const reputation = (run.draft.reputation ?? {}) as {
-			overall?: string;
-			summary?: string;
-			positiveSignals?: Array<{ statement?: string; sourceUrls?: string[]; evidenceIds?: string[] }>;
-			negativeSignals?: Array<{ statement?: string; sourceUrls?: string[]; evidenceIds?: string[] }>;
-		};
-		const recommendations = Array.isArray(run.draft.geoRecommendations)
-			? (run.draft.geoRecommendations as Array<{
-					priority?: string;
-					title?: string;
-					action?: string;
-					rationale?: string;
-					evidenceIds?: string[];
-				}>)
-			: [];
-		const signals = [
-			...(reputation.positiveSignals ?? []).map((signal) => ({ ...signal, polarity: "正面" })),
-			...(reputation.negativeSignals ?? []).map((signal) => ({ ...signal, polarity: "负面" })),
-		];
-		return (
-			<div className="agent-draft-content">
-				<div>
-					<span>报告摘要</span>
-					<p>{String(run.draft.summary ?? "-")}</p>
-				</div>
-				<div>
-					<span>管理层叙述</span>
-					<p>{String(run.draft.executiveSummary ?? "-")}</p>
-				</div>
-				<div className="agent-reputation-preview">
-					<span>AI 口碑 · {reputationLabels[reputation.overall ?? "not_observed"] ?? reputation.overall}</span>
-					<p>{reputation.summary ?? "-"}</p>
-					{signals.map((signal) => {
-						const urls = [...new Set((signal.sourceUrls ?? []).map(cleanSourceUrl))];
-						return (
-							<div className="reputation-signal" key={`${signal.statement}-${urls.join("|")}`}>
-								<Tag className={`reputation-polarity ${signal.polarity === "正面" ? "positive" : "negative"}`}>
-									{signal.polarity}
-								</Tag>
-								<p>
-									{signal.statement} {refs(signal.evidenceIds)}
-								</p>
-								<small>
-									来源：
-									{urls.length
-										? urls.map((url) => (
-												<a key={url} href={url} target="_blank" rel="noreferrer">
-													{url.replace(/^https?:\/\//, "").slice(0, 60)}
-												</a>
-											))
-										: "平台未开放来源"}
-								</small>
-							</div>
-						);
-					})}
-				</div>
-				{recommendations.length > 0 && (
-					<div>
-						<span>GEO 优化建议</span>
-						<ol className="recommendation-list">
-							{recommendations.map((item) => (
-								<li key={`${item.title}-${item.action}`}>
-									<b>
-										<Tag>{priorityLabels[item.priority ?? ""] ?? item.priority}</Tag>
-										{item.title}
-									</b>
-									<p>{item.action}</p>
-									{item.rationale && <small>{item.rationale}</small>}
-									{refs(item.evidenceIds)}
-								</li>
-							))}
-						</ol>
-					</div>
-				)}
-				{limitations.length > 0 && (
-					<div>
-						<span>证据局限</span>
-						<ul>
-							{limitations.map((item) => (
-								<li key={item}>{item}</li>
-							))}
-						</ul>
-					</div>
-				)}
-			</div>
-		);
-	}
-	if (run.purpose === "quality_review") {
-		const issues = Array.isArray(run.draft.issues)
-			? (run.draft.issues as Array<{ severity?: string; detail?: string }>)
-			: [];
-		return (
-			<div className="agent-draft-content">
-				<div>
-					<span>检查结论 · {run.draft.verdict === "pass" ? "通过" : run.draft.verdict === "blocked" ? "未通过" : "-"}</span>
-					<p>{String(run.draft.summary ?? "-")}</p>
-				</div>
-				<div>
-					<span>问题项 · {issues.length}</span>
-					{issues.length ? (
-						<ul>
-							{issues.map((issue) => (
-								<li key={`${issue.severity}:${issue.detail}`}>{issue.detail ?? "未说明"}</li>
-							))}
-						</ul>
-					) : (
-						<p>未发现需要阻止报告交付的问题。</p>
-					)}
-				</div>
-			</div>
-		);
-	}
-	return (
-		<Descriptions
-			className="agent-draft-descriptions"
-			column={1}
-			size="small"
-			bordered
-			items={Object.entries(run.draft).map(([key, value]) => ({
-				key,
-				label: key,
-				children: formatDraftValue(value),
-			}))}
-		/>
 	);
 }
 
@@ -431,7 +221,6 @@ export function ReportAgentRun({
 		</article>
 	);
 }
-
 
 type PromptMatrixRow = ReportAnalysis["promptRows"][number];
 type TopicCoverageRow = ReportAnalysis["topicCoverage"][number];
@@ -746,13 +535,7 @@ function ShareLinkTable({
 }
 
 /** 原始证据索引：编号、平台、问题、采样与来源，全部可读，不出现 UUID。 */
-function EvidenceIndexTable({
-	entries,
-	onOpen,
-}: {
-	entries: EvidenceIndexEntry[];
-	onOpen(captureId: string): void;
-}) {
+function EvidenceIndexTable({ entries, onOpen }: { entries: EvidenceIndexEntry[]; onOpen(captureId: string): void }) {
 	const [page, setPage] = useState(1);
 	const pageSize = 15;
 	const rows = entries.slice((page - 1) * pageSize, page * pageSize);
@@ -1191,7 +974,11 @@ export function Report({ project }: { project: Project }) {
 								description="已批准的 HRouter Agent 结论；每条结论后的引用可点击跳转到证据中心核对原文。"
 								extra={<Tag>{approvedQuality ? "质量校验通过" : "等待质量校验"}</Tag>}
 							/>
-							<AgentDraftContent run={approvedNarrative} evidenceIndex={analysis?.evidenceIndex} onOpenEvidence={openEvidence} />
+							<AgentDraftContent
+								run={approvedNarrative}
+								evidenceIndex={analysis?.evidenceIndex}
+								onOpenEvidence={openEvidence}
+							/>
 						</section>
 					) : (
 						<Empty
@@ -1228,7 +1015,9 @@ export function Report({ project }: { project: Project }) {
 											<span>{index + 1}</span>
 											<b>{source.domain}</b>
 											<small>
-												{source.isOwned ? "客户官网" : `${sourceCategoryLabel(source.category)} · ${source.promptCount} 个问题`}
+												{source.isOwned
+													? "客户官网"
+													: `${sourceCategoryLabel(source.category)} · ${source.promptCount} 个问题`}
 											</small>
 											<strong>{source.citationCount}</strong>
 										</div>
@@ -1328,7 +1117,10 @@ export function Report({ project }: { project: Project }) {
 			label: `诊断与整改${report ? ` (${report.findings.length + report.tasks.length})` : ""}`,
 			children: report ? (
 				<>
-					<SectionTitle title="证据诊断" description="由确定性规则与已批准的 HRouter Agent 诊断得出；每条结论附引用证据。" />
+					<SectionTitle
+						title="证据诊断"
+						description="由确定性规则与已批准的 HRouter Agent 诊断得出；每条结论附引用证据。"
+					/>
 					{report.findings.length ? (
 						report.findings.map((finding) => (
 							<div className="report-finding" key={finding.id}>
@@ -1338,12 +1130,19 @@ export function Report({ project }: { project: Project }) {
 								<p className="report-recommendation">建议：{finding.recommendation}</p>
 								<small className="report-finding-meta">
 									证据充分度 {Math.round(finding.confidence * 100)}%
-									<EvidenceRef ids={finding.evidence_ids} index={analysis?.evidenceIndex} onOpen={openEvidence} max={6} />
+									<EvidenceRef
+										ids={finding.evidence_ids}
+										index={analysis?.evidenceIndex}
+										onOpen={openEvidence}
+										max={6}
+									/>
 								</small>
 							</div>
 						))
 					) : (
-						<p className="muted">报告已计算可见度与问题差距，但尚未把结论写入整改流程。进入“差距诊断”生成后即可转任务。</p>
+						<p className="muted">
+							报告已计算可见度与问题差距，但尚未把结论写入整改流程。进入“差距诊断”生成后即可转任务。
+						</p>
 					)}
 					<SectionTitle title="整改路线" count={report.tasks.length} />
 					{report.tasks.length ? (
@@ -1394,7 +1193,8 @@ export function Report({ project }: { project: Project }) {
 						<p className="muted">当前批次还没有可索引的证据。</p>
 					)}
 					<p className="limitation">
-						联网 API 的模型、索引与搜索策略属于平台黑盒，并具有随机性。报告仅描述冻结模型、问题集、地区和采样窗口下的真实结果；API
+						联网 API
+						的模型、索引与搜索策略属于平台黑盒，并具有随机性。报告仅描述冻结模型、问题集、地区和采样窗口下的真实结果；API
 						回答不等同于对应 App 页面回答，也不证明单一整改与排名变化之间的因果关系。
 					</p>
 				</>
@@ -1406,9 +1206,19 @@ export function Report({ project }: { project: Project }) {
 			children: (
 				<section className="report-assets">
 					{shareUrl && <Alert type="success" showIcon title={`分享链接已复制：${shareUrl}`} />}
-					<SectionTitle title="报告版本" description="冻结版本不可修改；每个版本都带内容指纹，可导出 CSV、JSON、PDF 与 Word。" />
-					<SnapshotAssetTable snapshots={selectedSnapshots} page={snapshotsPage} onPage={(page) => void loadSnapshots(page)} />
-					<SectionTitle title="分享链接" description="分享链接默认 30 天过期，可随时撤销；对方无需登录即可查看冻结版本。" />
+					<SectionTitle
+						title="报告版本"
+						description="冻结版本不可修改；每个版本都带内容指纹，可导出 CSV、JSON、PDF 与 Word。"
+					/>
+					<SnapshotAssetTable
+						snapshots={selectedSnapshots}
+						page={snapshotsPage}
+						onPage={(page) => void loadSnapshots(page)}
+					/>
+					<SectionTitle
+						title="分享链接"
+						description="分享链接默认 30 天过期，可随时撤销；对方无需登录即可查看冻结版本。"
+					/>
 					<ShareLinkTable
 						shares={shares}
 						latestSnapshotId={latestSnapshotId}

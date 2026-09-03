@@ -82,6 +82,11 @@ const costOperationLabels: Record<string, string> = {
 	hrouter_gpt: "GPT 分析",
 };
 
+/** 批次条一页的卡片数：横向卡片比表格占地大，不沿用列表默认页长。 */
+const BATCH_PAGE_SIZE = 10;
+/** 批次列表的兜底刷新间隔：覆盖 Agent、周期监测或其他成员在本页停留期间创建的批次。 */
+const BATCH_LIST_REFRESH_MS = 30_000;
+
 export function RunCaptureLog({ captures, active }: { captures: Capture[]; active: boolean }) {
 	if (!captures.length)
 		return (
@@ -163,11 +168,22 @@ export function RunActivityPanel({
 	);
 }
 
-export function Monitoring({ project, refresh }: { project: Project; refresh(): Promise<void> }) {
+export function Monitoring({
+	project,
+	refresh,
+	focusBatchId = null,
+	onConsumeFocus,
+}: {
+	project: Project;
+	refresh(): Promise<void>;
+	/** 从工作台等处跳转时要选中的批次；它可能还不在 project.batches 的旧快照里。 */
+	focusBatchId?: string | null;
+	onConsumeFocus?(): void;
+}) {
 	const { message } = App.useApp();
-	const [selected, setSelected] = useState(project.batches[0]?.id ?? null);
+	const [selected, setSelected] = useState(focusBatchId ?? project.batches[0]?.id ?? null);
 	const [batchPage, setBatchPage] = useState(1);
-	const visibleBatches = project.batches.slice((batchPage - 1) * DEFAULT_PAGE_SIZE, batchPage * DEFAULT_PAGE_SIZE);
+	const visibleBatches = project.batches.slice((batchPage - 1) * BATCH_PAGE_SIZE, batchPage * BATCH_PAGE_SIZE);
 	const [batch, setBatch] = useState<Batch | null>(null);
 	const [trends, setTrends] = useState<TrendResponse | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -211,6 +227,30 @@ export function Monitoring({ project, refresh }: { project: Project; refresh(): 
 		const timer = window.setInterval(() => void load(), pollingMs);
 		return () => window.clearInterval(timer);
 	}, [alertsPage.page, alertsPage.pageSize, batch?.status, load, project.id, selected, selectedBatch?.status]);
+	// 跳转带来的焦点批次：选中后即消费，避免下次进入本页仍被强制选中。
+	useEffect(() => {
+		if (!focusBatchId) return;
+		setBatch(null);
+		setTrends(null);
+		setSelected(focusBatchId);
+		setBatchPage(1);
+		onConsumeFocus?.();
+	}, [focusBatchId, onConsumeFocus]);
+	// 首次进入时还没有批次、随后由 Agent/周期任务创建了批次：自动选中最新一条。
+	const firstBatchId = project.batches[0]?.id ?? null;
+	useEffect(() => {
+		if (!selected && firstBatchId) setSelected(firstBatchId);
+	}, [selected, firstBatchId]);
+	// 批次详情轮询到的状态与列表快照不一致（如排队中 → 已完成）时同步列表，让批次条的状态标签跟上。
+	const detailStatus = batch?.status ?? null;
+	const summaryStatus = selectedBatch?.status ?? null;
+	useEffect(() => {
+		if (detailStatus && summaryStatus && detailStatus !== summaryStatus) void refresh().catch(() => undefined);
+	}, [detailStatus, summaryStatus, refresh]);
+	useEffect(() => {
+		const timer = window.setInterval(() => void refresh().catch(() => undefined), BATCH_LIST_REFRESH_MS);
+		return () => window.clearInterval(timer);
+	}, [refresh]);
 	function acknowledgeAlert(alert: DriftAlert) {
 		void post(`/api/drift-alerts/${alert.id}/acknowledge`).then(() => {
 			message.success("漂移告警已确认");
@@ -496,9 +536,9 @@ export function Monitoring({ project, refresh }: { project: Project; refresh(): 
 					</div>
 					<Pagination
 						page={batchPage}
-						pageSize={10}
+						pageSize={BATCH_PAGE_SIZE}
 						total={project.batches.length}
-						totalPages={Math.max(1, Math.ceil(project.batches.length / 10))}
+						totalPages={Math.max(1, Math.ceil(project.batches.length / BATCH_PAGE_SIZE))}
 						onPage={setBatchPage}
 					/>
 					{batch && <BatchMetrics batch={batch} />}

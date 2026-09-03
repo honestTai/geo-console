@@ -1,0 +1,242 @@
+/* Agent 草稿审批卡（差距诊断 / 整改中心）与草稿内容渲染（含报告页） */
+
+.agent-draft {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: var(--space-5);
+	border: 1px solid var(--line);
+	background: var(--surface);
+	border-radius: var(--radius);
+	padding: var(--space-4);
+	margin: var(--space-3) 0;
+}
+
+.agent-draft-main {
+	min-width: 0;
+}
+
+.agent-draft h3,
+.agent-draft p {
+	margin: 4px 0;
+}
+
+.agent-draft h3 {
+	font-size: 15px;
+}
+
+.agent-draft p {
+	font-size: 13px;
+	line-height: 1.6;
+	color: var(--ink-2);
+}
+
+.agent-draft-phase {
+	color: var(--ink-3);
+}
+
+/* 首屏只放结论摘要：多于四行的摘要截断，完整内容在“查看草稿详情” */
+.agent-draft-summary {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 4;
+	overflow: hidden;
+	margin-top: var(--space-2);
+}
+
+.agent-draft-stats {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+	margin-top: var(--space-2);
+}
+
+.agent-draft-stats .ant-tag {
+	margin: 0;
+	background: var(--surface-2);
+	border-color: transparent;
+	color: var(--ink-2);
+}
+
+.agent-draft-detail {
+	margin-top: var(--space-2);
+}
+
+.agent-draft-actions {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	align-self: start;
+}
+
+.agent-draft-list {
+	display: grid;
+	gap: var(--space-2);
+}
+
+/* ---- 草稿内容：按用途分节平铺，每节一个标题 span ---- */
+
+.agent-draft-content {
+	display: grid;
+	gap: 1px;
+	margin-top: var(--space-2);
+	background: var(--line);
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	overflow: hidden;
+}
+
+.agent-draft-content > div {
+	padding: 11px 13px;
+	background: var(--surface-2);
+	min-width: 0;
+}
+
+/* 只作用于每个分组的标题 span，避免把引用芯片等内联 span 也变成块级 */
+.agent-draft-content > div > span {
+	display: block;
+	font-size: 12px;
+	font-weight: 700;
+	color: var(--ink-3);
+}
+
+.agent-draft-content p,
+.agent-draft-content ul,
+.agent-draft-content ol {
+	margin: 6px 0 0;
+	line-height: 1.6;
+	font-size: 12.5px;
+}
+
+.agent-draft-title {
+	font-size: 14px;
+	font-weight: 650;
+	color: var(--ink);
+}
+
+.agent-draft-meta {
+	color: var(--ink-3);
+}
+
+.agent-draft-points {
+	padding-left: 20px;
+	display: grid;
+	gap: 2px;
+}
+
+.agent-draft-items {
+	padding-left: 20px;
+	display: grid;
+	gap: var(--space-2);
+}
+
+.agent-draft-ids {
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+	align-items: center;
+}
+
+.agent-draft-ids small {
+	color: var(--ink-3);
+}
+
+.agent-draft-text {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.agent-draft-confidence {
+	font-weight: 400;
+	color: var(--ink-3);
+}
+
+/* 正文初稿：Markdown 渲染但限高滚动，不让整页被 2000 字撑开 */
+.agent-draft-markdown {
+	max-height: 360px;
+	overflow: auto;
+	margin-top: 6px;
+	padding: var(--space-3);
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-s);
+	font-size: 12.5px;
+	line-height: 1.7;
+}
+
+.agent-draft-descriptions .ant-descriptions-item-label {
+	width: 120px;
+	color: var(--ink-3);
+}
+
+.reputation-signal {
+	display: grid;
+	gap: 4px;
+	padding: var(--space-3) 0;
+	border-top: 1px solid var(--line);
+}
+
+.reputation-signal p {
+	margin: 0;
+	line-height: 1.6;
+}
+
+.reputation-signal small {
+	color: var(--ink-3);
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px 8px;
+}
+
+.reputation-signal small a {
+	color: var(--brand-strong);
+	word-break: break-all;
+}
+
+.reputation-polarity.ant-tag {
+	justify-self: start;
+	margin: 0;
+	border-color: transparent;
+	background: var(--surface-2);
+	color: var(--ink-3);
+}
+
+.reputation-polarity.negative {
+	background: var(--danger-soft);
+	color: var(--danger-strong);
+}
+
+.recommendation-list {
+	margin: 0;
+	padding-left: 20px;
+	display: grid;
+	gap: var(--space-3);
+}
+
+.recommendation-list li b {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	font-weight: 650;
+}
+
+.recommendation-list li p {
+	margin: 4px 0;
+	line-height: 1.6;
+}
+
+.recommendation-list li small {
+	display: block;
+	color: var(--ink-3);
+	margin-bottom: 4px;
+}
+
+@media (max-width: 900px) {
+	.agent-draft {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.agent-draft-actions {
+		flex-direction: row;
+	}
+}
