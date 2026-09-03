@@ -29,7 +29,7 @@ fail() {
 
 usage() {
 	cat <<'EOF'
-GEO Console private release installer
+ZZ Geo (geo-console) private release installer
 
 Usage:
   geo-console-<version>.run --domain demo.example.com --admin-email admin@example.com

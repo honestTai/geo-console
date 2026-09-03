@@ -1,16 +1,12 @@
-/* 运行日志：级别计数 + 筛选行 + 游标翻页 + 保留清理 */
-.service-log-cursor-bar {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
+/* 运行日志：级别计数 + 筛选行 + 分页 + 保留清理 */
+.service-logs-view .page-body {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: var(--space-4);
 }
 
 .service-log-message {
 	margin: 0;
-}
-
-.service-log-counts {
-	margin-bottom: var(--space-3);
 }
 
 .service-log-counts .ant-btn {
@@ -34,6 +30,17 @@
 	min-width: 250px;
 }
 
-.service-log-retention {
-	margin-top: var(--space-5);
+.service-log-retention-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	flex-wrap: wrap;
+	color: var(--ink-2);
+}
+
+@media (max-width: 600px) {
+	.service-log-range,
+	.service-log-select {
+		width: 100%;
+	}
 }

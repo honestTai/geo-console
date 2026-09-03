@@ -46,6 +46,9 @@ export function AppShell({
 	navigation,
 	error,
 	account,
+	title,
+	subtitle,
+	switchLabel,
 	onSwitchProject,
 	onSelectView,
 	children,
@@ -55,6 +58,11 @@ export function AppShell({
 	navigation: ShellNavigationItem[];
 	error: string | null;
 	account: ReactNode;
+	/** 没有客户项目时（机构管理）顶栏显示的标题与说明 */
+	title?: string;
+	subtitle?: string;
+	/** 侧栏返回按钮文案；默认显示当前客户名 */
+	switchLabel?: string;
 	onSwitchProject(): void;
 	onSelectView(view: View): void;
 	children: ReactNode;
@@ -77,7 +85,7 @@ export function AppShell({
 						darkItemSelectedColor: "#ffffff",
 						darkGroupTitleColor: "rgba(255, 255, 255, 0.38)",
 						itemMarginInline: 0,
-						itemHeight: 36,
+						itemHeight: 32,
 						iconMarginInlineEnd: 10,
 					},
 				},
@@ -108,10 +116,10 @@ export function AppShell({
 					</div>
 				)}
 			</div>
-			<Tooltip title={collapsed && !narrow ? (project?.name ?? "客户项目") : undefined} placement="right">
+			<Tooltip title={collapsed && !narrow ? (switchLabel ?? project?.name ?? "客户项目") : undefined} placement="right">
 				<button type="button" className="project-switch app-sider-switch" onClick={onSwitchProject}>
 					<IconArrowLeft size={16} />
-					{(!collapsed || narrow) && <span>{project?.name ?? "客户项目"}</span>}
+					{(!collapsed || narrow) && <span>{switchLabel ?? project?.name ?? "客户项目"}</span>}
 				</button>
 			</Tooltip>
 			{menu}
@@ -125,7 +133,7 @@ export function AppShell({
 					placement="left"
 					open={drawerOpen}
 					onClose={() => setDrawerOpen(false)}
-					width={264}
+					size={264}
 					styles={{ body: { padding: 0, background: "#101828" }, header: { display: "none" } }}
 				>
 					{siderBody}
@@ -152,19 +160,20 @@ export function AppShell({
 							</button>
 						)}
 						<div className="topbar-project">
-							<strong>{project?.name ?? "加载项目"}</strong>
+							<strong>{title ?? project?.name ?? "加载项目"}</strong>
 							{project?.domain && (
 								<Tag className="topbar-domain" icon={<IconGlobe size={13} />}>
 									{project.domain}
 								</Tag>
 							)}
+							{!project && subtitle && <span className="topbar-subtitle">{subtitle}</span>}
 						</div>
 						{currentView && <span className="topbar-view">{currentView.label}</span>}
 					</div>
 					<div className="topbar-right">{account}</div>
 				</header>
 				<main className="workspace">
-					{error && <Alert className="app-shell-alert" type="error" message={error} showIcon />}
+					{error && <Alert className="app-shell-alert" type="error" title={error} showIcon />}
 					{children}
 				</main>
 			</Layout>

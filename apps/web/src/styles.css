@@ -117,6 +117,22 @@
 	border-top: 1px solid var(--line);
 }
 
+.formatted-answer blockquote {
+	margin: 0;
+	padding: var(--space-2) var(--space-4);
+	border-left: 3px solid var(--line-strong);
+	color: var(--ink-2);
+	background: var(--surface-2);
+	border-radius: 0 var(--radius-s) var(--radius-s) 0;
+}
+
+.formatted-answer mark.fact-gap {
+	background: var(--warning-soft);
+	color: var(--warning-strong);
+	border-radius: 3px;
+	padding: 0 3px;
+}
+
 .answer-table-wrap {
 	overflow-x: auto;
 	max-width: 100%;
@@ -504,6 +520,26 @@ a {
 	letter-spacing: 0.08em;
 }
 
+/* 监测范围编辑器标题：左标题、右导入/导出；关闭按钮占位需留出右边距 */
+.scope-editor-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: var(--space-4);
+	padding-right: var(--space-7);
+}
+
+.scope-editor-head h2 {
+	margin: 2px 0 0;
+	font-size: 18px;
+}
+
+.scope-editor-head .actions {
+	display: flex;
+	gap: var(--space-2);
+	flex-shrink: 0;
+}
+
 .domain {
 	display: flex;
 	align-items: center;
@@ -797,15 +833,17 @@ input[type="radio"] {
 	gap: 8px;
 }
 
+/* 一行放不下时按字段宽度折行，输入框按各自宽度等比拉伸填满整行 */
 .editable-row {
-	display: grid;
-	grid-template-columns: 1fr 1fr auto;
+	display: flex;
+	flex-wrap: wrap;
 	gap: 8px;
 	align-items: center;
 }
 
-.editable-list.prompts .editable-row {
-	grid-template-columns: 30px minmax(240px, 2fr) repeat(3, minmax(100px, 0.7fr)) auto;
+.editable-row > .ant-input {
+	flex: 1 1 auto;
+	min-width: 0;
 }
 
 .row-index {
@@ -917,6 +955,16 @@ input[type="radio"] {
 	display: grid;
 	gap: 14px;
 	margin-top: 14px;
+}
+
+/* 网格 gap 已经拉开距离，小节标题与图表卡不再叠加各自的外边距 */
+.overview-trends > .section-title {
+	margin-top: var(--space-3);
+	margin-bottom: 0;
+}
+
+.overview-trends > .chart-card {
+	margin-top: 0;
 }
 
 .trend-table {
@@ -1888,7 +1936,8 @@ input[type="radio"] {
 	background: var(--surface-2);
 }
 
-.agent-draft-content span {
+/* 只作用于每个分组的标题 span，避免把引用芯片等内联 span 也变成块级 */
+.agent-draft-content > div > span {
 	display: block;
 	font-size: 12px;
 	font-weight: 700;
@@ -1981,11 +2030,6 @@ input[type="radio"] {
 	.metric-card dl {
 		grid-template-columns: repeat(2, 1fr);
 		gap: 13px;
-	}
-
-	.editable-row,
-	.editable-list.prompts .editable-row {
-		grid-template-columns: 1fr;
 	}
 
 	.row-index {
@@ -2233,7 +2277,7 @@ input[type="radio"] {
 
 .chart-bar-row {
 	display: grid;
-	grid-template-columns: 120px minmax(0, 1fr) 56px;
+	grid-template-columns: minmax(120px, 170px) minmax(0, 1fr) 60px;
 	gap: 10px;
 	align-items: center;
 }
@@ -2309,6 +2353,16 @@ input[type="radio"] {
 	color: var(--danger-strong);
 }
 
+.chart-bar-value.unavailable {
+	color: var(--ink-4);
+	font-weight: 500;
+}
+
+.metric-card.unavailable .metric-hero b {
+	color: var(--ink-4);
+	font-size: 22px;
+}
+
 .chart-note {
 	margin: 12px 0 0;
 	font-size: 12px;
@@ -2318,7 +2372,7 @@ input[type="radio"] {
 
 @media (max-width: 600px) {
 	.chart-bar-row {
-		grid-template-columns: 92px minmax(0, 1fr) 50px;
+		grid-template-columns: minmax(92px, 130px) minmax(0, 1fr) 50px;
 		gap: 8px;
 	}
 
@@ -2489,17 +2543,6 @@ input[type="radio"] {
 }
 
 /* 平台卡元信息 chip 统一 */
-
-.provider-contract span {
-	display: inline-block;
-	background: var(--surface-2);
-	border: 1px solid var(--line);
-	border-radius: 6px;
-	padding: 3px 8px;
-	font-size: 12px;
-	color: var(--ink-2);
-	line-height: 1.4;
-}
 
 /* 可编辑列表：行高 40px、删除 hover 变红 */
 
@@ -2683,81 +2726,9 @@ input[type="radio"] {
 	grid-template-columns: minmax(320px, 1fr) minmax(240px, auto);
 }
 
-/* Standalone runtime log service */
-
-.service-logs-view {
-	display: grid;
-	gap: 14px;
-}
-
-.management-shell {
-	min-height: 100vh;
-	background: var(--bg);
-}
-
-.management-shell > header {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 16px;
-	min-height: 72px;
-	padding: 12px 28px;
-	border-bottom: 1px solid var(--line);
-	background: var(--surface);
-}
-
-.management-nav {
-	display: flex;
-	gap: 4px;
-	padding: 10px 28px;
-	border-bottom: 1px solid var(--line);
-	background: var(--surface);
-	overflow-x: auto;
-}
-
-.management-nav button {
-	display: inline-flex;
-	align-items: center;
-	gap: 7px;
-	min-height: 36px;
-	padding: 0 11px;
-	border: 0;
-	border-radius: 6px;
-	background: transparent;
-	color: var(--ink-3);
-	white-space: nowrap;
-}
-
-.management-nav button.active {
-	background: var(--brand-soft);
-	color: var(--brand-strong);
-}
-
-.management-workspace {
-	max-width: 1480px;
-	margin: 0 auto;
-	padding: 28px;
-}
+/* 机构管理工作区已复用 AppShell（见 Management.css） */
 
 @media (max-width: 600px) {
-	.management-shell > header {
-		align-items: flex-start;
-		flex-direction: column;
-		padding: 12px 14px;
-	}
-
-	.management-shell > header .home-actions {
-		width: 100%;
-	}
-
-	.management-nav {
-		padding: 8px 14px;
-	}
-
-	.management-workspace {
-		padding: 18px 14px 32px;
-	}
-
 	.report-workflow-command-bar {
 		grid-template-columns: 1fr;
 	}
@@ -2765,16 +2736,6 @@ input[type="radio"] {
 	.ds-darkstrip {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
-}
-
-/* ---- 多租户管理：创建输入 + 按钮 ---- */
-.organization-create {
-	display: flex;
-	gap: var(--space-2);
-}
-
-.organization-create .ant-input {
-	min-width: 200px;
 }
 
 .onboarding-steps {

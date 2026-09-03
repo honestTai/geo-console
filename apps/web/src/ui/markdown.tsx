@@ -1,26 +1,35 @@
 import type { ReactNode } from "react";
 
+const INLINE_PATTERN = /(\*\*[^*]+\*\*|`[^`]+`|!?\[[^\]]*\]\(https?:\/\/[^\s)]+\)|【待补充[:：][^】]*】)/g;
+
+/** 单个行内标记 → React 节点：粗体、行内代码、待补充高亮、链接/图片；识别不了的原样返回。 */
+function inlineToken(token: string, key: string): ReactNode {
+	if (token.startsWith("**")) return <strong key={key}>{token.slice(2, -2)}</strong>;
+	if (token.startsWith("`")) return <code key={key}>{token.slice(1, -1)}</code>;
+	if (token.startsWith("【"))
+		return (
+			<mark className="fact-gap" key={key} title="需要客户补充的事实">
+				{token}
+			</mark>
+		);
+	const link = token.match(/^(!?)\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)$/);
+	if (!link) return token;
+	const label = link[2] || link[3];
+	return (
+		<a key={key} href={link[3]} target="_blank" rel="noreferrer">
+			{link[1] ? `图片：${label}` : label}
+		</a>
+	);
+}
+
 export function answerInline(value: string, keyPrefix: string): ReactNode[] {
-	const pattern = /(\*\*[^*]+\*\*|`[^`]+`|!?\[[^\]]*\]\(https?:\/\/[^\s)]+\))/g;
 	const parts: ReactNode[] = [];
 	let offset = 0;
-	for (const [index, match] of [...value.matchAll(pattern)].entries()) {
+	for (const [index, match] of [...value.matchAll(INLINE_PATTERN)].entries()) {
 		const token = match[0];
 		const start = match.index ?? 0;
 		if (start > offset) parts.push(value.slice(offset, start));
-		if (token.startsWith("**")) parts.push(<strong key={`${keyPrefix}-b-${index}`}>{token.slice(2, -2)}</strong>);
-		else if (token.startsWith("`")) parts.push(<code key={`${keyPrefix}-c-${index}`}>{token.slice(1, -1)}</code>);
-		else {
-			const image = token.startsWith("!");
-			const link = token.match(/^!?\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)$/);
-			if (link)
-				parts.push(
-					<a key={`${keyPrefix}-a-${index}`} href={link[2]} target="_blank" rel="noreferrer">
-						{image ? `图片：${link[1] || link[2]}` : link[1] || link[2]}
-					</a>,
-				);
-			else parts.push(token);
-		}
+		parts.push(inlineToken(token, `${keyPrefix}-${index}`));
 		offset = start + token.length;
 	}
 	if (offset < value.length) parts.push(value.slice(offset));
@@ -56,6 +65,17 @@ export function FormattedAnswer({ value }: { value: string }) {
 		if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
 			blocks.push(<hr key={`hr-${index}`} />);
 			index += 1;
+			continue;
+		}
+		if (/^\s*>\s?/.test(line)) {
+			const quoted: string[] = [];
+			while (index < lines.length && /^\s*>\s?/.test(lines[index] ?? "")) {
+				quoted.push((lines[index] ?? "").replace(/^\s*>\s?/, "").trim());
+				index += 1;
+			}
+			blocks.push(
+				<blockquote key={`q-${index}`}>{answerInline(quoted.filter(Boolean).join(" "), `q-${index}`)}</blockquote>,
+			);
 			continue;
 		}
 		if (line.includes("|") && /^\s*\|?\s*:?-{3,}/.test(lines[index + 1] ?? "")) {

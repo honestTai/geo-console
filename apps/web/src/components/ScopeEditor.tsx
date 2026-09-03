@@ -4,6 +4,8 @@ import { useState } from "react";
 import { Button } from "../access";
 import { post } from "../api";
 import type { Competitor, Project, Prompt } from "../types";
+import { buildScopeBundle, parseScopeBundle, SCOPE_BUNDLE_KIND } from "../ui/scope-bundle";
+import { downloadJson, TransferButtons, transferFileName } from "../ui/transfer";
 import { type EditableField, EditableList } from "./EditableList";
 
 const COMPETITOR_FIELDS: EditableField<Competitor>[] = [
@@ -34,6 +36,7 @@ export function ScopeEditor({
 	const [prompts, setPrompts] = useState<Prompt[]>(project.prompts ?? []);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [imported, setImported] = useState<string | null>(null);
 	async function save() {
 		setBusy(true);
 		setError(null);
@@ -50,12 +53,40 @@ export function ScopeEditor({
 	return (
 		<Modal
 			open
-			width={820}
+			width={920}
 			onCancel={onClose}
 			title={
-				<div>
-					<span className="eyebrow">监测范围版本</span>
-					<h2>编辑当前监测范围</h2>
+				<div className="scope-editor-head">
+					<div>
+						<span className="eyebrow">监测范围版本</span>
+						<h2>编辑当前监测范围</h2>
+					</div>
+					<div className="actions">
+						<TransferButtons
+							exportLabel="导出范围"
+							importLabel="导入范围"
+							expectedKind={SCOPE_BUNDLE_KIND}
+							kindLabel="监测范围"
+							importPermission="project.onboard"
+							onExport={() =>
+								downloadJson(
+									transferFileName(`geo-监测范围-${project.name}`),
+									buildScopeBundle(project, { aliases, competitors, prompts }),
+								)
+							}
+							onImport={async (bundle) => {
+								const scope = parseScopeBundle(bundle);
+								setAliases(scope.aliases.length ? scope.aliases : aliases);
+								setCompetitors(scope.competitors);
+								setPrompts(scope.prompts);
+								const source = bundle.project && typeof bundle.project === "object" ? (bundle.project as { name?: unknown }).name : null;
+								setImported(
+									`已载入${typeof source === "string" && source ? `「${source}」的` : ""}范围：${scope.competitors.length} 个竞品、${scope.prompts.length} 个问题；核对后点“保存新范围版本”才会生效。`,
+								);
+								return "范围已载入编辑器，尚未保存";
+							}}
+						/>
+					</div>
 				</div>
 			}
 			footer={
@@ -70,7 +101,8 @@ export function ScopeEditor({
 			}
 		>
 			<p className="muted">保存后只影响新基线；历史批次、回答证据和报告继续保留原问题与竞品。</p>
-			{error && <Alert type="error" showIcon message={error} />}
+			{error && <Alert type="error" showIcon title={error} />}
+			{imported && <Alert type="info" showIcon closable title={imported} onClose={() => setImported(null)} />}
 			<EditableList joined title="品牌别名" items={aliases} onChange={setAliases} placeholder="多个别名用逗号分隔" />
 			<EditableList
 				title="竞品"

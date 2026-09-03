@@ -17,7 +17,16 @@
 	border: 1px solid var(--line);
 	border-radius: var(--radius);
 	padding: var(--space-5) var(--space-5) var(--space-4);
-	max-width: 900px;
+}
+
+.hrouter-model-option {
+	display: flex;
+	justify-content: space-between;
+	gap: var(--space-3);
+}
+
+.hrouter-model-option small {
+	color: var(--ink-4);
 }
 
 .provider-settings {
@@ -75,6 +84,24 @@
 .provider-panel {
 	display: grid;
 	gap: var(--space-4);
+}
+
+/* 契约信息用无边框描述列表，"协议 值" 一行读完，不再套一层输入框样式 */
+.provider-contract .ant-descriptions-item-label {
+	color: var(--ink-4);
+	font-size: 12px;
+}
+
+.provider-contract .ant-descriptions-item-content {
+	font-size: 13px;
+}
+
+.provider-form .ant-form-item {
+	margin-bottom: var(--space-4);
+}
+
+.provider-form .ant-form-item-with-help {
+	margin-bottom: var(--space-3);
 }
 
 .provider-panel > header {

@@ -58,8 +58,8 @@ Tauri 2 桌面客户端是所有用户的正式产品壳，正式版加载同域
 3. 快审固定每平台每题 1 次。正式基线默认 3 次并分布在 0、4、24 小时窗口。
 4. 批次冻结客户、竞品、问题、平台、模型、协议、搜索策略、地区、重复次数、时间窗口和适配器版本。
 5. Capture Worker 保存回答、来源、Query Fan-out 可见性、原始响应、Request ID、Token、延迟、成本可见性、内容哈希和失败码。
-6. 指标由代码确定性计算；Pi Agent 逐条校验其他模型回答及其来源，并生成口碑正负信号、GEO 优化建议和报告叙述草稿。
-7. 人工批准报告叙述后，系统自动排队绑定该版本的 Pi Agent 质量检查；质量检查人工批准且通过后，自动冻结快照并排队 PDF/Word。诊断、整改、内容与报告草稿都不自动发布或修改客户网站。
+6. 指标由代码确定性计算；HRouter Agent 逐条校验其他模型回答及其来源，并生成口碑正负信号、GEO 优化建议和报告叙述草稿。
+7. 人工批准报告叙述后，系统自动排队绑定该版本的 HRouter Agent 质量检查；质量检查人工批准且通过后，自动冻结快照并排队 PDF/Word。诊断、整改、内容与报告草稿都不自动发布或修改客户网站。
 8. 已发布 URL 重新抓取验收。复测必须复制正式基线完整配置。
 9. 只有已批准叙述与通过的质量检查才能冻结报告 payload 与 SHA-256；Report Worker 再确定性生成 PDF/Word，另提供 CSV、JSON 和可撤销分享链接。定时批次会依序创建 Agent 任务，等待人工批准后再继续冻结与导出。
 10. 报告分析包含 `evidenceIndex`：每条回答/快照/审计证据按采集时间编号，正文、PDF、Word 和 CSV 用 `[n]` 引用并附带平台、问题、采样次数、时间与引用网址；口碑来源 URL 去掉供应商追踪片段；模型夹带的英文推理草稿不进入“AI 如何描述品牌”。
@@ -67,7 +67,7 @@ Tauri 2 桌面客户端是所有用户的正式产品壳，正式版加载同域
 
 ## AI 工作台
 
-`agent_sessions` 保存一段与内置 Pi Agent 的对话：`transcript` 是 pi-agent-core 的 AgentMessage 列表，每回合用 `initialState.messages` 恢复后继续；`agent_session_events` 以递增 `seq` 记录用户消息、Agent 增量文本、工具调用、提问、等待与自动批准事件，前端按 `after=seq` 增量轮询。工作台工具只复用现有 service：`suggest_questions/apply_scope`（版本化监测范围）、`create_batch`、`run_site_audit`、`run_rule_diagnosis`、`run_agent_draft`、`advance_report`、`generate_articles`、`verify_batch`，以及只读证据工具。
+`agent_sessions` 保存一段与内置 HRouter Agent 的对话：`transcript` 是 pi-agent-core 的 AgentMessage 列表，每回合用 `initialState.messages` 恢复后继续；`agent_session_events` 以递增 `seq` 记录用户消息、Agent 增量文本、工具调用、提问、等待与自动批准事件，前端按 `after=seq` 增量轮询。工作台工具只复用现有 service：`suggest_questions/apply_scope`（版本化监测范围）、`create_batch`、`run_site_audit`、`run_rule_diagnosis`、`run_agent_draft`、`advance_report`、`generate_articles`、`verify_batch`，以及只读证据工具。
 
 会话不会阻塞 Worker：`ask_user` 与 `wait_for` 都以 `terminate` 结束当前回合并把 `waiting` 写入会话；用户回答或协调器发现批次 `complete/partial`、Agent run 终态、报告 PDF 就绪后，入队 `agent_session_turn(resume)` 续跑。`auto_approve=true` 时协调器代表会话创建者批准该会话产生的草稿，`agent_runs.approved_via='workbench'` 且审计日志带 `sessionId`；关闭自动模式则回到 `waiting_user` 等待成员在对应页面审批。文章草稿 run 由协调器以 `auto_article` 直接物化，不需要人工审批。运行 20 分钟以上且无待处理任务的会话会被置为 failed。
 

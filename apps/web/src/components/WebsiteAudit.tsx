@@ -57,15 +57,15 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 				className="audit-page"
 				breadcrumb={project.name}
 				eyebrow="官网审计"
-				title="公开页面的 AI 可读性检查"
-				description="检查 AI 与搜索系统能否稳定读取官网，以及页面是否提供可理解、可引用的实体和事实结构。"
+				title="官网 AI 可读性检查"
+				description="检查 AI 能否稳定读取官网并引用页面事实。"
 				extra={
 					<Button permission="audit.run" busy={busy} icon={<IconShieldCheck size={17} />} onClick={run}>
 						开始真实审计
 					</Button>
 				}
 			>
-				{error && <Alert type="error" showIcon message={error} />}
+				{error && <Alert type="error" showIcon title={error} />}
 				<Empty
 					title="还没有官网审计证据"
 					detail="运行后会真实请求客户官网、robots.txt、Sitemap 和 llms.txt，并保存不可变审计快照。"
@@ -79,15 +79,15 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 			className="audit-page"
 			breadcrumb={project.name}
 			eyebrow="官网审计"
-			title="公开页面的 AI 可读性检查"
-			description="检查 AI 与搜索系统能否稳定读取官网，以及页面是否提供可理解、可引用的实体和事实结构。"
+			title="官网 AI 可读性检查"
+			description="检查 AI 能否稳定读取官网并引用页面事实。"
 			extra={
 				<Button permission="audit.run" busy={busy} icon={<IconShieldCheck size={17} />} onClick={run}>
 					重新审计
 				</Button>
 			}
 		>
-			{error && <Alert type="error" showIcon message={error} />}
+			{error && <Alert type="error" showIcon title={error} />}
 			<div className="audit-hero">
 				<Statistic title="AI 可读性得分" value={audit.result.score} suffix="/ 100" />
 				<div className="audit-hero-text">

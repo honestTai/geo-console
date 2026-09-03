@@ -147,3 +147,45 @@
 		flex-direction: column;
 	}
 }
+
+/* 报告分页标签：页面级 Tabs，每个标签内再用 SectionTitle 平铺小节 */
+.report-tabs .ant-tabs-nav {
+	margin-bottom: var(--space-5);
+}
+
+.report-tabs .ant-tabs-tabpane > .section-title:first-child {
+	margin-top: 0;
+}
+
+.report-loading-placeholder {
+	min-height: 240px;
+}
+
+.evidence-index-failed {
+	color: var(--danger-strong);
+}
+
+.evidence-index-sources {
+	display: inline-flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.evidence-index-sources a {
+	color: var(--brand-strong);
+	word-break: break-all;
+}
+
+.evidence-index-sources small {
+	color: var(--ink-4);
+}
+
+.report-assets {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.report-tabs .ant-tabs-tabpane > .report-executive-overview {
+	margin-top: 0;
+}

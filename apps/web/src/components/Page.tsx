@@ -1,6 +1,9 @@
-import { Breadcrumb, Typography } from "antd";
+import { Breadcrumb, Spin, Typography } from "antd";
 import type { ReactNode } from "react";
 import "./Page.css";
+
+/** 加载指示延迟：短于这个时间的请求不闪 loading，避免切换视图/批次时的抖动。 */
+export const LOADING_DELAY_MS = 300;
 
 export function Page({
 	breadcrumb,
@@ -9,6 +12,7 @@ export function Page({
 	description,
 	extra,
 	className,
+	loading,
 	children,
 }: {
 	/** 面包屑前缀，如当前客户名；与 eyebrow 组成 "客户 / 页面" */
@@ -21,6 +25,8 @@ export function Page({
 	extra?: ReactNode;
 	/** 追加在根 section 上的视图布局类名（保留原视图网格布局） */
 	className?: string;
+	/** 数据加载中：内容保持挂载并覆盖一层延迟出现的 Spin，而不是先清空再重绘 */
+	loading?: boolean;
 	children?: ReactNode;
 }) {
 	const crumbs = [
@@ -43,7 +49,9 @@ export function Page({
 				</div>
 				{extra && <div className="page-extra">{extra}</div>}
 			</header>
-			{children}
+			<Spin spinning={Boolean(loading)} delay={LOADING_DELAY_MS} classNames={{ root: "page-loading" }}>
+				<div className="page-body">{children}</div>
+			</Spin>
 		</section>
 	);
 }

@@ -3,7 +3,15 @@ import { Alert, Skeleton, Spin, Statistic } from "antd";
 import { type ReactNode, useEffect, useState } from "react";
 import { Button } from "../access";
 import { api } from "../api";
-import { type BatchSummary, type Project, shortDate, type Task, type TrendResponse } from "../types";
+import { useDelayedLoading } from "../hooks/useDelayedLoading";
+import {
+	type BatchSummary,
+	batchKindLabel,
+	type Project,
+	shortDate,
+	type Task,
+	type TrendResponse,
+} from "../types";
 import { Empty, percentage, SectionTitle } from "../ui/primitives";
 import { LineTrendChart, MentionBarChart, overallMetric, overallPercent, perPlatformMention } from "./charts";
 import { Page } from "./Page";
@@ -27,10 +35,9 @@ export function OverviewKpis({ trends, tasks }: { trends: TrendResponse; tasks: 
 	const evidenceDelta = baseline
 		? evidenceCount - (baseline.metrics.validSamples + baseline.metrics.failedSamples)
 		: null;
+	// 没有可比基线时不在每张卡片上重复“首个基线”，只在网格下方说明一次数据来源
 	const deltaChip = (value: number | null, unit: string) =>
-		value == null ? (
-			<span className="kpi-delta">首个基线</span>
-		) : value === 0 ? (
+		value == null ? null : value === 0 ? (
 			<span className="kpi-delta">与基线持平</span>
 		) : (
 			<span className={`kpi-delta ${value >= 0 ? "up" : "down"}`}>
@@ -39,31 +46,40 @@ export function OverviewKpis({ trends, tasks }: { trends: TrendResponse; tasks: 
 				{unit}
 			</span>
 		);
+	const batchLabel = (item: TrendResponse["comparable"][number]) =>
+		`${batchKindLabel(item.kind as BatchSummary["kind"])} · ${shortDate(item.createdAt)}`;
 	return (
-		<div className="kpi-grid">
-			<div className="kpi-card">
-				<Statistic title="品牌提及率" value={percentage(overallMetric(latest, "brandMentionRate"))} />
-				{deltaChip(deltaPoints("brandMentionRate"), "")}
+		<>
+			<div className="kpi-grid">
+				<div className="kpi-card">
+					<Statistic title="品牌提及率" value={percentage(overallMetric(latest, "brandMentionRate"))} />
+					{deltaChip(deltaPoints("brandMentionRate"), " 百分点")}
+				</div>
+				<div className="kpi-card">
+					<Statistic title="首位推荐率" value={percentage(overallMetric(latest, "firstRecommendationRate"))} />
+					{deltaChip(deltaPoints("firstRecommendationRate"), " 百分点")}
+				</div>
+				<div className="kpi-card">
+					<Statistic title="官网引用率" value={percentage(overallMetric(latest, "citationRate"))} />
+					{deltaChip(deltaPoints("citationRate"), " 百分点")}
+				</div>
+				<div className="kpi-card">
+					<Statistic title="证据存证" value={evidenceCount} suffix=" 条" />
+					{deltaChip(evidenceDelta, " 条")}
+				</div>
+				<div className="kpi-card">
+					<Statistic title="整改任务" value={openTasks} suffix=" 待审批" />
+					<span className="kpi-delta">
+						{draftPending ? "HRouter Agent 草稿待审" : openTasks > 0 ? "待人工处理" : "全部已验收"}
+					</span>
+				</div>
 			</div>
-			<div className="kpi-card">
-				<Statistic title="首位推荐率" value={percentage(overallMetric(latest, "firstRecommendationRate"))} />
-				{deltaChip(deltaPoints("firstRecommendationRate"), "")}
-			</div>
-			<div className="kpi-card">
-				<Statistic title="官网引用率" value={percentage(overallMetric(latest, "citationRate"))} />
-				{deltaChip(deltaPoints("citationRate"), "")}
-			</div>
-			<div className="kpi-card">
-				<Statistic title="证据存证" value={evidenceCount} suffix=" 条" />
-				{deltaChip(evidenceDelta, " 条")}
-			</div>
-			<div className="kpi-card">
-				<Statistic title="整改任务" value={openTasks} suffix=" 待审批" />
-				<span className="kpi-delta">
-					{draftPending ? "Pi Agent 草稿待审" : openTasks > 0 ? "待人工处理" : "全部已验收"}
-				</span>
-			</div>
-		</div>
+			<p className="kpi-caption muted">
+				{baseline
+					? `数值来自「${batchLabel(latest)}」，变化相对「${batchLabel(baseline)}」计算。`
+					: `数值来自「${batchLabel(latest)}」；完成一次同条件复测后显示较基线的变化。`}
+			</p>
+		</>
 	);
 }
 
@@ -94,7 +110,7 @@ export function OverviewTrendPanel({
 			<>
 				<SectionTitle title="指标趋势" description="同配置批次按时间排列；复测与基线条件一致时才可比较。" />
 				{trends.comparable.length < 2 ? (
-					<Alert type="info" showIcon message="当前只有一个同配置批次；完成一次“同条件复测”后显示趋势曲线。" />
+					<Alert type="info" showIcon title="当前只有一个同配置批次；完成一次“同条件复测”后显示趋势曲线。" />
 				) : (
 					<LineTrendChart
 						labels={trends.comparable.map((item) => ({ id: item.id, label: shortDate(item.createdAt) }))}
@@ -119,9 +135,11 @@ export function OverviewTrendPanel({
 				)}
 				{latestComparable ? (
 					<>
-						<SectionTitle title="平台覆盖" description="最新可比批次各平台的品牌提及率。" />
+						<SectionTitle
+							title="平台覆盖"
+							description={`「${batchKindLabel(latestComparable.kind as BatchSummary["kind"])} · ${shortDate(latestComparable.createdAt)}」各平台的品牌提及率。`}
+						/>
 						<MentionBarChart
-							title="平台覆盖（最新可比批次品牌提及率）"
 							items={perPlatformMention(latestComparable.metrics)}
 							note="失败平台不进入品牌率分母；未开放来源的平台引用率记为不可用。"
 						/>
@@ -139,6 +157,9 @@ export function Overview({ project, refresh }: { project: Project; refresh(): Pr
 	const [editingScope, setEditingScope] = useState(false);
 	const [trends, setTrends] = useState<TrendResponse | null>(null);
 	const [trendsLoading, setTrendsLoading] = useState(false);
+	// 切换批次时先保留旧数据，超过延迟阈值才换成骨架屏；首次加载没有旧数据可留，立即显示加载态
+	const delayedLoading = useDelayedLoading(trendsLoading);
+	const showTrendsLoading = trendsLoading && (!trends || delayedLoading);
 	useEffect(() => {
 		if (!latestId) {
 			setTrends(null);
@@ -165,7 +186,7 @@ export function Overview({ project, refresh }: { project: Project; refresh(): Pr
 			breadcrumb={project.name}
 			eyebrow="项目总览"
 			title="可见度总览"
-			description="最新批次的核心指标、趋势与平台覆盖；所有数值来自真实采集证据。"
+			description="最新批次的核心指标、趋势与平台覆盖。"
 			extra={
 				<Button
 					permission="project.onboard"
@@ -177,7 +198,7 @@ export function Overview({ project, refresh }: { project: Project; refresh(): Pr
 				</Button>
 			}
 		>
-			{trendsLoading ? (
+			{showTrendsLoading ? (
 				<div className="kpi-grid" aria-hidden="true">
 					{["skeleton-a", "skeleton-b", "skeleton-c", "skeleton-d", "skeleton-e"].map((key) => (
 						<div className="kpi-card" key={key}>
@@ -188,7 +209,7 @@ export function Overview({ project, refresh }: { project: Project; refresh(): Pr
 			) : trends ? (
 				<OverviewKpis trends={trends} tasks={project.tasks} />
 			) : null}
-			<OverviewTrendPanel latest={latest} trends={trends} loading={trendsLoading} />
+			<OverviewTrendPanel latest={latest} trends={trends} loading={showTrendsLoading} />
 			{editingScope && <ScopeEditor project={project} onClose={() => setEditingScope(false)} refresh={refresh} />}
 		</Page>
 	);

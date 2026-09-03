@@ -45,6 +45,7 @@ const querySchema = z.object({
 	from: z.string().datetime().optional(),
 	to: z.string().datetime().optional(),
 	cursor: z.string().max(1_000).optional(),
+	page: z.coerce.number().int().min(1).optional(),
 	limit: z.coerce.number().int().min(1).max(1_000).default(100),
 });
 
@@ -135,7 +136,9 @@ export async function listServiceLogs(database: Database, input: ServiceLogQuery
 	const base = queryConditions(query);
 	const conditions = [...base.conditions];
 	const params = [...base.params];
-	const cursor = decodeCursor(query.cursor);
+	// 页码模式（工作台列表）用 OFFSET；游标模式（CSV 导出、增量拉取）保持不变
+	const page = query.page && query.page >= 1 ? Math.trunc(query.page) : null;
+	const cursor = page ? null : decodeCursor(query.cursor);
 	if (cursor) {
 		params.push(cursor.occurredAt, cursor.id);
 		conditions.push(
@@ -143,10 +146,12 @@ export async function listServiceLogs(database: Database, input: ServiceLogQuery
 		);
 	}
 	params.push(query.limit + 1);
+	const limitPosition = params.length;
+	if (page) params.push((page - 1) * query.limit);
 	const rows = await database.query<Record<string, unknown>>(
 		`SELECT id,organization_id,service,level,event,message,trace_id,project_id,metadata,occurred_at
 		 FROM service_logs WHERE ${conditions.join(" AND ")}
-		 ORDER BY occurred_at DESC,id DESC LIMIT $${params.length}`,
+		 ORDER BY occurred_at DESC,id DESC LIMIT $${limitPosition}${page ? ` OFFSET $${params.length}` : ""}`,
 		params,
 	);
 	const counts = await database.query<{ level: string; count: number }>(
@@ -155,13 +160,19 @@ export async function listServiceLogs(database: Database, input: ServiceLogQuery
 	);
 	const visible = rows.rows.slice(0, query.limit).map(normalizedRow);
 	const last = visible.at(-1);
+	const levelCounts = Object.fromEntries(
+		logLevels.map((level) => [level, counts.rows.find((row) => row.level === level)?.count ?? 0]),
+	) as Record<(typeof logLevels)[number], number>;
+	const total = Object.values(levelCounts).reduce((sum, count) => sum + count, 0);
 	return {
 		logs: visible,
 		nextCursor:
 			rows.rows.length > query.limit && last ? encodeCursor({ occurredAt: last.occurred_at, id: last.id }) : null,
-		counts: Object.fromEntries(
-			logLevels.map((level) => [level, counts.rows.find((row) => row.level === level)?.count ?? 0]),
-		) as Record<(typeof logLevels)[number], number>,
+		counts: levelCounts,
+		total,
+		page: page ?? 1,
+		pageSize: query.limit,
+		totalPages: Math.max(1, Math.ceil(total / query.limit)),
 	};
 }
 
@@ -268,6 +279,7 @@ function parsedQuery(url: URL): ServiceLogQuery {
 		from: data.from,
 		to: data.to,
 		cursor: data.cursor,
+		page: data.page,
 		limit: data.limit,
 	};
 }

@@ -30,6 +30,8 @@ import {
 	batchKindLabel,
 	type Capture,
 	type CostGroup,
+	captureStatusLabel,
+	DEFAULT_PAGE_SIZE,
 	type DriftAlert,
 	type Paginated,
 	type Project,
@@ -70,22 +72,9 @@ export function runActivityStatus(status: string, active: boolean, captured: num
 	return captured > 0 ? `采集中 · 已写入 ${captured} 条证据` : "任务已创建 · 等待 Capture Worker";
 }
 
-const captureStatusLabels: Record<string, string> = {
-	complete: "回答与原始响应已存证",
-	login_required: "需要登录",
-	captcha_required: "需要安全验证",
-	auth_required: "鉴权失败",
-	rate_limited: "触发限流",
-	timeout: "请求超时",
-	model_unavailable: "模型不可用",
-	protocol_changed: "协议已变化",
-	search_not_triggered: "未触发联网搜索",
-	failed: "采集失败",
-};
-
 export function captureLogMessage(capture: Capture): string {
-	if (capture.status === "complete") return captureStatusLabels.complete;
-	const label = captureStatusLabels[capture.status] ?? capture.status;
+	if (capture.status === "complete") return "回答与原始响应已存证";
+	const label = captureStatusLabel(capture.status);
 	return capture.failureMessage && capture.failureMessage !== label ? `${label} · ${capture.failureMessage}` : label;
 }
 
@@ -100,14 +89,14 @@ export function RunCaptureLog({ captures, active }: { captures: Capture[]; activ
 				items={[
 					{
 						color: "gray",
-						children: <span>{active ? "冻结批次配置，等待首条采集证据" : "当前批次没有可展示的采集日志"}</span>,
+						content: <span>{active ? "冻结批次配置，等待首条采集证据" : "当前批次没有可展示的采集日志"}</span>,
 					},
 				]}
 			/>
 		);
 	const items: NonNullable<TimelineProps["items"]> = captures.map((capture) => ({
 		color: "gray",
-		children: (
+		content: (
 			<span>
 				<time>{formatClock(capture.capturedAt)}</time> · {providerShortLabel(capture.engine)} ·{" "}
 				{captureLogMessage(capture)}
@@ -117,7 +106,7 @@ export function RunCaptureLog({ captures, active }: { captures: Capture[]; activ
 	if (!active)
 		items.push({
 			color: "gray",
-			children: <span>指标已刷新 · {captures.length} 条近期 capture 已写入证据链</span>,
+			content: <span>指标已刷新 · {captures.length} 条近期 capture 已写入证据链</span>,
 		});
 	return <Timeline items={items} />;
 }
@@ -178,7 +167,7 @@ export function Monitoring({ project, refresh }: { project: Project; refresh(): 
 	const { message } = App.useApp();
 	const [selected, setSelected] = useState(project.batches[0]?.id ?? null);
 	const [batchPage, setBatchPage] = useState(1);
-	const visibleBatches = project.batches.slice((batchPage - 1) * 10, batchPage * 10);
+	const visibleBatches = project.batches.slice((batchPage - 1) * DEFAULT_PAGE_SIZE, batchPage * DEFAULT_PAGE_SIZE);
 	const [batch, setBatch] = useState<Batch | null>(null);
 	const [trends, setTrends] = useState<TrendResponse | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -186,7 +175,7 @@ export function Monitoring({ project, refresh }: { project: Project; refresh(): 
 	const [alertsPage, setAlertsPage] = useState<Paginated<DriftAlert>>({
 		items: [],
 		page: 1,
-		pageSize: 10,
+		pageSize: DEFAULT_PAGE_SIZE,
 		total: 0,
 		totalPages: 1,
 	});
@@ -296,9 +285,9 @@ export function Monitoring({ project, refresh }: { project: Project; refresh(): 
 	return (
 		<Page
 			breadcrumb={project.name}
-			eyebrow="AI监测"
+			eyebrow="AI 监测"
 			title="五平台联网监测"
-			description="快审每题 1 次；正式基线默认分三个时间窗口采样。失败平台不进入品牌率分母。"
+			description="快审每题采 1 次，正式基线分三个时段采样；失败平台不计入分母。"
 			extra={
 				<div className="monitor-head-actions">
 					<Popover
@@ -370,7 +359,7 @@ export function Monitoring({ project, refresh }: { project: Project; refresh(): 
 							)
 				}
 			/>
-			{error && <Alert className="monitor-error" type="error" showIcon message={error} />}
+			{error && <Alert className="monitor-error" type="error" showIcon title={error} />}
 			{pendingAlerts.length > 0 && (
 				<div className="monitor-alert-section">
 					<SectionTitle

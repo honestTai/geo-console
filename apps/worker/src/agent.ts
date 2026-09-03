@@ -624,7 +624,7 @@ export async function executeAgentDraft(database: Database, runId: string, targe
 		? parseJsonColumn<AgentTargetRef>(run.target_ref as string | AgentTargetRef)
 		: null;
 	const targetRef: AgentTargetRef | null = storedTarget ?? (targetTaskId ? { taskId: targetTaskId } : null);
-	agentRuntimeLogger.info("agent.started", "Pi Agent 开始执行", {
+	agentRuntimeLogger.info("agent.started", "HRouter Agent 开始执行", {
 		organizationId: run.organization_id,
 		projectId: run.project_id,
 		traceId: runId,
@@ -656,7 +656,7 @@ export async function executeAgentDraft(database: Database, runId: string, targe
 		const allowedToolNames = new Set(tools.map((tool) => tool.name));
 		const agent = new Agent({
 			initialState: {
-				systemPrompt: `你是 GEO Console 的核心证据校验与报告 Agent。必须先读取项目和证据索引，再逐条核验其他模型的回答与来源，最后调用 submit_draft。${AGENT_SAFETY_PROMPT}`,
+				systemPrompt: `你是 ZZ Geo 的核心证据校验与报告 Agent。必须先读取项目和证据索引，再逐条核验其他模型的回答与来源，最后调用 submit_draft。${AGENT_SAFETY_PROMPT}`,
 				model: createHRouterModel(config.model, config.baseUrl),
 				thinkingLevel,
 				tools,
@@ -739,7 +739,7 @@ export async function executeAgentDraft(database: Database, runId: string, targe
 				JSON.stringify({ inputTokens: usage.input, outputTokens: usage.output, totalTokens: usage.totalTokens }),
 			],
 		);
-		agentRuntimeLogger.info("agent.awaiting_approval", "Pi Agent 草稿等待人工审批", {
+		agentRuntimeLogger.info("agent.awaiting_approval", "HRouter Agent 草稿等待人工审批", {
 			organizationId: run.organization_id,
 			projectId: run.project_id,
 			traceId: runId,

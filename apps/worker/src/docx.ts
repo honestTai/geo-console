@@ -1,3 +1,4 @@
+import { PRODUCT_NAME, priorityLabel, reportTypeLabel, reputationLabel } from "./labels";
 import { type EvidenceIndexEntry, stripTrackingFragment } from "./report";
 
 type ZipEntry = { name: string; data: Buffer; crc: number; offset: number };
@@ -104,17 +105,9 @@ export function renderReportDocx(snapshot: Record<string, unknown>): Buffer {
 		Array.isArray(signal.sourceUrls) && signal.sourceUrls.length
 			? [...new Set(signal.sourceUrls.map((url) => stripTrackingFragment(String(url))))].join("、")
 			: "平台未开放来源";
-	const priorityText = (value: unknown): string =>
-		value === "high"
-			? "高优先级"
-			: value === "medium"
-				? "中优先级"
-				: value === "low"
-					? "低优先级"
-					: String(value ?? "");
 	const body = [
 		paragraph(snapshot.title, "Title"),
-		paragraph(`报告快照：${snapshot.id}`),
+		paragraph(`${PRODUCT_NAME} · ${reportTypeLabel(snapshot.report_type)} · 报告快照 ${snapshot.id}`),
 		paragraph("执行摘要", "Heading1"),
 		paragraph(narrative?.executiveSummary ?? report.analysis?.executive?.summary ?? ""),
 		paragraph("核心指标", "Heading1"),
@@ -123,7 +116,7 @@ export function renderReportDocx(snapshot: Record<string, unknown>): Buffer {
 		paragraph(`品牌声量份额：${percentage(overall.brandShareOfVoice)}`),
 		paragraph(`数据覆盖率：${percentage(overall.dataCoverage)}`),
 		paragraph("AI 口碑检测", "Heading1"),
-		paragraph(`总体：${reputation?.overall ?? "not_observed"}`),
+		paragraph(`总体：${reputationLabel(reputation?.overall ?? "not_observed")}`),
 		paragraph(reputation?.summary ?? "AI 搜索回答中未观察到可报告的口碑评价。"),
 		paragraph("正面信号", "Heading2"),
 		...((reputation?.positiveSignals ?? []).length
@@ -141,7 +134,7 @@ export function renderReportDocx(snapshot: Record<string, unknown>): Buffer {
 			: [paragraph("未观察到负面口碑信号。")]),
 		paragraph("GEO 优化建议", "Heading1"),
 		...(narrative?.geoRecommendations ?? []).map((item) =>
-			paragraph(`${priorityText(item.priority)}｜${item.title}：${item.action}${marks(item.evidenceIds)}`),
+			paragraph(`${priorityLabel(item.priority)}｜${item.title}：${item.action}${marks(item.evidenceIds)}`),
 		),
 		paragraph("证据局限", "Heading1"),
 		...(narrative?.limitations ?? []).map((item) => paragraph(item)),

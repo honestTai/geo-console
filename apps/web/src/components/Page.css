@@ -49,3 +49,16 @@
 		padding-top: 0;
 	}
 }
+
+/* 页面级延迟 loading：内容保持原位，只在超过阈值时覆盖半透明遮罩 */
+.page-loading {
+	min-width: 0;
+}
+
+.page-loading > .ant-spin-container {
+	min-height: 160px;
+}
+
+.page-body {
+	min-width: 0;
+}

@@ -47,6 +47,8 @@ export type UserIdentity = {
 };
 
 export type Paginated<T> = { items: T[]; page: number; pageSize: number; total: number; totalPages: number };
+/** 全站列表统一的默认每页条数；服务端 parsePagination 的默认值与此一致。 */
+export const DEFAULT_PAGE_SIZE = 20;
 export type NavigationItem = {
 	key: string;
 	group_label: string;
@@ -437,6 +439,14 @@ export type AgentRun = {
 	created_at: string;
 	completed_at: string | null;
 };
+export const agentStatusLabels: Record<AgentRun["status"], string> = {
+	queued: "排队中",
+	running: "分析中",
+	awaiting_approval: "待审批",
+	approved: "已批准",
+	rejected: "已拒绝",
+	failed: "执行失败",
+};
 export type ReportSnapshot = {
 	id: string;
 	batch_id: string;
@@ -487,6 +497,10 @@ export type ServiceLogResponse = {
 	logs: ServiceLogRow[];
 	nextCursor: string | null;
 	counts: Record<ServiceLogLevel, number>;
+	total: number;
+	page: number;
+	pageSize: number;
+	totalPages: number;
 };
 export type DriftAlert = {
 	id: string;
@@ -579,6 +593,41 @@ export const metricLabels: Record<string, string> = {
 	phone_calls: "电话咨询",
 	revenue: "成交金额",
 };
+/** 采集状态：界面不出现英文枚举值。 */
+export const captureStatusLabels: Record<string, string> = {
+	complete: "有回答",
+	no_answer: "无回答",
+	login_required: "需要登录",
+	challenge_required: "需要安全验证",
+	captcha_required: "需要安全验证",
+	auth_required: "鉴权失败",
+	rate_limited: "触发限流",
+	timeout: "请求超时",
+	page_contract_changed: "页面结构变化",
+	model_unavailable: "模型不可用",
+	protocol_changed: "协议已变化",
+	search_not_triggered: "未触发联网搜索",
+	failed: "采集失败",
+};
+export const captureStatusLabel = (status: string): string => captureStatusLabels[status] ?? status;
+export const taskStatusLabels: Record<string, string> = {
+	todo: "待处理",
+	in_progress: "处理中",
+	published: "已发布",
+	verified: "已验收",
+	done: "已完成",
+};
+export const taskStatusLabel = (status: string): string => taskStatusLabels[status] ?? status;
+export const sourceCategoryLabels: Record<string, string> = {
+	owned: "客户官网",
+	competitor: "竞品站点",
+	government: "政府/机构",
+	social: "社交与内容平台",
+	review: "点评/问答",
+	encyclopedia: "百科",
+	other: "其他网站",
+};
+export const sourceCategoryLabel = (category: string): string => sourceCategoryLabels[category] ?? category;
 export type ServiceLogFilters = {
 	service: string;
 	level: string;

@@ -4,7 +4,16 @@ import { type ReactNode, useEffect, useState } from "react";
 import { Button, useAgentRunPolling } from "../access";
 import { api, post } from "../api";
 import { usePaginated } from "../hooks/usePagination";
-import type { AgentRun, EvidenceIndexEntry, Finding, Paginated, Project, ReportPayload } from "../types";
+import {
+	type AgentRun,
+	agentStatusLabels,
+	DEFAULT_PAGE_SIZE,
+	type EvidenceIndexEntry,
+	type Finding,
+	type Paginated,
+	type Project,
+	type ReportPayload,
+} from "../types";
 import { useWorkspaceNavigation } from "../ui/navigation";
 import { BatchPicker, Empty, EvidenceRef, Pagination, SectionTitle } from "../ui/primitives";
 import "./Diagnosis.css";
@@ -22,7 +31,16 @@ const findingColumns: TableProps<Finding>["columns"] = [
 		title: "置信度",
 		dataIndex: "confidence",
 		width: 160,
-		render: (confidence: number) => <Progress percent={Math.round(confidence * 100)} size="small" />,
+		// 置信度是证据充分程度，不是成败：用中性色，100% 也显示数字而不是打勾
+		render: (confidence: number) => (
+			<Progress
+				className="finding-confidence"
+				percent={Math.round(confidence * 100)}
+				size="small"
+				strokeColor="#667085"
+				format={(percent) => `${percent ?? 0}%`}
+			/>
+		),
 	},
 ];
 
@@ -77,8 +95,8 @@ function AgentRunCard({
 	return (
 		<article className="agent-draft">
 			<div>
-				<span className="eyebrow">Pi Agent · {run.model}</span>
-				<h3>{run.status === "awaiting_approval" ? "诊断草稿待审批" : `Agent 运行：${run.status}`}</h3>
+				<span className="eyebrow">HRouter Agent · {run.model}</span>
+				<h3>{run.status === "awaiting_approval" ? "诊断草稿待审批" : `Agent 运行：${agentStatusLabels[run.status]}`}</h3>
 				<p>
 					{run.error_message ??
 						(["queued", "running"].includes(run.status)
@@ -164,7 +182,7 @@ export function Diagnosis({ project, refresh }: { project: Project; refresh(): P
 	}, [selected]);
 	const [findingPage, setFindingPage] = useState(1);
 	const findings = project.findings.filter((item) => item.batch_id === selected);
-	const visibleFindings = findings.slice((findingPage - 1) * 10, findingPage * 10);
+	const visibleFindings = findings.slice((findingPage - 1) * DEFAULT_PAGE_SIZE, findingPage * DEFAULT_PAGE_SIZE);
 	useAgentRunPolling(agentRuns, agentRunsPage.reload);
 	async function run(enhanceWithModel = false) {
 		if (!selected) return;
@@ -182,7 +200,7 @@ export function Diagnosis({ project, refresh }: { project: Project; refresh(): P
 	}
 	if (!project.batches.length)
 		return (
-			<Page breadcrumb={project.name} eyebrow="差距诊断" title="证据定位的可整改差距">
+			<Page breadcrumb={project.name} eyebrow="差距诊断" title="可整改差距">
 				<Empty title="尚不能诊断" detail="诊断必须基于成功采集的真实回答。请先建立基线。" />
 			</Page>
 		);
@@ -190,13 +208,13 @@ export function Diagnosis({ project, refresh }: { project: Project; refresh(): P
 		<Page
 			breadcrumb={project.name}
 			eyebrow="差距诊断"
-			title="证据定位的可整改差距"
-			description="确定性规则输出可复核指标；Pi Agent 只能读取项目证据，并通过 HRouter GPT 生成待人工审批草稿。"
+			title="可整改差距"
+			description="规则计算差距指标；Agent 诊断草稿需人工审批。"
 			extra={
 				<div className="actions">
 					<BatchPicker project={project} selected={selected} setSelected={setSelected} />
 					<Button permission="agent.run" variant="secondary" busy={busy === "model"} onClick={() => run(true)}>
-						Pi Agent 诊断草稿
+						HRouter Agent 诊断草稿
 					</Button>
 					<Button
 						permission="diagnosis.run"
@@ -209,7 +227,7 @@ export function Diagnosis({ project, refresh }: { project: Project; refresh(): P
 				</div>
 			}
 		>
-			{error && <Alert type="error" showIcon message={error} />}
+			{error && <Alert type="error" showIcon title={error} />}
 			{agentRuns.length > 0 && (
 				<>
 					<SectionTitle title="Agent 诊断草稿" count={agentRunsPage.total} />
@@ -267,9 +285,9 @@ export function Diagnosis({ project, refresh }: { project: Project; refresh(): P
 			)}
 			<Pagination
 				page={findingPage}
-				pageSize={10}
+				pageSize={DEFAULT_PAGE_SIZE}
 				total={findings.length}
-				totalPages={Math.max(1, Math.ceil(findings.length / 10))}
+				totalPages={Math.max(1, Math.ceil(findings.length / DEFAULT_PAGE_SIZE))}
 				onPage={setFindingPage}
 			/>
 		</Page>

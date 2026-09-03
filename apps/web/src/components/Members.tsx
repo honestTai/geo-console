@@ -13,8 +13,8 @@ export function Members({ localBypass }: { localBypass: boolean }) {
 	return (
 		<Page
 			eyebrow="机构成员"
-			title="角色与访问状态"
-			description="管理员维护机构成员、角色和访问状态；成员停用后其现有会话会被撤销。"
+			title="机构成员"
+			description="维护成员、角色与访问状态；停用即撤销会话。"
 		>
 			{localBypass ? (
 				<Alert
@@ -80,7 +80,7 @@ export function UserManagement() {
 	}
 	return (
 		<div className="user-management">
-			{error && <Alert type="error" showIcon message={error} />}
+			{error && <Alert type="error" showIcon title={error} />}
 			<SectionTitle title="添加成员" description="初始密码至少 12 位；成员首次登录后可自行修改。" />
 			<Form form={form} layout="vertical" className="member-form" onFinish={(values) => void create(values)}>
 				<Form.Item

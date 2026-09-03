@@ -11,24 +11,26 @@ import {
 } from "../types";
 import { date, Notice, percentage } from "../ui/primitives";
 
-/** 图表卡外壳：标题 + 可选图例 + 可选脚注，收敛三处重复的 chart-card markup。 */
+/** 图表卡外壳：可选标题 + 可选图例 + 可选脚注，收敛三处重复的 chart-card markup。页面已有小节标题时不传 title，避免同名两次。 */
 function ChartCard({
 	title,
 	legend,
 	note,
 	children,
 }: {
-	title: string;
+	title?: string;
 	legend?: ChartSeries[];
 	note?: string;
 	children: ReactNode;
 }) {
 	return (
 		<div className="chart-card">
-			<div className="chart-head">
-				<h4>{title}</h4>
-				{legend ? <ChartLegend series={legend} /> : null}
-			</div>
+			{title || legend ? (
+				<div className="chart-head">
+					{title ? <h4>{title}</h4> : null}
+					{legend ? <ChartLegend series={legend} /> : null}
+				</div>
+			) : null}
 			{children}
 			{note ? <p className="chart-note">{note}</p> : null}
 		</div>
@@ -124,10 +126,14 @@ export const overallPercent = (item: TrendResponse["comparable"][number], key: s
 	return value == null ? null : value * 100;
 };
 
+/** 没有任何成功回答的平台不进入品牌率分母，图表上显示“不可用”而不是 0%。 */
+export const platformUnavailable = (metrics: PlatformMetrics | undefined): boolean =>
+	!metrics || metrics.answeredCaptures === 0;
+
 export const perPlatformMention = (metrics: Batch["metrics"]): Array<{ label: string; value: number | null }> =>
 	Object.entries(metrics.perPlatform).map(([platform, item]) => ({
 		label: providerShortLabel(platform),
-		value: item.brandMentionRate,
+		value: platformUnavailable(item) ? null : item.brandMentionRate,
 	}));
 
 export function ChartLegend({ series }: { series: ChartSeries[] }) {
@@ -143,7 +149,15 @@ export function ChartLegend({ series }: { series: ChartSeries[] }) {
 	);
 }
 
-export function LineTrendChart({ series, labels }: { series: ChartSeries[]; labels: ChartLabel[] }) {
+export function LineTrendChart({
+	series,
+	labels,
+	title,
+}: {
+	series: ChartSeries[];
+	labels: ChartLabel[];
+	title?: string;
+}) {
 	const width = 1000;
 	const height = 260;
 	const padLeft = 46;
@@ -155,7 +169,7 @@ export function LineTrendChart({ series, labels }: { series: ChartSeries[]; labe
 	const xAt = (index: number) => (labels.length > 1 ? padLeft + (innerWidth * index) / (labels.length - 1) : width / 2);
 	const yAt = (value: number) => padTop + innerHeight * (1 - Math.min(100, Math.max(0, value)) / 100);
 	return (
-		<ChartCard title="关键指标趋势" legend={series}>
+		<ChartCard title={title} legend={series}>
 			<svg className="chart-svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="关键指标趋势图">
 				{[0, 25, 50, 75, 100].map((tick) => (
 					<g key={tick}>
@@ -228,7 +242,7 @@ export function MentionBarChart({
 	items,
 	note,
 }: {
-	title: string;
+	title?: string;
 	items: Array<{ label: string; value: number | null }>;
 	note?: string;
 }) {
@@ -240,10 +254,13 @@ export function MentionBarChart({
 					<BarRow
 						key={item.label}
 						label={item.label}
-						value={percentage(item.value)}
+						value={item.value == null ? "不可用" : percentage(item.value)}
+						valueClass={item.value == null ? "unavailable" : undefined}
 						track={
 							<span className="chart-bar-track">
-								<i className="chart-bar-fill" style={{ width: `${Math.round((item.value ?? 0) * 100)}%` }} />
+								{item.value == null ? null : (
+									<i className="chart-bar-fill" style={{ width: `${Math.round(item.value * 100)}%` }} />
+								)}
 							</span>
 						}
 					/>
@@ -269,8 +286,10 @@ export function ComparisonDeltaChart({
 	] as const;
 	const rows = current.config.platforms.flatMap((platform) =>
 		metrics.map((metric) => {
-			const before = baseline.metrics.perPlatform[platform]?.[metric.key] ?? null;
-			const after = current.metrics.perPlatform[platform]?.[metric.key] ?? null;
+			const beforeMetrics = baseline.metrics.perPlatform[platform];
+			const afterMetrics = current.metrics.perPlatform[platform];
+			const before = platformUnavailable(beforeMetrics) ? null : (beforeMetrics?.[metric.key] ?? null);
+			const after = platformUnavailable(afterMetrics) ? null : (afterMetrics?.[metric.key] ?? null);
 			return {
 				label: `${providerShortLabel(platform)} · ${metric.label}`,
 				value: before == null || after == null ? null : (after - before) * 100,
@@ -313,16 +332,17 @@ export function ComparisonDeltaChart({
 }
 
 function MetricCard({ platform, metrics }: { platform: string; metrics: PlatformMetrics }) {
+	const unavailable = platformUnavailable(metrics);
 	const rows: Array<{ label: string; value: string }> = [
-		{ label: "首位推荐率", value: percentage(metrics.firstRecommendationRate) },
-		{ label: "官网引用率", value: percentage(metrics.citationRate) },
-		{ label: "品牌声量份额", value: percentage(metrics.brandShareOfVoice) },
-		{ label: "重复一致性", value: percentage(metrics.repeatConsistency) },
-		{ label: "平均提及位置", value: metrics.averageMentionPosition?.toFixed(1) ?? "-" },
+		{ label: "首位推荐率", value: unavailable ? "-" : percentage(metrics.firstRecommendationRate) },
+		{ label: "官网引用率", value: unavailable ? "-" : percentage(metrics.citationRate) },
+		{ label: "品牌声量份额", value: unavailable ? "-" : percentage(metrics.brandShareOfVoice) },
+		{ label: "重复一致性", value: unavailable ? "-" : percentage(metrics.repeatConsistency) },
+		{ label: "平均提及位置", value: unavailable ? "-" : (metrics.averageMentionPosition?.toFixed(1) ?? "-") },
 		{ label: "回答覆盖率", value: percentage(metrics.answerCoverage) },
 	];
 	return (
-		<article className="metric-card">
+		<article className={unavailable ? "metric-card unavailable" : "metric-card"}>
 			<header>
 				<strong>{providerLabel(platform)}</strong>
 				<span className="metric-badge">
@@ -330,8 +350,8 @@ function MetricCard({ platform, metrics }: { platform: string; metrics: Platform
 				</span>
 			</header>
 			<div className="metric-hero">
-				<b>{percentage(metrics.brandMentionRate)}</b>
-				<span>品牌提及率</span>
+				<b>{unavailable ? "不可用" : percentage(metrics.brandMentionRate)}</b>
+				<span>{unavailable ? "该平台本批次没有成功回答，不进入品牌率分母" : "品牌提及率"}</span>
 			</div>
 			<dl>
 				{rows.map((row) => (

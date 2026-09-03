@@ -1,6 +1,6 @@
 import type { QueryCapture } from "@geo/evidence";
 import { describe, expect, it } from "vitest";
-import { buildEvidenceIndex, isReasoningScratch, stripTrackingFragment } from "./report";
+import { buildEvidenceIndex, isReasoningScratch, stripInlineMarkdown, stripTrackingFragment } from "./report";
 import { citationMarks, evidenceLookup, renderReportHtml } from "./report-snapshots";
 
 const capture = (id: string, attempt: number, capturedAt: string): QueryCapture =>
@@ -78,6 +78,14 @@ describe("报告引用可读化", () => {
 		expect(isReasoningScratch("Chengdu Vista CNC is the most relevant supplier for steel structures.")).toBe(false);
 		expect(stripTrackingFragment("https://a.example/p#ws_call_id=call_01_x")).toBe("https://a.example/p");
 		expect(stripTrackingFragment("https://a.example/p#section")).toBe("https://a.example/p#section");
+	});
+
+	it("品牌描述摘录去掉 Markdown 标记与表格竖线", () => {
+		expect(stripInlineMarkdown("1. **成都远景数控**（远景）：专注 [数控设备](https://x.example) 的厂家。")).toBe(
+			"1. 成都远景数控（远景）：专注 数控设备 的厂家。",
+		);
+		expect(stripInlineMarkdown("| 远景数控 | 钢结构钻孔 | 成都 |")).toBe("远景数控，钢结构钻孔，成都");
+		expect(stripInlineMarkdown("远景数控** 的报告以证据编号引用")).toBe("远景数控 的报告以证据编号引用");
 	});
 
 	it("报告 HTML 用 [n] 上标引用并附带证据索引表", () => {

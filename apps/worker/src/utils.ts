@@ -17,10 +17,12 @@ export function sha256(value: string | Buffer): string {
 	return createHash("sha256").update(value).digest("hex");
 }
 
+/** 与 JSON.stringify 一样忽略 undefined，保证冻结配置在写库前后哈希一致。 */
 export function stableJson(value: unknown): string {
-	if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+	if (Array.isArray(value)) return `[${value.map((item) => (item === undefined ? "null" : stableJson(item))).join(",")}]`;
 	if (value && typeof value === "object") {
 		return `{${Object.entries(value as Record<string, unknown>)
+			.filter(([, item]) => item !== undefined)
 			.sort(([left], [right]) => left.localeCompare(right))
 			.map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`)
 			.join(",")}}`;

@@ -60,17 +60,23 @@ type SessionRow = {
 };
 
 const thinkingLevelSchema = z.enum(agentThinkingLevels as [AgentThinkingLevel, ...AgentThinkingLevel[]]);
+const modelSchema = z
+	.string()
+	.trim()
+	.regex(/^gpt(?:-|\.)/i, "AI 工作台模型必须是 GPT 系列");
 
 const createSessionSchema = z.object({
 	title: z.string().trim().min(1).max(80).optional(),
 	autoApprove: z.boolean().optional(),
 	thinkingLevel: thinkingLevelSchema.optional().nullable(),
+	model: modelSchema.optional().nullable(),
 	message: z.string().trim().min(1).max(4000).optional(),
 });
 
 const settingsSchema = z.object({
 	autoApprove: z.boolean().optional(),
 	thinkingLevel: thinkingLevelSchema.optional().nullable(),
+	model: modelSchema.optional().nullable(),
 	title: z.string().trim().min(1).max(80).optional(),
 });
 
@@ -146,7 +152,8 @@ export async function createSession(
 	).rows[0];
 	if (!project) throw new Error("客户项目不存在");
 	const config = await getHRouterConfig(database, project.organization_id);
-	if (!config.configured || !config.model) throw new Error("请先在平台设置中配置 HRouter API Key 与 GPT 模型");
+	const model = data.model ?? config.model;
+	if (!config.configured || !model) throw new Error("请先在平台设置中配置 HRouter API Key 与 GPT 模型");
 	const id = randomUUID();
 	const title = data.title ?? (data.message ? data.message.slice(0, 40) : `${project.name} · 新会话`);
 	await database.query(
@@ -158,12 +165,12 @@ export async function createSession(
 			projectId,
 			title,
 			data.autoApprove ?? true,
-			config.model,
+			model,
 			data.thinkingLevel ?? null,
 			createdBy,
 		],
 	);
-	await appendEvent(database, id, "session_created", { title, autoApprove: data.autoApprove ?? true });
+	await appendEvent(database, id, "session_created", { title, autoApprove: data.autoApprove ?? true, model });
 	if (data.message) await sendMessage(database, id, { message: data.message });
 	return { id };
 }
@@ -228,13 +235,18 @@ export async function updateSessionSettings(database: Database, sessionId: strin
 	const result = await database.query(
 		`UPDATE agent_sessions SET auto_approve=COALESCE($2,auto_approve),
 		 thinking_level=CASE WHEN $3::boolean THEN $4 ELSE thinking_level END,
-		 title=COALESCE($5,title),updated_at=now() WHERE id=$1`,
+		 title=COALESCE($5,title),
+		 model=CASE WHEN $6::boolean THEN $7 ELSE model END,
+		 updated_at=now() WHERE id=$1`,
 		[
 			sessionId,
 			data.autoApprove ?? null,
 			data.thinkingLevel !== undefined,
 			data.thinkingLevel ?? null,
 			data.title ?? null,
+			// 传 null 表示恢复为机构默认模型；执行时再回退到平台设置。
+			data.model !== undefined,
+			data.model ?? null,
 		],
 	);
 	if (result.affectedRows !== 1) throw new Error("AI 工作台会话不存在");
@@ -298,6 +310,18 @@ const purposeLabels: Record<string, string> = {
 	quality_review: "报告质检",
 	optimization_article: "优化文章",
 	content_brief: "内容草稿",
+};
+
+const reportStateLabels: Record<string, string> = {
+	narrative_queued: "叙述排队中",
+	narrative_running: "叙述生成中",
+	narrative_approval: "叙述待审批",
+	quality_queued: "质检排队中",
+	quality_running: "质检进行中",
+	quality_approval: "质检待审批",
+	quality_blocked: "质检未通过",
+	documents_queued: "正在生成 PDF/Word",
+	ready: "PDF/Word 已生成",
 };
 
 function planUpsert(plan: AgentSessionPlanStep[], step: AgentSessionPlanStep): AgentSessionPlanStep[] {
@@ -761,13 +785,13 @@ async function createWorkbenchTools(
 					label: "报告叙述与质检",
 					status: result.state === "ready" ? "done" : result.state === "quality_blocked" ? "failed" : "running",
 					ref: result.reportId ?? result.runId,
-					detail: result.state,
+					detail: reportStateLabels[result.state] ?? result.state,
 				});
 				await persistControl();
 				await emit("step", {
 					key: "report",
 					status: control.plan.find((s) => s.key === "report")?.status,
-					detail: result.state,
+					detail: reportStateLabels[result.state] ?? result.state,
 				});
 				const pdf = result.reportId ? await getReportPdfStatus(database, result.reportId) : null;
 				return toolResult({ ...result, pdf });
@@ -836,7 +860,8 @@ export async function executeSessionTurn(
 	if (["done", "failed"].includes(session.status) && trigger !== "user") return;
 	const config = await getHRouterConfig(database, session.organization_id);
 	const apiKey = await readEncryptedCredential(database, "hrouter_api_key", session.organization_id);
-	if (!config.model || !apiKey) throw new Error("请先配置 HRouter API Key 与 GPT 模型");
+	const model = session.model ?? config.model;
+	if (!model || !apiKey) throw new Error("请先配置 HRouter API Key 与 GPT 模型");
 	const control: TurnControl = {
 		waiting: null,
 		finished: null,
@@ -863,7 +888,7 @@ export async function executeSessionTurn(
 	const agent = new Agent({
 		initialState: {
 			systemPrompt: WORKBENCH_SYSTEM_PROMPT,
-			model: createHRouterModel(config.model, config.baseUrl),
+			model: createHRouterModel(model, config.baseUrl),
 			thinkingLevel: session.thinking_level ?? config.thinkingLevel,
 			tools,
 			messages: session.transcript,

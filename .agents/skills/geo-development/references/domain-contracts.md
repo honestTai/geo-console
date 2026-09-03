@@ -69,6 +69,12 @@ Provider 的实时默认值以 `apps/worker/src/providers.ts` 为准：
 - 客户建档保存明确 `industry`。官网分析优先合并同业库问题，再追加 Agent 候选并按问题文本去重；Agent 新候选不会自动写回知识库。
 - 项目 Prompt 可引用 `library_question_id`，但批次仍冻结完整问题文本和维度；知识库后续变化不修改历史 Prompt、Capture 或批次。
 
+## 配置导入导出
+
+- `apps/worker/src/config-transfer.ts` 只搬运非密钥配置：平台设置包（`kind=geo-settings`）含 HRouter baseUrl/model/thinkingLevel 与各平台 model/endpoint/options；知识库包（`kind=geo-knowledge`）含未归档问题。密钥永不导出；导入到缺密钥的机构时平台按停用落库并在结果里说明。
+- 知识库导入按“行业 + 问题”去重，重复项跳过而不报错；导入只写当前活动机构。
+- 监测范围包（`kind=geo-project-scope`）在前端生成与解析（`apps/web/src/ui/scope-bundle.ts`），只含别名/竞品/问题业务字段，导入后载入编辑器，仍走 `POST /api/projects/:id/confirm` 产生新范围版本。
+
 ## 运行日志
 
 - `service_logs` 是运行诊断数据，不是证据；字段为 organization、service、level、event、message、trace/project、脱敏 metadata 和 occurred time。

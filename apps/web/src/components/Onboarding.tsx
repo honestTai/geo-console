@@ -63,18 +63,15 @@ export function Onboarding({ project, refresh }: { project: Project; refresh(): 
 				className="onboarding"
 				breadcrumb={project.name}
 				eyebrow="客户建档"
-				title="读取客户的真实官网"
+				title="读取客户官网"
 				description="建档分三步：抓取官网 → 人工确认监测范围 → 建立基线。"
 			>
 				<Steps size="small" current={0} items={STEPS} className="onboarding-steps" />
 				<div className="action-panel">
 					<IconWorldSearch size={34} />
 					<h2>读取客户的真实官网</h2>
-					<p>
-						系统会抓取 Sitemap 及最多 100 个同域页面，再由 HRouter GPT
-						生成客户画像、竞品候选和购买问题，并合并当前机构同业知识库。此过程需要已配置的 Agent 模型与 API Key。
-					</p>
-					{error && <Alert type="error" showIcon message={error} />}
+					<p>抓取官网页面，由 HRouter Agent 生成客户画像、竞品候选与购买问题，并合并同行业知识库。需先在平台设置配好 HRouter Agent。</p>
+					{error && <Alert type="error" showIcon title={error} />}
 					<div className="actions">
 						<Button permission="project.onboard" busy={busy} icon={<IconSearch size={17} />} onClick={analyze}>
 							{busy ? "正在抓取和分析" : "开始官网分析"}
@@ -109,7 +106,7 @@ export function Onboarding({ project, refresh }: { project: Project; refresh(): 
 			}
 		>
 			<Steps size="small" current={1} items={STEPS} className="onboarding-steps" />
-			{error && <Alert type="error" showIcon message={error} />}
+			{error && <Alert type="error" showIcon title={error} />}
 			<EditableList joined title="品牌别名" items={aliases} onChange={setAliases} placeholder="多个别名用逗号分隔" />
 			<EditableList
 				title="竞品候选"

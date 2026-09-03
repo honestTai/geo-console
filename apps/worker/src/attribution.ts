@@ -33,10 +33,15 @@ function valueFor(record: Record<string, string>, names: string[]): string | nul
 	return entry?.[1]?.trim() || null;
 }
 
+/** 只有日期没有时刻的行（GA4/GSC 日报）按中国时区当天零点记录，避免被当成 UTC 零点后显示成早上 8 点。 */
 function observedAt(value: string | null, row: number): string {
 	if (!value) throw new Error(`第 ${row} 行缺少日期 observed_at/date/日期`);
-	const compact = value.match(/^(\d{4})(\d{2})(\d{2})$/);
-	const parsed = new Date(compact ? `${compact[1]}-${compact[2]}-${compact[3]}T00:00:00+08:00` : value);
+	const dayOnly = value.match(/^(\d{4})-?(\d{2})-?(\d{2})$/) ?? value.match(/^(\d{4})[/.](\d{1,2})[/.](\d{1,2})$/);
+	const parsed = new Date(
+		dayOnly
+			? `${dayOnly[1]}-${dayOnly[2].padStart(2, "0")}-${dayOnly[3].padStart(2, "0")}T00:00:00+08:00`
+			: value,
+	);
 	if (Number.isNaN(parsed.getTime())) throw new Error(`第 ${row} 行日期无法解析：${value}`);
 	return parsed.toISOString();
 }

@@ -37,6 +37,8 @@ export type ServiceLogQuery = {
 	from?: string;
 	to?: string;
 	cursor?: string;
+	/** 页码分页：给出 page 时忽略 cursor，按 OFFSET 取第 page 页 */
+	page?: number;
 	limit?: number;
 };
 
@@ -44,6 +46,11 @@ export type ServiceLogQueryResult = {
 	logs: ServiceLogRow[];
 	nextCursor: string | null;
 	counts: Record<LogLevel, number>;
+	/** 当前筛选条件下的总条数（各级别计数之和），供页码分页使用 */
+	total: number;
+	page: number;
+	pageSize: number;
+	totalPages: number;
 };
 
 const sensitiveKey =
@@ -136,6 +143,7 @@ function queryString(query: ServiceLogQuery): string {
 	if (query.from) params.set("from", query.from);
 	if (query.to) params.set("to", query.to);
 	if (query.cursor) params.set("cursor", query.cursor);
+	if (query.page) params.set("page", String(query.page));
 	if (query.limit) params.set("limit", String(query.limit));
 	return params.toString();
 }

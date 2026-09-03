@@ -2,7 +2,7 @@ import { IconDownload, IconFileText, IconShieldCheck } from "@tabler/icons-react
 import { Collapse, Segmented } from "antd";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Button, useBatch } from "../access";
-import { type Capture, type Project, providerIds, providerLabel, providerShortLabel } from "../types";
+import { type Capture, type Competitor, DEFAULT_PAGE_SIZE, type Project, providerIds, providerLabel, providerShortLabel } from "../types";
 import { answerInline, FormattedAnswer } from "../ui/markdown";
 import type { EvidenceFocus } from "../ui/navigation";
 import {
@@ -22,7 +22,31 @@ import { Page } from "./Page";
 
 export { answerInline, FormattedAnswer };
 
-const PAGE_SIZE = 12;
+const PAGE_SIZE = DEFAULT_PAGE_SIZE;
+
+/** 判定提及时用的品牌口径：客户品牌 id 就是项目 id（与指标口径一致），竞品取批次冻结配置。 */
+type BrandScope = { customerId: string; customerName: string; competitors: Competitor[] };
+
+/**
+ * 回答里的品牌命中按“客户品牌 / 竞品”拆开，避免把竞品的位置当成客户品牌的提及位置。
+ */
+function summarizeMentions(capture: Capture, brands: BrandScope) {
+	const own = capture.brandMatches.filter((match) => match.brandId === brands.customerId);
+	const competitorNames = new Map<string, string>();
+	for (const match of capture.brandMatches) {
+		if (match.brandId === brands.customerId || competitorNames.has(match.brandId)) continue;
+		const competitor = brands.competitors.find((item) => item.id === match.brandId);
+		competitorNames.set(match.brandId, competitor?.name ?? match.matchedAlias);
+	}
+	const positions = [...new Set(own.map((match) => match.position))].sort((left, right) => left - right);
+	return {
+		mentioned: own.length > 0,
+		count: own.length,
+		positions,
+		bestPosition: positions[0] ?? null,
+		competitors: [...competitorNames.values()],
+	};
+}
 
 export function Evidence({
 	project,
@@ -67,6 +91,11 @@ export function Evidence({
 	}, [focus, batch, project.batches, setSelected, onConsumeFocus]);
 	const visibleCaptures = captures.slice((capturePage - 1) * PAGE_SIZE, capturePage * PAGE_SIZE);
 	const activeCapture = captures.find((item) => item.captureId === activeCaptureId) ?? visibleCaptures[0] ?? null;
+	const brands: BrandScope = {
+		customerId: project.id,
+		customerName: project.name,
+		competitors: batch?.config.competitors ?? project.competitors,
+	};
 	function pickPlatform(value: string) {
 		setPlatform(value);
 		setCapturePage(1);
@@ -128,7 +157,7 @@ export function Evidence({
 			breadcrumb={project.name}
 			eyebrow="证据中心"
 			title="回答原文存证"
-			description="原始回答与 API 响应写入后不可修改；派生指标可以按新规则重算。"
+			description="原始回答与 API 响应写入后不可修改。"
 			extra={
 				<Button variant="secondary" icon={<IconDownload size={16} />} disabled={!captures.length} onClick={exportCsv}>
 					导出证据 CSV
@@ -152,29 +181,34 @@ export function Evidence({
 			) : (
 				<div className="evidence-layout">
 					<div className="evidence-list">
-						{visibleCaptures.map((capture) => (
-							<button
-								type="button"
-								className={`evidence-card ${activeCapture?.captureId === capture.captureId ? "selected" : ""}`}
-								key={capture.captureId}
-								onClick={() => setActiveCaptureId(capture.captureId)}
-							>
-								<span className="evidence-card-head">
-									<span className="ev-platform">{providerShortLabel(capture.engine)}</span>
-									<span className="ev-meta">
-										第 {capture.attempt} 次 · {shortDate(capture.capturedAt)}
+						{visibleCaptures.map((capture) => {
+							const mention = summarizeMentions(capture, brands);
+							return (
+								<button
+									type="button"
+									className={`evidence-card ${activeCapture?.captureId === capture.captureId ? "selected" : ""}`}
+									key={capture.captureId}
+									onClick={() => setActiveCaptureId(capture.captureId)}
+								>
+									<span className="evidence-card-head">
+										<span className="ev-platform">{providerShortLabel(capture.engine)}</span>
+										<span className="ev-meta">
+											第 {capture.attempt} 次 · {shortDate(capture.capturedAt)}
+										</span>
 									</span>
-								</span>
-								<strong>{capture.prompt}</strong>
-								<span className={`ev-result ${capture.status === "complete" ? "ok" : "fail"}`}>
-									{capture.status === "complete"
-										? capture.brandMatches.length
-											? `提及品牌 · 位置 ${Math.min(...capture.brandMatches.map((match) => match.position))}`
-											: "未提及品牌"
-										: `采集失败 · ${capture.failureMessage ?? capture.status}`}
-								</span>
-							</button>
-						))}
+									<strong>{capture.prompt}</strong>
+									<span className={`ev-result ${capture.status === "complete" ? "ok" : "fail"}`}>
+										{capture.status === "complete"
+											? mention.mentioned
+												? `提及客户品牌 · 位置 ${mention.bestPosition}`
+												: mention.competitors.length
+													? `未提及客户品牌 · 仅竞品 ${mention.competitors.join("、")}`
+													: "未提及客户品牌"
+											: `采集失败 · ${capture.failureMessage ?? capture.status}`}
+									</span>
+								</button>
+							);
+						})}
 						<Pagination
 							page={capturePage}
 							pageSize={PAGE_SIZE}
@@ -188,7 +222,7 @@ export function Evidence({
 					</div>
 					<div className="evidence-detail-pane">
 						{activeCapture ? (
-							<EvidenceDetail capture={activeCapture} />
+							<EvidenceDetail capture={activeCapture} brands={brands} />
 						) : (
 							<Empty compact title="选择一条回答" detail="左侧点击任意回答查看原文、来源和原始响应。" />
 						)}
@@ -262,7 +296,8 @@ function RawEvidencePanel({ capture }: { capture: Capture }) {
 	);
 }
 
-export function EvidenceDetail({ capture }: { capture: Capture }) {
+export function EvidenceDetail({ capture, brands }: { capture: Capture; brands: BrandScope }) {
+	const mention = summarizeMentions(capture, brands);
 	const panels: EvidencePanel[] = [];
 	if (capture.answerText) panels.push(answerPanel(capture.answerText));
 	if (hasRawEvidence(capture))
@@ -301,15 +336,14 @@ export function EvidenceDetail({ capture }: { capture: Capture }) {
 				<span className="ed-status">
 					结论：
 					{capture.status === "complete"
-						? capture.brandMatches.length > 0
-							? `品牌被提及 ${capture.brandMatches.length} 次`
-							: "回答未提及品牌"
+						? mention.mentioned
+							? `${brands.customerName} 被提及 ${mention.count} 次`
+							: `回答未提及 ${brands.customerName}`
 						: (capture.failureMessage ?? "本次采集未完成")}
 				</span>
 				<span className="ed-tags">
-					{capture.brandMatches.length > 0
-						? `提及位置 ${capture.brandMatches.map((match) => match.position).join("、")}`
-						: "未提及"}
+					{mention.mentioned ? `提及位置 ${mention.positions.join("、")}` : "未提及"}
+					{mention.competitors.length > 0 ? ` · 同时出现竞品 ${mention.competitors.join("、")}` : ""}
 					{capture.sources.length > 0 ? ` · 引用来源 ${capture.sources.length} 条` : ""}
 					{capture.evidence.rawResponseObjectKey || capture.evidence.screenshotObjectKey ? " · 原文已存证" : ""}
 				</span>

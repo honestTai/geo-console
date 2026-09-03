@@ -1,5 +1,5 @@
 import { IconPlus } from "@tabler/icons-react";
-import { Alert, App, Input, Modal, Popconfirm } from "antd";
+import { Alert, Button as AntdButton, App, Form, Input, Modal, Popconfirm } from "antd";
 import { useState } from "react";
 import { Button } from "../access";
 import { api, post, put } from "../api";
@@ -7,6 +7,50 @@ import { usePaginated } from "../hooks/usePagination";
 import type { OrganizationSummary, Paginated, UserIdentity } from "../types";
 import { FilterBar, IdChip, Pagination } from "../ui/primitives";
 import { Page } from "./Page";
+
+type CreateOrganizationValues = { name: string };
+
+function CreateOrganization({ open, onClose, onCreated }: { open: boolean; onClose(): void; onCreated(): void }) {
+	const { message } = App.useApp();
+	const [form] = Form.useForm<CreateOrganizationValues>();
+	const [busy, setBusy] = useState(false);
+	async function submit(values: CreateOrganizationValues) {
+		setBusy(true);
+		try {
+			await post("/api/organizations", { name: values.name.trim() });
+			message.success(`机构「${values.name.trim()}」已创建`);
+			onCreated();
+		} catch (reason) {
+			message.error(reason instanceof Error ? reason.message : "机构创建失败");
+		} finally {
+			setBusy(false);
+		}
+	}
+	return (
+		<Modal
+			title="新建机构"
+			open={open}
+			onCancel={onClose}
+			destroyOnHidden
+			mask={{ closable: false }}
+			footer={[
+				<AntdButton key="cancel" onClick={onClose}>
+					取消
+				</AntdButton>,
+				<AntdButton key="submit" type="primary" loading={busy} onClick={() => form.submit()}>
+					创建机构
+				</AntdButton>,
+			]}
+		>
+			<p className="muted">新机构会拥有独立的项目、证据、模型凭据、问题库、报告、成员和审计日志，创建后可随时进入配置。</p>
+			<Form<CreateOrganizationValues> form={form} layout="vertical" onFinish={submit} requiredMark="optional">
+				<Form.Item name="name" label="机构名称" rules={[{ required: true, whitespace: true, message: "请输入机构名称" }]}>
+					<Input autoFocus placeholder="公司或团队全称" maxLength={80} />
+				</Form.Item>
+			</Form>
+		</Modal>
+	);
+}
 
 export function OrganizationManagement({
 	user,
@@ -16,7 +60,7 @@ export function OrganizationManagement({
 	onIdentityChange(user: UserIdentity): void;
 }) {
 	const { message } = App.useApp();
-	const [name, setName] = useState("");
+	const [creating, setCreating] = useState(false);
 	const [search, setSearch] = useState("");
 	const organizations = usePaginated<OrganizationSummary>(
 		(page, pageSize) => {
@@ -29,17 +73,6 @@ export function OrganizationManagement({
 	const [suspending, setSuspending] = useState<OrganizationSummary | null>(null);
 	const [suspensionReason, setSuspensionReason] = useState("");
 	const [error, setError] = useState<string | null>(null);
-	async function create() {
-		setError(null);
-		try {
-			await post("/api/organizations", { name });
-			message.success(`机构「${name.trim()}」已创建`);
-			setName("");
-			await organizations.reload();
-		} catch (reason) {
-			setError(reason instanceof Error ? reason.message : "机构创建失败");
-		}
-	}
 	async function select(organizationId: string) {
 		const result = await post<{ user: UserIdentity }>("/api/organizations/select", { organizationId });
 		onIdentityChange(result.user);
@@ -63,24 +96,16 @@ export function OrganizationManagement({
 	return (
 		<Page
 			className="organization-management"
-			eyebrow="系统超管"
+			eyebrow="系统管理"
 			title="多租户管理"
-			description="每个机构拥有独立的项目、证据、模型凭据、问题库、报告、成员和审计日志。"
+			description="每个机构的客户、证据、密钥、成员与日志相互隔离。"
 			extra={
-				<div className="organization-create">
-					<Input
-						value={name}
-						onChange={(event) => setName(event.target.value)}
-						placeholder="新机构名称"
-						onPressEnter={() => name.trim() && void create()}
-					/>
-					<Button icon={<IconPlus size={16} />} disabled={!name.trim()} onClick={() => void create()}>
-						创建机构
-					</Button>
-				</div>
+				<Button icon={<IconPlus size={16} />} onClick={() => setCreating(true)}>
+					新建机构
+				</Button>
 			}
 		>
-			{error && <Alert type="error" showIcon message={error} />}
+			{error && <Alert type="error" showIcon title={error} />}
 			<FilterBar extra={<span className="muted">{organizations.total ? `${organizations.total} 个机构` : ""}</span>}>
 				<Input
 					value={search}
@@ -110,7 +135,7 @@ export function OrganizationManagement({
 								disabled={organization.id === user.organizationId}
 								onClick={() => void select(organization.id)}
 							>
-								进入机构
+								{organization.id === user.organizationId ? "当前机构" : "进入机构"}
 							</Button>
 							{organization.suspended_at ? (
 								<Popconfirm
@@ -133,6 +158,14 @@ export function OrganizationManagement({
 				))}
 			</div>
 			<Pagination {...organizations} onPage={(page) => void organizations.reload(page)} />
+			<CreateOrganization
+				open={creating}
+				onClose={() => setCreating(false)}
+				onCreated={() => {
+					setCreating(false);
+					void organizations.reload();
+				}}
+			/>
 			<Modal
 				title={`封禁 ${suspending?.name ?? ""}`}
 				open={Boolean(suspending)}

@@ -6,27 +6,19 @@
 
 .remediation-list {
 	display: grid;
-	gap: 14px;
+	gap: var(--space-3);
 }
 
 .remediation-item .task-title {
-	font-size: 15px;
+	font-size: 14.5px;
 	font-weight: 650;
 }
 
 .task-detail {
-	margin: 0 0 12px;
-	line-height: 1.7;
+	margin: 0 0 var(--space-2);
+	line-height: 1.65;
 	color: var(--ink-2);
 	font-size: 13.5px;
-}
-
-.task-meta-row {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 8px;
-	margin: 12px 0;
 }
 
 .task-acceptance {
@@ -65,6 +57,7 @@
 	min-width: 0;
 }
 
+/* 优先级只是分类标签，不用告警色；高优先级仅加深文字 */
 .task-priority.ant-tag,
 .task-verified.ant-tag {
 	margin: 0;
@@ -74,8 +67,8 @@
 }
 
 .task-priority.high {
-	background: var(--danger-soft);
-	color: var(--danger-strong);
+	color: var(--ink);
+	font-weight: 600;
 }
 
 .task-verified.ant-tag {
@@ -87,18 +80,38 @@
 	min-width: 104px;
 }
 
+/* 事实行与「查看验收标准」同一行，减少卡片高度 */
+.task-meta {
+	display: flex;
+	justify-content: space-between;
+	align-items: baseline;
+	gap: var(--space-4);
+	margin-bottom: var(--space-3);
+}
+
 .task-facts {
-	display: grid;
-	grid-template-columns: repeat(3, minmax(0, 1fr));
-	gap: var(--space-3) var(--space-5);
-	margin: 0 0 var(--space-4);
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px var(--space-5);
+	margin: 0;
 	font-size: 13px;
+	min-width: 0;
+}
+
+.task-facts > div {
+	display: flex;
+	gap: 6px;
+	min-width: 0;
 }
 
 .task-facts dt {
 	color: var(--ink-4);
-	font-size: 12px;
-	margin-bottom: 2px;
+	font-size: 12.5px;
+	flex-shrink: 0;
+}
+
+.task-facts dt::after {
+	content: "：";
 }
 
 .task-facts dd {
@@ -109,33 +122,28 @@
 
 .task-form {
 	display: grid;
-	grid-template-columns: 160px 160px minmax(0, 1fr) auto;
+	grid-template-columns: 150px 150px minmax(0, 1fr) auto;
 	gap: var(--space-3);
 	align-items: end;
-	padding: var(--space-3) var(--space-4);
+	padding: var(--space-2) var(--space-3);
 	background: var(--surface-2);
 	border-radius: var(--radius-s);
 }
 
 .task-form .task-field {
 	display: grid;
-	gap: 4px;
+	gap: 2px;
 	font-size: 12px;
 	color: var(--ink-3);
+}
+
+.task-form .ant-picker {
+	width: 100%;
 }
 
 .task-form-actions {
 	display: flex;
 	gap: var(--space-2);
-}
-
-.task-footer {
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	gap: var(--space-2);
-	flex-wrap: wrap;
-	margin-top: var(--space-3);
 }
 
 .task-sections {
@@ -150,11 +158,4 @@
 	margin: 0 0 4px;
 	font-size: 12.5px;
 	color: var(--ink-3);
-}
-
-@media (max-width: 900px) {
-	.task-facts,
-	.task-form {
-		grid-template-columns: 1fr;
-	}
 }

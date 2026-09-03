@@ -60,7 +60,7 @@ export function Login({ error, onLogin }: { error: string | null; onLogin(user: 
 				<Form.Item name="organizationId" label="机构 ID（同邮箱属于多个机构时填写）">
 					<Input autoComplete="organization" />
 				</Form.Item>
-				{message && <Alert type="error" message={message} showIcon />}
+				{message && <Alert type="error" title={message} showIcon />}
 				<Button htmlType="submit" busy={busy} block>
 					登录
 				</Button>

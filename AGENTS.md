@@ -5,7 +5,7 @@ This repository is a Node.js 24, pnpm 11, TypeScript monorepo. Use only `corepac
 Use the project skills under `.agents/skills/` as follows:
 
 - For health checks, capture/report queue recovery, provider failures, backups, restores, or evidence retention, use `geo-operations`.
-- For code changes, database contracts, metrics, cloud search adapters, Pi Agent tools, reports, migrations, or tests, use `geo-development`.
+- For code changes, database contracts, metrics, cloud search adapters, HRouter Agent tools, reports, migrations, or tests, use `geo-development`.
 - For local installation, server Docker, HTTPS, S3-compatible storage, secrets, upgrades, or rollback, use `geo-deployment`.
 
 Only run migrations against a newly created project PGlite database or an explicitly supplied test/deployment PostgreSQL database. Never infer authority to connect to or mutate an existing external database.

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Paginated } from "../types";
+import { DEFAULT_PAGE_SIZE, type Paginated } from "../types";
 
 type UsePaginatedOptions = {
 	pageSize?: number;
@@ -9,7 +9,7 @@ type UsePaginatedOptions = {
 export function usePaginated<T>(
 	fetcher: (page: number, pageSize: number) => Promise<Paginated<T>>,
 	deps: unknown[],
-	{ pageSize = 10, onError }: UsePaginatedOptions = {},
+	{ pageSize = DEFAULT_PAGE_SIZE, onError }: UsePaginatedOptions = {},
 ) {
 	const [state, setState] = useState<Paginated<T>>({ items: [], page: 1, pageSize, total: 0, totalPages: 1 });
 	const [loading, setLoading] = useState(false);

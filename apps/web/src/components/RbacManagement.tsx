@@ -3,7 +3,15 @@ import { Alert, App, Checkbox, Input, List, Popconfirm, Switch, Table, Tabs, Tre
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "../access";
 import { api, post, put } from "../api";
-import type { ManagedUser, Paginated, PermissionRecord, ProjectSummary, RoleRecord, UserIdentity } from "../types";
+import {
+	DEFAULT_PAGE_SIZE,
+	type ManagedUser,
+	type Paginated,
+	type PermissionRecord,
+	type ProjectSummary,
+	type RoleRecord,
+	type UserIdentity,
+} from "../types";
 import { Pagination } from "../ui/primitives";
 import { Page } from "./Page";
 import "./RbacManagement.css";
@@ -169,21 +177,21 @@ export function RbacManagement({ user }: { user: UserIdentity }) {
 	const [rolesPage, setRolesPage] = useState<Paginated<RoleRecord>>({
 		items: [],
 		page: 1,
-		pageSize: 10,
+		pageSize: DEFAULT_PAGE_SIZE,
 		total: 0,
 		totalPages: 1,
 	});
 	const [usersPage, setUsersPage] = useState<Paginated<ManagedUser>>({
 		items: [],
 		page: 1,
-		pageSize: 10,
+		pageSize: DEFAULT_PAGE_SIZE,
 		total: 0,
 		totalPages: 1,
 	});
 	const [projectsPage, setProjectsPage] = useState<Paginated<ProjectSummary>>({
 		items: [],
 		page: 1,
-		pageSize: 10,
+		pageSize: DEFAULT_PAGE_SIZE,
 		total: 0,
 		totalPages: 1,
 	});
@@ -322,11 +330,11 @@ export function RbacManagement({ user }: { user: UserIdentity }) {
 	return (
 		<Page
 			className="rbac-management"
-			eyebrow="动态 RBAC"
-			title="机构、角色、用户与客户范围"
-			description="最终权限 = 机构授权上限 ∩ 用户全部角色的权限并集，并继续受客户范围限制。"
+			eyebrow="权限配置"
+			title="角色与授权"
+			description="权限 = 机构授权上限 ∩ 角色权限并集，再按客户范围收窄。"
 		>
-			{error && <Alert type="error" showIcon message={error} />}
+			{error && <Alert type="error" showIcon title={error} />}
 			<Tabs
 				activeKey={tab}
 				onChange={(key) => setTab(key as typeof tab)}

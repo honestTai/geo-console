@@ -29,7 +29,7 @@ async function setup(): Promise<void> {
 		],
 		{ encoding: "utf8" },
 	);
-	console.log("GEO Console 本机目录已初始化：", geoPaths.root);
+	console.log("ZZ Geo 本机目录已初始化：", geoPaths.root);
 	console.log("PGlite 数据库迁移完成；本机主密钥已保存到 macOS 钥匙串。");
 	console.log(
 		pdfCheck.status === 0
@@ -64,7 +64,7 @@ async function start(): Promise<void> {
 	launch("@geo/worker", "start");
 	await waitForService("http://127.0.0.1:3010/api/health", "API");
 	launch("@geo/web", "dev");
-	console.log("\nGEO Console 工作台: http://127.0.0.1:3000/app/\n");
+	console.log("\nZZ Geo 工作台: http://127.0.0.1:3000/app/\n");
 	const stop = () => { for (const child of processes) child.kill("SIGTERM"); };
 	process.on("SIGINT", stop); process.on("SIGTERM", stop);
 	await new Promise<void>((resolve) => {

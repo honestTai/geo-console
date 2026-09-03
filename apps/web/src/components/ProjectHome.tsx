@@ -199,7 +199,7 @@ export function CreateProject({
 			onCancel={onClose}
 			width={720}
 			destroyOnHidden
-			maskClosable={false}
+			mask={{ closable: false }}
 			title={
 				<div>
 					<span className="eyebrow">客户建档</span>

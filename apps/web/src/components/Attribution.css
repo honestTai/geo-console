@@ -8,10 +8,10 @@
 }
 
 .import-controls {
-	display: grid;
-	grid-template-columns: 200px auto auto;
-	gap: var(--space-4);
-	align-items: end;
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-4) var(--space-5);
+	align-items: flex-end;
 }
 
 .import-controls label {
@@ -22,7 +22,29 @@
 }
 
 .import-source {
-	width: 100%;
+	width: 200px;
+}
+
+.file-control {
+	flex: 1;
+	min-width: 280px;
+}
+
+.file-picker {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	min-height: 32px;
+	font-size: 13px;
+}
+
+.file-picker .file-picked.ant-tag {
+	margin: 0;
+	max-width: 420px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	font-size: 12.5px;
+	line-height: 22px;
 }
 
 .attribution-columns {
@@ -30,11 +52,21 @@
 	grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
 	gap: var(--space-5);
 	align-items: start;
+	margin-top: var(--space-6);
 }
 
-@media (max-width: 900px) {
-	.import-controls,
-	.attribution-columns {
-		grid-template-columns: 1fr;
-	}
+.import-file {
+	display: grid;
+	gap: 2px;
+	min-width: 0;
+}
+
+.import-file > span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.import-file small {
+	font-size: 12px;
 }

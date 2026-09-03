@@ -10,6 +10,7 @@ import {
 	type ArticleSummary,
 	articleStatusLabel,
 	batchKindLabel,
+	DEFAULT_PAGE_SIZE,
 	type Paginated,
 	type Project,
 } from "../types";
@@ -57,7 +58,10 @@ function ArticleEditor({
 	useEffect(() => {
 		void load().catch((reason) => message.error(reason instanceof Error ? reason.message : "文章加载失败"));
 	}, [load, message]);
-	const content = Form.useWatch("contentMarkdown", form) ?? "";
+	// 预览时正文输入框会卸载，preserve 让 useWatch 仍能读到表单里的正文。
+	const content = Form.useWatch("contentMarkdown", { form, preserve: true }) ?? "";
+	const title = Form.useWatch("title", { form, preserve: true }) ?? "";
+	const summary = Form.useWatch("summary", { form, preserve: true }) ?? "";
 	async function save() {
 		const values = await form.validateFields();
 		setBusy(true);
@@ -77,10 +81,11 @@ function ArticleEditor({
 			setBusy(false);
 		}
 	}
+	const wordCount = content.replace(/\s+/g, "").length;
 	return (
 		<Drawer
 			open
-			width={Math.min(1080, window.innerWidth - 40)}
+			size={Math.min(1120, window.innerWidth - 32)}
 			onClose={onClose}
 			title={article ? article.title : "加载中"}
 			className="article-drawer"
@@ -135,11 +140,16 @@ function ArticleEditor({
 						)}
 						<h4>版本</h4>
 						<p className="article-meta">
-							第 {article.version} 版 · 更新于 {shortDate(article.updated_at)}
+							第 {article.version} 版 · 更新于 {shortDate(article.updated_at)} · {wordCount.toLocaleString()} 字
 						</p>
 						<IdChip value={article.id} label="文章" />
 					</aside>
-					<Form form={form} layout="vertical" className="article-form" disabled={!canWrite}>
+					<Form
+						form={form}
+						layout="vertical"
+						className={mode === "preview" ? "article-form article-form-hidden" : "article-form"}
+						disabled={!canWrite}
+					>
 						<div className="article-form-grid">
 							<Form.Item name="title" label="标题" rules={[{ required: true, min: 2, max: 120 }]}>
 								<Input />
@@ -159,16 +169,26 @@ function ArticleEditor({
 						<Form.Item name="summary" label="摘要">
 							<Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} maxLength={600} showCount />
 						</Form.Item>
-						{mode === "edit" ? (
-							<Form.Item name="contentMarkdown" label="正文（Markdown）" rules={[{ required: true }]}>
-								<Input.TextArea className="article-textarea" autoSize={{ minRows: 20, maxRows: 40 }} />
-							</Form.Item>
-						) : (
-							<div className="article-preview">
-								<FormattedAnswer value={content} />
-							</div>
-						)}
+						<Form.Item
+							name="contentMarkdown"
+							label="正文（Markdown）"
+							rules={[{ required: true, message: "正文不能为空" }]}
+							extra="支持 ## 小节、列表、表格；保存后正文有变化会生成新版本。"
+						>
+							<Input.TextArea className="article-textarea" autoSize={{ minRows: 20, maxRows: 40 }} />
+						</Form.Item>
 					</Form>
+					{mode === "preview" && (
+						<article className="article-preview">
+							<p className="article-preview-kicker">
+								{articleStatusLabel[(form.getFieldValue("status") as ArticleStatus) ?? article.status]} · 第{" "}
+								{article.version} 版
+							</p>
+							<h1>{title || article.title}</h1>
+							{summary && <p className="article-preview-summary">{summary}</p>}
+							<FormattedAnswer value={content || "（正文为空）"} />
+						</article>
+					)}
 				</div>
 			)}
 		</Drawer>
@@ -182,7 +202,7 @@ export function Articles({ project }: { project: Project }) {
 	const [articles, setArticles] = useState<Paginated<ArticleSummary>>({
 		items: [],
 		page: 1,
-		pageSize: 10,
+		pageSize: DEFAULT_PAGE_SIZE,
 		total: 0,
 		totalPages: 1,
 	});
@@ -197,12 +217,12 @@ export function Articles({ project }: { project: Project }) {
 		[project.batches],
 	);
 	const load = useCallback(async () => {
-		const params = new URLSearchParams({ page: String(page), pageSize: "10" });
+		const params = new URLSearchParams({ page: String(page), pageSize: String(DEFAULT_PAGE_SIZE) });
 		if (status !== "all") params.set("status", status);
 		if (batchId !== "all") params.set("batchId", batchId);
 		const [list, runList] = await Promise.all([
 			api<Paginated<ArticleSummary>>(`/api/projects/${project.id}/articles?${params}`),
-			api<Paginated<AgentRun>>(`/api/projects/${project.id}/agent-runs?purposes=optimization_article&pageSize=20`),
+			api<Paginated<AgentRun>>(`/api/projects/${project.id}/agent-runs?purposes=optimization_article&pageSize=${DEFAULT_PAGE_SIZE}`),
 		]);
 		setArticles(list);
 		setRuns(runList.items);
@@ -285,6 +305,8 @@ export function Articles({ project }: { project: Project }) {
 						size="small"
 						permission="articles.manage"
 						icon={<IconRefresh size={14} />}
+						title="按同一条建议重新生成，完成后覆盖为新版本"
+						aria-label="重新生成"
 						busy={busy === `regen-${row.id}`}
 						onClick={async () => {
 							setBusy(`regen-${row.id}`);
@@ -306,7 +328,14 @@ export function Articles({ project }: { project: Project }) {
 							await load();
 						}}
 					>
-						<Button variant="danger" size="small" permission="articles.manage" icon={<IconTrash size={14} />} />
+						<Button
+							variant="danger"
+							size="small"
+							permission="articles.manage"
+							icon={<IconTrash size={14} />}
+							title="删除文章"
+							aria-label="删除文章"
+						/>
 					</Popconfirm>
 				</div>
 			),
@@ -316,8 +345,8 @@ export function Articles({ project }: { project: Project }) {
 		<Page
 			breadcrumb={project.name}
 			eyebrow="优化文章"
-			title="按报告建议生成可编辑的优化文章"
-			description="每条 GEO 优化建议对应一篇文章草稿；在这里修改、审校，发布到官网后填写地址即可进入复测验收。"
+			title="优化文章"
+			description="每条 GEO 建议对应一篇可编辑草稿；发布后填写地址即可复测验收。"
 			extra={
 				<>
 					<Button
@@ -398,6 +427,7 @@ export function Articles({ project }: { project: Project }) {
 						dataSource={articles.items}
 						columns={columns}
 						className="article-table"
+						scroll={{ x: 760 }}
 					/>
 					<Pagination
 						page={articles.page}
