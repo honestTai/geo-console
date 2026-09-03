@@ -12,6 +12,7 @@
 
 ```text
 Browser -> Caddy -> static landing (/)
+                 -> static help + PDF (/help/)
                  -> React Web (/app/)
                  -> API (apps/worker/src/index.ts) -> PGlite/PostgreSQL
                                                   -> local/S3 artifacts
@@ -55,7 +56,7 @@ Tauri 2 桌面客户端加载同一个工作台 URL，是所有角色的正式�
 | 对象存储 | `apps/worker/src/object-store.ts` | captures、snapshots、PDF |
 | 工作台 UI | `apps/web/src/`(App.tsx 外壳 + components/ 视图 + ui/primitives + hooks)、`styles.css` | browser |
 | 桌面客户端与签名更新 | `apps/desktop/src-tauri`、`apps/web` 更新入口 | macOS/Windows/Linux 用户 |
-| 静态官网 | `landing/` | browser root path; no API/DB access |
+| 静态官网与帮助中心 | `landing/`、`landing/help/`、`scripts/capture-help-screenshots.mjs` | browser root/help paths; no API/DB access |
 | 本机 CLI | `scripts/geo.ts` | setup/start/doctor/backup |
 | 本机组合 Worker | `apps/worker/src/local-workers.ts` | 仅 `GEO_LOCAL_COMBINED=true`；生产禁用 |
 | 防飘逸检查 | `scripts/check-skill-drift.mjs`、`references/drift-control.md` | 重大功能变更交付 |
@@ -77,6 +78,6 @@ Tauri 2 桌面客户端加载同一个工作台 URL，是所有角色的正式�
 
 图表、KPI 与平台卡只消费真实 API 响应；无批次时使用空状态，不能把视觉验收 fixture 放入 `apps/web/public` 或正式构建。UI 不再是单文件应用壳：`App.tsx` 只做装配，`components/` 一视图一文件，共享类型/权限/分页/反馈分别收敛在 `types.ts`、`access.tsx`、`ui/primitives.tsx`、`hooks/`;UI 控件统一走 antd 6，拆分与选用规则见 `.agents/skills/geo-development/references/frontend.md`。视觉纪律:品牌绿只用于主按钮/链接/选中态/logo,其余静态装饰一律中性灰,内容区次级分组小节平铺,不用嵌套 Tabs/Collapse。新增共享业务规则时不要继续堆入组件，应放回拥有该规则的 package/worker service。
 
-`landing/` 是独立静态官网，部署在根路径；`apps/web` 使用 Vite base `/app/`。官网演示同步工作台菜单顺序和浅色布局，并为菜单、运行操作、设置、成员和日志提供窄屏交互；示意数据必须显式标注，不能请求业务 API、写数据库或被工作台导入。
+`landing/` 是独立静态官网，部署在根路径；`landing/help/` 是公开帮助中心和同源 PDF，登录页、客户列表与工作台顶栏在新标签打开它；`apps/web` 使用 Vite base `/app/`。官网演示同步工作台菜单顺序和浅色布局，并为菜单、运行操作、设置、成员和日志提供窄屏交互；示意数据必须显式标注，不能请求业务 API、写数据库或被工作台导入。帮助截图通过独立 WebBridge 会话从线上真实界面取证，并在写入公开目录前替换客户名、域名、邮箱、输入值和长 ID；帮助页自身不得访问业务 API。
 
 API 使用 same-origin Cookie。公开面只有登录、健康检查和带 token 的报告分享；Artifact 需要登录。运行时不按固定角色判断：`permission_routes` 匹配 HTTP 方法和路径模板，用户有效权限来自机构上限与多角色并集，项目和 Artifact 再校验客户范围；未登记路由默认拒绝。

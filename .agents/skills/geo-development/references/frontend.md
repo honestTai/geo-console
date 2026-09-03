@@ -65,3 +65,4 @@ apps/web/src/
 - 前台等待有上限的操作（报告 PDF/Word 两分钟）超时后不能报成失败：改成 info 提示并把 `workflowState` 置为 `documents_queued` 让快照轮询接手；真正失败只以服务端 `status='failed'` 为准。
 - 整改中心的“规划草稿/建任务”按钮作用于头部 Select 选中的已完成批次（默认最近完成的一条），不再固定指向 `project.batches[0]`；任务卡按服务端 `task.verification_mode` 渲染“重跑审计验收”或“抓取验收”（后者需要发布地址），验收按钮带 `busy`；状态下拉里的“已验收”只用于显示（`disabled`）。
 - 报告页质检未通过（`workflowState==='quality_blocked'` 或最新绑定当前叙述的质检 verdict 为 blocked）时主按钮改为“质检未通过 · 重新生成叙述”，步骤条质检项标 `error`。
+- 公开帮助中心位于 `landing/help/`，不作为动态 RBAC 页面注册：登录页、客户列表和工作台顶栏都以新标签打开 `/help/`，无须业务会话即可阅读。帮助正文按当前页面与按钮事实源维护，可搜索、可打印，并与随 release 发布的 PDF 同源；截图只能由独立浏览器会话生成，公开前替换客户名、域名、邮箱、输入值和长 ID，帮助页面不得调用 `/api`、`/artifacts` 或读取业务状态。

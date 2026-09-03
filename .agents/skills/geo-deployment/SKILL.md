@@ -45,7 +45,7 @@ corepack pnpm geo start
 - 支持 Ubuntu/Debian、Docker Engine + Compose plugin；无需 GPU。
 - Demo 低并发基线：2 vCPU、4 GB RAM、50 GB SSD、2 GB Swap、`GEO_CAPTURE_CONCURRENCY=1`。持续监测建议至少 4 vCPU、8 GB RAM、80 GB SSD。
 - 只有 Caddy 暴露 80/443。Log Service 3020、API、Capture Worker、Agent Worker、Report Worker 与 PostgreSQL 只在 Compose 网络内。
-- 同一域名根路径发布静态官网，`/app/` 发布业务工作台；官网示意数据与 API、数据库和证据链隔离。
+- 同一域名根路径发布静态官网，`/help/` 发布公开操作手册、脱敏截图和同源 PDF，`/app/` 发布业务工作台；官网/帮助示意数据与 API、数据库和证据链隔离。
 - 发布机可为 Windows、macOS 或 Linux；`deploy/package.sh` 通过本地 Docker Buildx 生成目标 Linux 平台的 `server-runtime.tar`，并本地构建 Web dist。`.run` 上传后，服务器只用无 `RUN` 指令的 Dockerfile 通过 `FROM` + `ADD/COPY` 重构 Worker/Web 镜像，不执行 pnpm、apt、Playwright 下载或应用构建。
 - 安装根为 `/opt/geo-console`：`releases/<id>` 保存不可变版本，`current` 指向当前版本，`shared/.env` 与 `shared/secrets` 跨升级保留。
 - PostgreSQL password、32 字节 Base64 master key、bootstrap admin password 和 Log Service token 使用 owner-only Docker Secret 文件。S3 凭据当前保存在 owner-only `shared/.env`；有实例角色时优先省略静态 Access Key。
@@ -54,6 +54,7 @@ corepack pnpm geo start
 ## 发布边界
 
 - 每次 release 只运行 `deploy/package.sh`。它要求本地 Git、Node/corepack pnpm、Docker/Buildx；默认在本地 Linux `amd64` 构建容器中安装锁定的服务端依赖并导出 `/opt/geo-app` tar，再构建 Web dist。
+- Web-only release 可显式设置 `GEO_REUSE_SERVER_BUNDLE` 指向同一 Git commit 的已验证 `.run`。打包器必须校验源 bundle/内层 artifact 哈希、commit、平台、Worker base，并确认全部后端/runtime 输入相对 HEAD 无改动；任一不符即拒绝，不能用它绕过后端构建。
 - 服务器使用固定 `geo-console-worker-base:node24-playwright1234`，它只承载 Node、Playwright Chromium、中文字体和系统库。基础镜像升级是独立维护动作；普通 release 不能在服务器安装或下载这些内容。
 - release payload 必须包含 `server-runtime.tar`、Web dist、landing、Compose/Caddy 和无网络重构 Dockerfile；不含 `.agents`/Demo 凭据、Git、desktop、宿主机 node_modules、Secret、`.env`、数据库、证据、备份或本地打包脚本。
 - `deploy/install.sh` 和 `geo-console prepare` 必须在停止旧服务前验证 `local-server-artifacts`/`reconstruct` 标记、目标平台、artifact SHA-256、基础镜像及 Dockerfile 没有 `RUN` 指令；随后才允许 `docker compose build api web`，且不得 `--pull`。
@@ -70,4 +71,4 @@ corepack pnpm geo start
 
 ## 完成标准
 
-部署完成必须验证 HTTPS 根路径官网、`/app/` 登录、`/api/health`、Log Service `/health`、全部八个 Compose 服务、migration 表、结构化日志写入/租户读取、对象写读、成对备份、至少一个用户提供 Key 的 Provider 连接测试，以及中文 PDF。不得因为容器是 running 就宣布成功。
+部署完成必须验证 HTTPS 根路径官网、`/help/` 在线手册及帮助 PDF、`/app/` 登录、`/api/health`、Log Service `/health`、全部八个 Compose 服务、migration 表、结构化日志写入/租户读取、对象写读、成对备份、至少一个用户提供 Key 的 Provider 连接测试，以及业务报告中文 PDF。不得因为容器是 running 就宣布成功。

@@ -20,12 +20,13 @@ corepack pnpm geo start
 
 服务器使用 Ubuntu/Debian。域名必须解析到服务器，云安全组只开放 80/443；SSH 端口限制到管理来源。Log Service 3020、API、Worker 和 PostgreSQL 不映射主机端口。
 
-同一个 HTTPS 域名提供两个前端入口：
+同一个 HTTPS 域名提供三个前端入口：
 
 - `https://<domain>/`：静态产品官网。
+- `https://<domain>/help/`：公开操作手册、脱敏截图与同源 A4 PDF；帮助页不访问业务 API。
 - `https://<domain>/app/`：React 业务工作台；访问 `/app` 会重定向到带尾斜杠的地址。
 
-官网演示与业务工作台在 Web 镜像内使用不同目录。官网示意数据不访问 API 或数据库；业务工作台继续只显示真实项目数据。
+官网/帮助中心与业务工作台在 Web 镜像内使用不同目录。官网示意数据和帮助截图不访问 API 或数据库；业务工作台继续只显示真实项目数据。发布后除根路径和 `/app/` 外，还要验证 `/help/`、25 张截图及 `/help/ZZ-Geo-操作手册.pdf` 可访问。
 
 ## 桌面客户端
 
@@ -76,6 +77,14 @@ release 使用明确 allowlist，不包含 `.agents` 与 Demo 凭据、Git 历�
 bash deploy/package.sh
 ```
 
+仅修改 `apps/web`、`landing` 或文档的 Web-only release，可显式复用同一 Git commit 已验证 release 中的 Linux server artifact，避免发布机跨架构仿真重复安装后端依赖：
+
+```bash
+GEO_REUSE_SERVER_BUNDLE=dist/geo-console-<当前版本>.run bash deploy/package.sh
+```
+
+打包器只在源 `.run` 的外层 checksum、内层 artifact hash、Git commit、目标平台和 Worker base 全部匹配，且 `apps/worker`、`apps/log-service`、`packages`、根依赖清单与 TypeScript 配置相对 HEAD 无改动时允许复用；任何后端/runtime 输入变化都必须走 Docker Buildx 重新构建。
+
 命令要求本地 Node/corepack pnpm、Docker 和 Buildx，默认生成 `linux/amd64` server artifact；ARM64 服务器明确设置 `GEO_SERVER_PLATFORM=linux/arm64`。脚本在 `dist/` 生成 `geo-console-<版本>.run` 和 SHA-256。工作区干净时版本号使用 Git commit；有未提交改动时加入 `dev` 和 UTC 时间戳。
 
 服务器使用已经验证的 `geo-console-worker-base:node24-playwright1234` 提供 Node、Playwright Chromium、中文字体和系统库。每个 release 的 Dockerfile 只有 `FROM`、`ADD/COPY`、`ENV` 和 `CMD`：Worker 镜像加入本地 `server-runtime.tar`，Web 镜像复制本地 dist/landing。服务器不运行 pnpm、apt、Playwright 下载或 Web build。
@@ -109,7 +118,7 @@ sudo bash ./geo-console-<版本>.run \
 - 生成 owner-only 的 PostgreSQL 密码、32 字节 Base64 主密钥、系统超管初始密码和 Log Service 内部令牌。
 - 顺序启动 PostgreSQL、Log Service、API、Capture Worker、Agent Worker、Report Worker、Web 和 Caddy，避免首次迁移竞争。
 - 验证 HTTPS、服务健康和一次数据库/本地证据成对备份。
-- 验证根路径官网、`/app/` 同步调试入口以及桌面客户端登录与动态导航。
+- 验证根路径官网、`/help/` 在线手册及 PDF、`/app/` 同步调试入口以及桌面客户端登录与动态导航。
 
 默认备份目录为 `/var/backups/geo-console`，可用 `--backup-dir /安全路径` 指定。该目录仍应定期同步到另一台机器或私有对象存储。
 

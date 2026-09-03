@@ -8,6 +8,13 @@
 		try_files {path} /index.html
 		file_server
 	}
+	@helpExact path /help
+	redir @helpExact /help/ 308
+	handle_path /help/* {
+		root * /srv/help
+		try_files {path} /index.html
+		file_server
+	}
 	handle {
 		try_files {path} /index.html
 		file_server

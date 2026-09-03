@@ -167,6 +167,15 @@
 	gap: var(--space-3);
 }
 
+.topbar-help.ant-btn {
+	color: var(--ink-3);
+}
+
+.topbar-help.ant-btn:hover {
+	color: var(--brand-strong);
+	background: var(--surface-2);
+}
+
 .workspace {
 	padding: var(--space-6) var(--space-7) var(--space-8);
 	min-width: 0;

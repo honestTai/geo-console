@@ -26,6 +26,8 @@ bash deploy/package.sh
 
 Demo 默认目标为 `linux/amd64`；只有目标服务器明确为 ARM64 时设置 `GEO_SERVER_PLATFORM=linux/arm64`。发布机需要代理时，可为单次 BuildKit 构建设置 `GEO_BUILD_PROXY=http://<host>:<port>`；该值不进入 artifact、manifest 或服务器配置。
 
+若变更严格限于 `apps/web`、`landing` 和文档，可设置 `GEO_REUSE_SERVER_BUNDLE=dist/geo-console-<当前版本>.run` 仍由同一打包器生成 release。该路径要求源 bundle 的 checksum、内层 artifact hash、Git commit、平台和 Worker base 全匹配，并拒绝任何后端/runtime 输入相对 HEAD 的变化；后端、migration、依赖或共享 package 一旦变化必须重新执行 Buildx。
+
 产物：
 
 ```text
@@ -100,7 +102,7 @@ sudo geo-console upgrade /tmp/geo-console-<release>.run
 
 ## 6. 上线验证与回滚
 
-升级后执行 `geo-console version/status/doctor`，并验证 HTTPS 根路径、`/app/`、`/api/health`、Log Service、migration、结构化日志、对象读写、Provider 连接和中文 PDF。
+升级后执行 `geo-console version/status/doctor`，并验证 HTTPS 根路径、`/help/` 在线手册及帮助 PDF、`/app/`、`/api/health`、Log Service、migration、结构化日志、对象读写、Provider 连接和业务报告中文 PDF。
 
 - 构建或 pre-switch 失败保持旧版本在线。
 - 切换后失败且 migration 兼容时，重新激活旧 release；保留旧应用镜像和 Worker base 到回滚窗口结束。

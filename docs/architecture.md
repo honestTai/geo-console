@@ -4,6 +4,7 @@
 
 ```text
 浏览器 -> Caddy HTTPS -> /      静态官网与隔离的产品演示
+                    -> /help/  公开操作手册、脱敏截图与同源 PDF
                     -> /app/  React 工作台
                     -> /api/  API :3010 -> PostgreSQL
                                          -> S3 兼容证据存储
@@ -17,7 +18,7 @@ Tauri 2 桌面客户端是所有用户的正式产品壳，正式版加载同域
 
 本机使用同一业务代码，但 PGlite 不允许多个进程争用同一目录：API 进程内组合运行 Capture/Agent/Report 队列，独立 Log Service 使用 `${GEO_DATA_DIR}/log-service` 下的单独 PGlite，Web 仍为独立 Vite 进程。生产 PostgreSQL 继续运行八个独立 Compose 服务。
 
-- `landing`：静态官网。交互演示全部标注为演示数据，不访问业务 API、不写数据库、不作为指标或证据。
+- `landing`：静态官网及 `/help/` 操作手册。交互演示与帮助截图全部标注为演示/脱敏数据，不访问业务 API、不写数据库、不作为指标或证据；帮助页和随 release 发布的 A4 PDF 使用同一份 HTML 内容，截图可由 `scripts/capture-help-screenshots.mjs` 在独立 WebBridge 会话中重新取证。
 - `apps/web`：发布在 `/app/` 的客户建档、监测、证据、官网审计、诊断、整改、归因、报告和机构管理工作台。
 - `apps/worker/src/index.ts`：机构会话、请求级租户作用域、RBAC、超管机构切换、项目 API、周期调度和审计日志。
 - `apps/log-service`：内网结构化运行日志采集、租户查询、CSV 导出、分页与保留期清理；不接收证据正文或凭据。
@@ -43,6 +44,7 @@ Tauri 2 桌面客户端是所有用户的正式产品壳，正式版加载同域
 - 系统超管拥有机构授权、动态角色、用户角色/客户范围和多租户状态视图；封禁机构会立即撤销其非超管会话。
 - 所有运营列表使用有界服务端分页或游标分页；报告正文和固定 Provider 目录不是无限列表。
 - 工作台前端按视图拆分：`App.tsx` 只做认证/项目/视图装配，`components/` 一视图一文件，共享类型、权限门控、分页与反馈原件分别收敛在 `types.ts`、`access.tsx`、`ui/primitives.tsx`、`hooks/`;UI 控件统一使用 antd 6(emerald 主题 token、zh-CN locale)，不再手写 modal/table/tab/pagination，规则见 `references/frontend.md`(geo-development skill)。装饰色收敛为品牌绿(主按钮/链接/选中态/logo)+中性灰,内容区次级分组用小节平铺。
+- 登录页、客户列表和工作台顶栏提供帮助入口，在新标签打开公开 `/help/`。帮助中心按所有已实现页面维护逐按钮说明、禁用条件、证据/审批边界和排障；公开截图必须先替换客户、域名、邮箱、输入值和长 ID，不得携带线上凭据或客户内容。
 - 平台设置用本地真实品牌 Logo 的平台导航切换五个平台，每次只渲染当前平台表单；HRouter GPT 配置保持独立。
 - 桌面使用固定侧栏；390px 移动端使用可横向滚动的底部图标导航，避免菜单增加后压缩点击目标。
 - 总览和监测图表只渲染 API 返回的真实、可比批次数据；没有数据时显示空状态，不内置示例客户或指标。

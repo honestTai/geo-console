@@ -1,5 +1,5 @@
-import { IconArrowLeft, IconGlobe, IconMenu2 } from "@tabler/icons-react";
-import { Alert, ConfigProvider, Drawer, Layout, Menu, type MenuProps, Tag, Tooltip } from "antd";
+import { IconArrowLeft, IconGlobe, IconHelpCircle, IconMenu2 } from "@tabler/icons-react";
+import { Alert, Button as AntdButton, ConfigProvider, Drawer, Layout, Menu, type MenuProps, Tag, Tooltip } from "antd";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { Project, View } from "../types";
 import "./Shell.css";
@@ -173,7 +173,19 @@ export function AppShell({
 						</div>
 						{currentView && <span className="topbar-view">{currentView.label}</span>}
 					</div>
-					<div className="topbar-right">{account}</div>
+					<div className="topbar-right">
+						<Tooltip title="打开操作手册与帮助中心">
+							<AntdButton
+								className="topbar-help"
+								type="text"
+								icon={<IconHelpCircle size={19} />}
+								href="/help/"
+								target="_blank"
+								aria-label="打开帮助中心"
+							/>
+						</Tooltip>
+						{account}
+					</div>
 				</header>
 				<main className="workspace">
 					{error && <Alert className="app-shell-alert" type="error" title={error} showIcon />}

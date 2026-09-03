@@ -28,6 +28,7 @@
 ## 本地 Server Artifact 与 Release
 
 - 发布机可为 Windows、macOS 或 Linux，但必须有 Git、Node/corepack pnpm 和支持目标平台的 Docker Buildx。Demo 目标固定为 `linux/amd64`。
+- 仅 Web/landing 变化时可用 `GEO_REUSE_SERVER_BUNDLE` 复用同 commit 已验证 release 的 server artifact；必须有相邻 `.sha256`，且打包器确认 runtime 输入未改、源 bundle 与内层 artifact 哈希、平台、Worker base 全匹配。
 - 本地先执行四项检查，再运行 `deploy/package.sh`；Docker artifact builder 在本地 Linux 容器内执行锁定依赖安装，不能把 Windows/macOS `node_modules` 直接打包。
 - manifest 必须包含 `PACKAGE_MODE=local-server-artifacts`、`SERVER_IMAGE_ACTION=reconstruct`、目标平台、`server-runtime.tar` SHA-256 和批准的 Worker base image。
 - release 必须包含 server artifact、Web dist、landing、Compose/Caddy、安装器和服务器 Dockerfile；服务器 Dockerfile 只能 `FROM`/`ADD`/`COPY`，不得有 `RUN` 或远程 ADD。
@@ -36,6 +37,7 @@
 ## 上线前退出条件
 
 - `docker compose config --quiet` 通过。
+- 新 release 的 Web 静态内容包含 `/help/`、25 张脱敏截图和 A4 PDF，帮助 HTML 不引用 `/api`、`/artifacts` 或 `/share` 业务入口。
 - `geo-console prepare` 在旧服务在线时验证 artifact 哈希/平台、Compose、固定 Worker base、PostgreSQL/Caddy 镜像和无 `RUN` Dockerfile，再从本地 artifact 重构应用镜像。服务器不得执行 pnpm、apt、Playwright 下载、Web build 或 `docker pull`。
 - 旧实例已有包含全部租户/问题库/RBAC/业务审计/运行日志的最新数据库与对象成对备份；S3 模式已抽查原始证据、PDF 和 Word 对象版本。
 - `log-service` 只在 Compose 内网 3020，`GEO_LOG_RETENTION_DAYS` 在 7-3650 范围，Log Service token 不出现在 `.env` 或日志中。
