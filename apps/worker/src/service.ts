@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
 	areBatchConfigsComparable,
 	type CaptureJobPayload,
+	type CompetitorVerification,
 	type Database,
 	enqueueCaptureJob,
 	type FrozenBatchConfig,
@@ -10,16 +11,25 @@ import {
 	type WebsiteAuditResult,
 } from "@geo/core";
 import { type QueryCapture, type QueryCaptureV2, queryCaptureSchema, queryCaptureV2Schema } from "@geo/evidence";
+import { StructuredLogger, safeErrorMessage } from "@geo/logging";
 import { calculateEqualWeightedOverall, calculateVisibilityMetrics } from "@geo/metrics";
+import { ADAPTER_VERSION } from "@geo/search-providers";
 import { z } from "zod";
 import { auditWebsite, crawlPublishedUrl, crawlWebsite } from "./crawler";
 import { analyzeCustomer } from "./hrouter";
 import { type Paginated, type PaginationInput, paginated } from "./pagination";
 import { providerDefinitions } from "./providers";
 import { buildDeterministicFindings, buildReportAnalysis, type DiagnosisWebEvidence } from "./report";
-import { normalizeDomain, parseJsonColumn, sha256, stableJson } from "./utils";
+import { normalizeDomain, parseJsonColumn, sha256, stableJson, tryNormalizeDomain } from "./utils";
+import { verifyCompetitors } from "./web-search";
 
 export const currentRunnerVersion = "cloud-runner.v1";
+const serviceLogger = new StructuredLogger("api");
+
+/** 建档分析最多抓取的官网页数：每页正文截断后都进入画像提示词，页数过多既拖慢建档又撑大请求。 */
+export const ANALYSIS_CRAWL_LIMIT = 40;
+/** 建档重试时复用多久以内的官网快照，避免模型调用失败后每次点击都重新全量抓取。 */
+const ANALYSIS_SNAPSHOT_REUSE_HOURS = 24;
 
 const projectInputSchema = z.object({
 	name: z.string().trim().min(1),
@@ -104,7 +114,11 @@ export async function getProject(database: Database, id: string): Promise<Record
 		database.query("SELECT * FROM competitors WHERE project_id = $1 AND archived_at IS NULL ORDER BY created_at", [id]),
 		database.query("SELECT * FROM prompts WHERE project_id = $1 AND archived_at IS NULL ORDER BY position", [id]),
 		database.query("SELECT * FROM experiment_batches WHERE project_id = $1 ORDER BY created_at DESC", [id]),
-		database.query("SELECT * FROM remediation_tasks WHERE project_id = $1 ORDER BY created_at DESC", [id]),
+		database.query(
+			`SELECT t.*,f.category AS finding_category FROM remediation_tasks t
+			 LEFT JOIN diagnosis_findings f ON f.id=t.finding_id WHERE t.project_id = $1 ORDER BY t.created_at DESC`,
+			[id],
+		),
 		database.query("SELECT * FROM diagnosis_findings WHERE project_id = $1 ORDER BY created_at DESC", [id]),
 		database.query("SELECT * FROM website_audits WHERE project_id = $1 ORDER BY checked_at DESC LIMIT 10", [id]),
 		database.query("SELECT * FROM monitoring_schedules WHERE project_id=$1", [id]),
@@ -114,7 +128,7 @@ export async function getProject(database: Database, id: string): Promise<Record
 		competitors: competitors.rows,
 		prompts: prompts.rows,
 		batches: batches.rows,
-		tasks: tasks.rows,
+		tasks: tasks.rows.map((row) => ({ ...row, verification_mode: taskVerificationMode(row) })),
 		findings: findings.rows,
 		websiteAudits: audits.rows.map((row) => ({
 			...row,
@@ -140,6 +154,67 @@ export async function auditProject(
 	]);
 }
 
+type AnalysisPage = { id: string; url: string; title: string | null; text: string };
+
+/**
+ * 最近一次建档尝试留下的官网快照：只取客户域名（含子域名）下的页面，同一 URL 只取最新一份，
+ * 按抓取顺序返回，供重试时直接复用。竞品页或引用页快照不会混进画像输入。
+ */
+async function recentProjectPages(database: Database, projectId: string, domain: string): Promise<AnalysisPage[]> {
+	const rows = await database.query<{ id: string; url: string; title: string | null; content_text: string }>(
+		`SELECT id,url,title,content_text FROM (
+			SELECT DISTINCT ON (url) id,url,title,content_text,fetched_at FROM website_snapshots
+			WHERE project_id=$1 AND (domain=$4 OR domain LIKE '%.'||$4)
+			  AND fetched_at>now()-($2::text||' hours')::interval ORDER BY url,fetched_at DESC
+		 ) recent ORDER BY fetched_at ASC LIMIT $3`,
+		[projectId, ANALYSIS_SNAPSHOT_REUSE_HOURS, ANALYSIS_CRAWL_LIMIT, domain],
+	);
+	return rows.rows.map((row) => ({ id: row.id, url: row.url, title: row.title, text: row.content_text }));
+}
+
+type CompetitorCandidate = { name: string; domain: string; aliases: string[] };
+
+/**
+ * 竞品候选来自官网推断，常猜错域名或行业。核实要联网搜索加一次结构化判断，不能再串在建档请求里：
+ * 候选先以 `pending` 落库，请求返回后在后台逐个核实并回写；失败或超出上限的只标“未核实”，不阻断建档。
+ */
+async function verifyCompetitorsInBackground(
+	database: Database,
+	input: {
+		organizationId: string;
+		projectId: string;
+		industry: string | null;
+		businessSummary: string;
+		competitors: CompetitorCandidate[];
+	},
+): Promise<void> {
+	const settlePending = async (note: string) => {
+		await database.query(
+			`UPDATE competitors SET verification=jsonb_build_object('status','unverified','note',$2::text,'evidenceId',NULL,'checkedAt',$3::text)
+			 WHERE project_id=$1 AND archived_at IS NULL AND verification->>'status'='pending'`,
+			[input.projectId, note, new Date().toISOString()],
+		);
+	};
+	try {
+		const verification = await verifyCompetitors(database, input);
+		for (const [domain, verdict] of verification.results)
+			await database.query(
+				`UPDATE competitors SET verification=$3::jsonb
+				 WHERE project_id=$1 AND domain=$2 AND archived_at IS NULL AND verification->>'status'='pending'`,
+				[input.projectId, domain, JSON.stringify(verdict)],
+			);
+		await settlePending("未纳入本次联网核实（超出单次核实数量上限）");
+	} catch (error) {
+		await settlePending(`联网核实失败：${error instanceof Error ? error.message.slice(0, 200) : "未知错误"}`).catch(
+			() => undefined,
+		);
+		serviceLogger.error("project.competitor_verification_failed", safeErrorMessage(error), {
+			organizationId: input.organizationId,
+			projectId: input.projectId,
+		});
+	}
+}
+
 export async function analyzeProject(database: Database, id: string): Promise<Record<string, unknown>> {
 	const project = (await database.query<Record<string, unknown>>("SELECT * FROM projects WHERE id = $1", [id])).rows[0];
 	if (!project) throw new Error("客户项目不存在");
@@ -149,7 +224,11 @@ export async function analyzeProject(database: Database, id: string): Promise<Re
 			`project:${id}:known_competitors`,
 		])
 	).rows[0];
-	const pages = await crawlWebsite(database, id, String(project.website_url), 100);
+	const customerDomain = normalizeDomain(String(project.domain));
+	const reusedPages = await recentProjectPages(database, id, customerDomain);
+	const pages = reusedPages.length
+		? reusedPages
+		: await crawlWebsite(database, id, String(project.website_url), ANALYSIS_CRAWL_LIMIT);
 	const analysis = await analyzeCustomer(database, {
 		organizationId: String(project.organization_id),
 		name: String(project.name),
@@ -160,6 +239,20 @@ export async function analyzeProject(database: Database, id: string): Promise<Re
 		knownCompetitors: knownSetting ? parseJsonColumn<string[]>(knownSetting.value) : [],
 		pages,
 	});
+	// 模型给的候选可能带无效域名、客户自己的域名或重复域名；这些写库会撞唯一索引，先在这里过滤掉。
+	const seenDomains = new Set<string>();
+	const normalizedCompetitors: CompetitorCandidate[] = analysis.competitors.flatMap((competitor) => {
+		const domain = tryNormalizeDomain(competitor.domain);
+		if (!domain || domain === customerDomain || seenDomains.has(domain)) return [];
+		seenDomains.add(domain);
+		return [{ ...competitor, domain }];
+	});
+	const pendingVerification: CompetitorVerification = {
+		status: "pending",
+		note: "联网核实进行中",
+		evidenceId: null,
+		checkedAt: new Date().toISOString(),
+	};
 	const libraryQuestions = project.industry
 		? (
 				await database.query<Record<string, unknown>>(
@@ -191,10 +284,17 @@ export async function analyzeProject(database: Database, id: string): Promise<Re
 	await database.transaction(async (transaction) => {
 		await transaction.query("DELETE FROM competitors WHERE project_id = $1", [id]);
 		await transaction.query("DELETE FROM prompts WHERE project_id = $1", [id]);
-		for (const competitor of analysis.competitors) {
+		for (const competitor of normalizedCompetitors) {
 			await transaction.query(
-				"INSERT INTO competitors (id,project_id,name,domain,aliases,approved) VALUES ($1,$2,$3,$4,$5::jsonb,false)",
-				[randomUUID(), id, competitor.name, normalizeDomain(competitor.domain), JSON.stringify(competitor.aliases)],
+				"INSERT INTO competitors (id,project_id,name,domain,aliases,approved,verification) VALUES ($1,$2,$3,$4,$5::jsonb,false,$6::jsonb)",
+				[
+					randomUUID(),
+					id,
+					competitor.name,
+					competitor.domain,
+					JSON.stringify(competitor.aliases),
+					JSON.stringify(pendingVerification),
+				],
 			);
 		}
 		for (const [position, prompt] of proposedPrompts.entries()) {
@@ -219,12 +319,46 @@ export async function analyzeProject(database: Database, id: string): Promise<Re
 			[id, JSON.stringify(analysis.profile)],
 		);
 	});
+	if (normalizedCompetitors.length)
+		void verifyCompetitorsInBackground(database, {
+			organizationId: String(project.organization_id),
+			projectId: id,
+			industry: project.industry ? String(project.industry) : null,
+			businessSummary: analysis.profile.businessSummary,
+			competitors: normalizedCompetitors,
+		});
 	return {
 		...analysis,
+		competitors: normalizedCompetitors.map((competitor) => ({ ...competitor, verification: pendingVerification })),
 		prompts: proposedPrompts,
 		libraryQuestionCount: libraryQuestions.length,
 		crawledPages: pages.length,
+		reusedSnapshots: reusedPages.length > 0,
+		competitorVerification: {
+			status: normalizedCompetitors.length ? "pending" : "none",
+			candidates: normalizedCompetitors.length,
+		},
 	};
+}
+
+/**
+ * 后台联网出题前保证项目至少有一批官网快照：草稿必须引用真实证据 ID，没抓过官网的项目会没有可引用的本地证据。
+ * 已有快照时不重复抓取。
+ */
+export async function ensureProjectSnapshots(database: Database, projectId: string, limit = 30): Promise<number> {
+	const existing = (
+		await database.query<{ count: number }>(
+			"SELECT count(*)::int AS count FROM website_snapshots WHERE project_id=$1",
+			[projectId],
+		)
+	).rows[0];
+	if (existing && Number(existing.count) > 0) return Number(existing.count);
+	const project = (
+		await database.query<{ website_url: string }>("SELECT website_url FROM projects WHERE id=$1", [projectId])
+	).rows[0];
+	if (!project) throw new Error("客户项目不存在");
+	const pages = await crawlWebsite(database, projectId, project.website_url, limit);
+	return pages.length;
 }
 
 const reviewSchema = z.object({
@@ -256,59 +390,271 @@ const reviewSchema = z.object({
 		.max(100),
 });
 
-export async function confirmProject(database: Database, id: string, input: unknown): Promise<void> {
-	const data = reviewSchema.parse(input);
-	const referencedLibraryIds = data.prompts.flatMap((prompt) => {
-		const questionId = prompt.libraryQuestionId ?? prompt.library_question_id;
-		return questionId ? [questionId] : [];
+export type ConfirmProjectOptions = {
+	/**
+	 * 把本次确认的新问题（没有知识库引用的）同步写入客户行业的知识库并回填引用；
+	 * 只有成员明确勾选且有 knowledge.manage 权限时由调用方传入。项目没有 industry 时不写。
+	 */
+	syncLibrary?: { organizationId: string; createdBy: string | null } | null;
+};
+
+export type ConfirmProjectResult = {
+	promptCount: number;
+	competitorCount: number;
+	/** 新写入知识库的问题数；未开启同步或客户没有行业时为 0。 */
+	libraryAdded: number;
+	/** 已存在于知识库、只回填了引用的问题数。 */
+	libraryLinked: number;
+	/** 引用了其他机构或已归档知识库记录、本次被去掉引用的问题数（多见于跨机构导入范围包）。 */
+	libraryUnlinked: number;
+	/** 沿用上一版本 ID 的问题数：零修改保存时等于 promptCount，后续批次因此与历史可比。 */
+	promptsKept: number;
+	competitorsKept: number;
+};
+
+const LIBRARY_QUESTION_MAX = 500;
+
+type LibrarySync = { organizationId: string; createdBy: string | null; industry: string };
+type ScopePrompt = z.infer<typeof reviewSchema>["prompts"][number];
+type ScopeCompetitor = z.infer<typeof reviewSchema>["competitors"][number];
+
+const normalizeQuestion = (question: string): string => question.trim().toLocaleLowerCase();
+
+/**
+ * 竞品域名规则：必须能解析成域名，不能是客户官网本身（否则声量份额把自己算成对手），同一版本内不能重复
+ * （否则撞活动版本唯一索引，返回数据库英文报错）。返回域名已规范化的竞品列表。
+ */
+export function normalizeCompetitorScope(
+	competitors: ScopeCompetitor[],
+	customerDomain: string,
+): Array<ScopeCompetitor & { domain: string }> {
+	const seen = new Set<string>();
+	const customer = normalizeDomain(customerDomain);
+	return competitors.map((competitor) => {
+		const domain = tryNormalizeDomain(competitor.domain);
+		if (!domain) throw new Error(`竞品「${competitor.name}」的域名无效：${competitor.domain}`);
+		if (domain === customer) throw new Error(`竞品「${competitor.name}」的域名与客户官网相同，不能作为竞品`);
+		if (seen.has(domain)) throw new Error(`竞品域名重复：${domain}`);
+		seen.add(domain);
+		return { ...competitor, domain };
 	});
-	if (referencedLibraryIds.length) {
-		const allowed = await database.query<{ id: string }>(
-			`SELECT q.id FROM prompt_library_questions q JOIN projects p ON p.organization_id=q.organization_id
-			 WHERE p.id=$1 AND q.archived_at IS NULL AND q.id=ANY($2::text[])`,
-			[id, referencedLibraryIds],
-		);
-		if (new Set(allowed.rows.map((row) => row.id)).size !== new Set(referencedLibraryIds).size)
-			throw new Error("监测问题引用了其他机构或已归档的知识库记录");
+}
+
+/** 同一版本内问题按文本去重后必须唯一，否则同一问题会被采集两次并把指标分母翻倍。 */
+export function assertUniqueQuestions(prompts: Array<{ question: string }>): void {
+	const seen = new Set<string>();
+	for (const prompt of prompts) {
+		const key = normalizeQuestion(prompt.question);
+		if (seen.has(key)) throw new Error(`监测问题重复：${prompt.question}`);
+		seen.add(key);
 	}
+}
+
+/** 同行业同问题只保留一条：已存在就回填引用，否则新增并记为知识库来源；返回引用的库 ID 与是否新增。 */
+async function syncPromptToLibrary(
+	transaction: Database,
+	sync: LibrarySync,
+	prompt: ScopePrompt,
+): Promise<{ libraryQuestionId: string; added: boolean }> {
+	const duplicate = (
+		await transaction.query<{ id: string }>(
+			`SELECT id FROM prompt_library_questions WHERE organization_id=$1 AND archived_at IS NULL
+			 AND lower(industry)=lower($2) AND lower(question)=lower($3) LIMIT 1`,
+			[sync.organizationId, sync.industry, prompt.question],
+		)
+	).rows[0];
+	if (duplicate) return { libraryQuestionId: duplicate.id, added: false };
+	const libraryQuestionId = randomUUID();
+	await transaction.query(
+		`INSERT INTO prompt_library_questions
+		 (id,organization_id,industry,question,intent,topic,persona,tags,created_by)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)`,
+		[
+			libraryQuestionId,
+			sync.organizationId,
+			sync.industry,
+			prompt.question,
+			prompt.intent.slice(0, 120),
+			prompt.topic ? prompt.topic.slice(0, 120) : null,
+			prompt.persona ? prompt.persona.slice(0, 120) : null,
+			JSON.stringify([...new Set(prompt.tags.map((tag) => tag.slice(0, 80)))].slice(0, 30)),
+			sync.createdBy,
+		],
+	);
+	return { libraryQuestionId, added: true };
+}
+
+/**
+ * 确认监测范围。范围仍是版本化的（旧行留给不可变 capture 与冻结批次），但沿用未变化条目的 ID：
+ * 问题按 ID（文本未变）或文本匹配、竞品按 ID（域名未变）或域名匹配到当前活动版本时原地更新并保留 ID；
+ * 只有真正新增的条目拿新 ID，被去掉的条目归档。冻结配置含这些 ID，零修改保存因此不会切断趋势可比性，
+ * 自动复测也能识别“范围没变”。
+ */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Scope validation, id reuse, library sync and archiving form one versioning decision.
+export async function confirmProject(
+	database: Database,
+	id: string,
+	input: unknown,
+	options: ConfirmProjectOptions = {},
+): Promise<ConfirmProjectResult> {
+	const data = reviewSchema.parse(input);
+	const project = (
+		await database.query<{ organization_id: string; industry: string | null; domain: string }>(
+			"SELECT organization_id,industry,domain FROM projects WHERE id=$1",
+			[id],
+		)
+	).rows[0];
+	if (!project) throw new Error("客户项目不存在");
+	const competitors = normalizeCompetitorScope(data.competitors, project.domain);
+	assertUniqueQuestions(data.prompts);
+	const referencedLibraryIds = [
+		...new Set(
+			data.prompts.flatMap((prompt) => {
+				const questionId = prompt.libraryQuestionId ?? prompt.library_question_id;
+				return questionId ? [questionId] : [];
+			}),
+		),
+	];
+	// 引用只能指向本机构未归档的知识库记录；跨机构导入的范围包会带来别处的引用，去掉引用而不是拒绝整次确认。
+	const allowedLibraryIds = new Set(
+		referencedLibraryIds.length
+			? (
+					await database.query<{ id: string }>(
+						`SELECT q.id FROM prompt_library_questions q JOIN projects p ON p.organization_id=q.organization_id
+						 WHERE p.id=$1 AND q.archived_at IS NULL AND q.id=ANY($2::text[])`,
+						[id, referencedLibraryIds],
+					)
+				).rows.map((row) => row.id)
+			: [],
+	);
+	const sync = options.syncLibrary && project.industry ? { ...options.syncLibrary, industry: project.industry } : null;
+	if (sync && sync.organizationId !== project.organization_id) throw new Error("知识库只能写入客户所属机构");
+	const result: ConfirmProjectResult = {
+		promptCount: data.prompts.length,
+		competitorCount: competitors.length,
+		libraryAdded: 0,
+		libraryLinked: 0,
+		libraryUnlinked: 0,
+		promptsKept: 0,
+		competitorsKept: 0,
+	};
 	await database.transaction(async (transaction) => {
-		// Monitoring scope is versioned: old rows stay available to immutable captures and frozen batches.
-		await transaction.query(
-			"UPDATE competitors SET approved=false,archived_at=now() WHERE project_id=$1 AND archived_at IS NULL",
-			[id],
-		);
-		await transaction.query(
-			"UPDATE prompts SET approved=false,archived_at=now() WHERE project_id=$1 AND archived_at IS NULL",
-			[id],
-		);
-		for (const competitor of data.competitors) {
-			await transaction.query(
-				"INSERT INTO competitors (id,project_id,name,domain,aliases,approved) VALUES ($1,$2,$3,$4,$5::jsonb,true)",
-				[randomUUID(), id, competitor.name, normalizeDomain(competitor.domain), JSON.stringify(competitor.aliases)],
-			);
-		}
-		for (const [position, prompt] of data.prompts.entries()) {
-			await transaction.query(
-				`INSERT INTO prompts (id,project_id,library_question_id,question,intent,topic,persona,tags,approved,position)
-				 VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,true,$9)`,
-				[
-					randomUUID(),
-					id,
-					prompt.libraryQuestionId ?? prompt.library_question_id ?? null,
-					prompt.question,
-					prompt.intent,
-					prompt.topic ?? null,
-					prompt.persona ?? null,
-					JSON.stringify(prompt.tags),
-					position,
-				],
-			);
-		}
+		await reconcileCompetitorScope(transaction, id, competitors, result);
+		await reconcilePromptScope(transaction, id, data.prompts, { allowedLibraryIds, sync }, result);
 		await transaction.query(
 			"UPDATE projects SET aliases = $2::jsonb, status = 'active', confirmed_at = now(), updated_at = now() WHERE id = $1",
 			[id, JSON.stringify(data.aliases)],
 		);
 	});
+	return result;
+}
+
+/** 竞品按 ID（域名未变）或域名匹配当前活动版本：命中则原地更新保留 ID，否则新增；未命中的旧行归档。 */
+async function reconcileCompetitorScope(
+	transaction: Database,
+	projectId: string,
+	competitors: Array<ScopeCompetitor & { domain: string }>,
+	result: ConfirmProjectResult,
+): Promise<void> {
+	const active = (
+		await transaction.query<{ id: string; domain: string }>(
+			"SELECT id,domain FROM competitors WHERE project_id=$1 AND archived_at IS NULL",
+			[projectId],
+		)
+	).rows;
+	const keptIds: string[] = [];
+	for (const competitor of competitors) {
+		const existing =
+			active.find((row) => row.id === competitor.id && row.domain === competitor.domain && !keptIds.includes(row.id)) ??
+			active.find((row) => row.domain === competitor.domain && !keptIds.includes(row.id));
+		if (existing) {
+			keptIds.push(existing.id);
+			result.competitorsKept += 1;
+			await transaction.query("UPDATE competitors SET name=$2,aliases=$3::jsonb,approved=true WHERE id=$1", [
+				existing.id,
+				competitor.name,
+				JSON.stringify(competitor.aliases),
+			]);
+			continue;
+		}
+		const competitorId = randomUUID();
+		keptIds.push(competitorId);
+		await transaction.query(
+			"INSERT INTO competitors (id,project_id,name,domain,aliases,approved) VALUES ($1,$2,$3,$4,$5::jsonb,true)",
+			[competitorId, projectId, competitor.name, competitor.domain, JSON.stringify(competitor.aliases)],
+		);
+	}
+	await transaction.query(
+		"UPDATE competitors SET approved=false,archived_at=now() WHERE project_id=$1 AND archived_at IS NULL AND NOT (id=ANY($2::text[]))",
+		[projectId, keptIds],
+	);
+}
+
+/**
+ * 问题按 ID（文本未变）或文本匹配当前活动版本：命中则原地更新其他字段并保留 ID（capture 关联的问题文本不变），
+ * 否则新增；未命中的旧行归档。知识库引用优先取本次请求的合法引用，其次沿用旧行，仍为空时按需回流。
+ */
+async function reconcilePromptScope(
+	transaction: Database,
+	projectId: string,
+	prompts: ScopePrompt[],
+	context: { allowedLibraryIds: Set<string>; sync: LibrarySync | null },
+	result: ConfirmProjectResult,
+): Promise<void> {
+	const active = (
+		await transaction.query<{ id: string; question: string; library_question_id: string | null }>(
+			"SELECT id,question,library_question_id FROM prompts WHERE project_id=$1 AND archived_at IS NULL",
+			[projectId],
+		)
+	).rows;
+	const keptIds: string[] = [];
+	for (const [position, prompt] of prompts.entries()) {
+		const key = normalizeQuestion(prompt.question);
+		const existing =
+			active.find(
+				(row) => row.id === prompt.id && normalizeQuestion(row.question) === key && !keptIds.includes(row.id),
+			) ?? active.find((row) => normalizeQuestion(row.question) === key && !keptIds.includes(row.id));
+		const requestedLibraryId = prompt.libraryQuestionId ?? prompt.library_question_id ?? null;
+		const allowedLibraryId =
+			requestedLibraryId && context.allowedLibraryIds.has(requestedLibraryId) ? requestedLibraryId : null;
+		if (requestedLibraryId && !allowedLibraryId) result.libraryUnlinked += 1;
+		let libraryQuestionId = allowedLibraryId ?? existing?.library_question_id ?? null;
+		if (context.sync && !libraryQuestionId && prompt.question.length <= LIBRARY_QUESTION_MAX) {
+			const synced = await syncPromptToLibrary(transaction, context.sync, prompt);
+			libraryQuestionId = synced.libraryQuestionId;
+			if (synced.added) result.libraryAdded += 1;
+			else result.libraryLinked += 1;
+		}
+		const fields = [
+			prompt.intent,
+			prompt.topic ?? null,
+			prompt.persona ?? null,
+			JSON.stringify(prompt.tags),
+			libraryQuestionId,
+			position,
+		];
+		if (existing) {
+			keptIds.push(existing.id);
+			result.promptsKept += 1;
+			await transaction.query(
+				`UPDATE prompts SET intent=$2,topic=$3,persona=$4,tags=$5::jsonb,library_question_id=$6,approved=true,position=$7
+				 WHERE id=$1`,
+				[existing.id, ...fields],
+			);
+			continue;
+		}
+		const promptId = randomUUID();
+		keptIds.push(promptId);
+		await transaction.query(
+			`INSERT INTO prompts (id,project_id,question,intent,topic,persona,tags,library_question_id,position,approved)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,true)`,
+			[promptId, projectId, prompt.question, ...fields],
+		);
+	}
+	await transaction.query(
+		"UPDATE prompts SET approved=false,archived_at=now() WHERE project_id=$1 AND archived_at IS NULL AND NOT (id=ANY($2::text[]))",
+		[projectId, keptIds],
+	);
 }
 
 const batchInputSchema = z.object({
@@ -322,7 +668,140 @@ const batchInputSchema = z.object({
 	executionWindowMinutes: z.array(z.number().int().min(0).max(43_200)).max(10).optional(),
 });
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Baseline and retest invariants must be evaluated together before any jobs are created.
+/**
+ * 默认采样时间窗口（分钟）：前三次按 0 / 4 小时 / 24 小时分时段；超过三次时在同一天内平均分布，
+ * 不再按“每多一次多一天”把批次拖到一周以后。
+ */
+export function defaultExecutionWindowMinutes(repeats: number): number[] {
+	if (repeats <= 3) return [0, 240, 1440].slice(0, Math.max(1, repeats));
+	return Array.from({ length: repeats }, (_, index) => Math.round((index * 1440) / (repeats - 1)));
+}
+
+const executionWindowToMinutes = (value: string): number => Number(value.match(/^PT(\d+)M$/)?.[1] ?? 0);
+
+function resolveExecutionWindowMinutes(
+	kind: "quick_audit" | "baseline",
+	repeats: number,
+	requested: number[] | undefined,
+): number[] {
+	if (kind === "quick_audit") return [0];
+	return requested?.length === repeats ? requested : defaultExecutionWindowMinutes(repeats);
+}
+
+/**
+ * 按当前已批准范围与已启用平台配置构造冻结配置。createBatch 与周期监测共用：
+ * 周期监测先构造候选配置与最近基线比较，可比才复测，否则新建基线，新增的问题因此不会被旧基线遗漏。
+ */
+async function buildBaselineConfig(
+	database: Database,
+	project: Record<string, unknown>,
+	input: {
+		kind: "quick_audit" | "baseline";
+		platforms: SearchProviderId[];
+		repeats: number;
+		executionWindowMinutes?: number[];
+	},
+): Promise<FrozenBatchConfig> {
+	const projectId = String(project.id);
+	const competitors = await database.query<Record<string, unknown>>(
+		"SELECT * FROM competitors WHERE project_id = $1 AND approved = true AND archived_at IS NULL ORDER BY created_at",
+		[projectId],
+	);
+	const prompts = await database.query<Record<string, unknown>>(
+		"SELECT * FROM prompts WHERE project_id = $1 AND approved = true AND archived_at IS NULL ORDER BY position",
+		[projectId],
+	);
+	if (prompts.rows.length === 0) throw new Error("至少确认一个监测问题");
+	const enabledProviders = await database.query<Record<string, unknown>>(
+		"SELECT * FROM provider_configs WHERE organization_id=$1 AND enabled=true AND provider_id=ANY($2::text[])",
+		[project.organization_id, input.platforms],
+	);
+	const enabledIds = new Set(enabledProviders.rows.map((row) => String(row.provider_id)));
+	const missing = input.platforms.filter((providerId) => !enabledIds.has(providerId));
+	if (missing.length)
+		throw new Error(`以下监测平台尚未启用：${missing.map((id) => providerDefinitions[id].label).join("、")}`);
+	const windowMinutes = resolveExecutionWindowMinutes(input.kind, input.repeats, input.executionWindowMinutes);
+	return {
+		project: {
+			name: String(project.name),
+			domain: String(project.domain),
+			region: String(project.region),
+			language: String(project.language),
+			industry: project.industry ? String(project.industry) : null,
+			aliases: parseJsonColumn<string[]>(project.aliases as string | string[]),
+		},
+		competitors: competitors.rows.map((row) => ({
+			id: String(row.id),
+			name: String(row.name),
+			domain: String(row.domain),
+			aliases: parseJsonColumn<string[]>(row.aliases as string | string[]),
+		})),
+		prompts: prompts.rows.slice(0, 100).map((row) => ({
+			id: String(row.id),
+			question: String(row.question),
+			intent: String(row.intent),
+			topic: row.topic ? String(row.topic) : null,
+			persona: row.persona ? String(row.persona) : null,
+			tags: parseJsonColumn<string[]>(row.tags as string | string[]),
+		})),
+		platforms: [...new Set(input.platforms)],
+		repeats: input.repeats,
+		runnerVersion: currentRunnerVersion,
+		samplingMode: input.kind === "quick_audit" ? "quick" : "formal",
+		executionWindows: windowMinutes.map((minutes) => `PT${minutes}M`),
+		providers: enabledProviders.rows.map((row) => {
+			const searchStrategy = parseJsonColumn<Record<string, unknown>>(
+				row.search_strategy as string | Record<string, unknown>,
+			);
+			const options =
+				searchStrategy.options && typeof searchStrategy.options === "object"
+					? (searchStrategy.options as Record<string, unknown>)
+					: {};
+			return {
+				id: String(row.provider_id) as SearchProviderId,
+				endpoint: String(row.endpoint),
+				secondaryEndpoint: typeof options.secondaryEndpoint === "string" ? options.secondaryEndpoint : undefined,
+				model: String(row.model),
+				protocol: String(row.protocol),
+				searchToolVersion: providerDefinitions[String(row.provider_id) as SearchProviderId].searchToolVersion,
+				searchStrategy,
+				adapterVersion: String(row.adapter_version),
+			};
+		}),
+	};
+}
+
+/** 复测复制基线的完整冻结配置；契约不完整或适配器已升级时每个任务都会失败，创建前直接拒绝。 */
+async function loadRetestConfig(
+	database: Database,
+	projectId: string,
+	compareToBatchId: string | null | undefined,
+): Promise<FrozenBatchConfig> {
+	if (!compareToBatchId) throw new Error("复测必须选择一个基线批次");
+	const baseline = (
+		await database.query<{ config: FrozenBatchConfig | string }>(
+			"SELECT config FROM experiment_batches WHERE id = $1 AND project_id = $2 AND kind='baseline'",
+			[compareToBatchId, projectId],
+		)
+	).rows[0];
+	if (!baseline) throw new Error("复测只能选择正式基线批次");
+	const config = parseJsonColumn(baseline.config);
+	if (!config.providers?.length || config.providers.some((provider) => !provider.endpoint || !provider.adapterVersion))
+		throw new Error("所选基线缺少完整的云端 Provider 冻结契约，请先创建新的正式基线");
+	const staleVersions = [
+		...new Set(
+			config.providers
+				.filter((provider) => provider.adapterVersion !== ADAPTER_VERSION)
+				.map((provider) => String(provider.adapterVersion)),
+		),
+	];
+	if (staleVersions.length)
+		throw new Error(
+			`所选基线冻结的适配器版本 ${staleVersions.join("、")} 与当前 Worker（${ADAPTER_VERSION}）不一致，复测会全部失败，请新建正式基线`,
+		);
+	return config;
+}
+
 export async function createBatch(
 	database: Database,
 	projectId: string,
@@ -334,95 +813,15 @@ export async function createBatch(
 	const project = (await database.query<Record<string, unknown>>("SELECT * FROM projects WHERE id = $1", [projectId]))
 		.rows[0];
 	if (project?.status !== "active") throw new Error("客户配置尚未人工确认，不能开始采集");
-	let config: FrozenBatchConfig;
-	if (data.kind === "retest") {
-		if (!data.compareToBatchId) throw new Error("复测必须选择一个基线批次");
-		const baseline = (
-			await database.query<{ config: FrozenBatchConfig | string }>(
-				"SELECT config FROM experiment_batches WHERE id = $1 AND project_id = $2 AND kind='baseline'",
-				[data.compareToBatchId, projectId],
-			)
-		).rows[0];
-		if (!baseline) throw new Error("复测只能选择正式基线批次");
-		config = parseJsonColumn(baseline.config);
-		if (
-			!config.providers?.length ||
-			config.providers.some((provider) => !provider.endpoint || !provider.adapterVersion)
-		)
-			throw new Error("所选基线缺少完整的云端 Provider 冻结契约，请先创建新的正式基线");
-	} else {
-		const competitors = await database.query<Record<string, unknown>>(
-			"SELECT * FROM competitors WHERE project_id = $1 AND approved = true AND archived_at IS NULL ORDER BY created_at",
-			[projectId],
-		);
-		const prompts = await database.query<Record<string, unknown>>(
-			"SELECT * FROM prompts WHERE project_id = $1 AND approved = true AND archived_at IS NULL ORDER BY position",
-			[projectId],
-		);
-		if (prompts.rows.length === 0) throw new Error("至少确认一个监测问题");
-		const enabledProviders = await database.query<Record<string, unknown>>(
-			"SELECT * FROM provider_configs WHERE organization_id=$1 AND enabled=true AND provider_id=ANY($2::text[])",
-			[project.organization_id, data.platforms],
-		);
-		const enabledIds = new Set(enabledProviders.rows.map((row) => String(row.provider_id)));
-		const missing = data.platforms.filter((providerId) => !enabledIds.has(providerId));
-		if (missing.length)
-			throw new Error(`以下监测平台尚未启用：${missing.map((id) => providerDefinitions[id].label).join("、")}`);
-		const windowMinutes =
-			data.kind === "quick_audit"
-				? [0]
-				: data.executionWindowMinutes?.length === repeats
-					? data.executionWindowMinutes
-					: Array.from({ length: repeats }, (_, index) => [0, 240, 1440][index] ?? index * 1440);
-		config = {
-			project: {
-				name: String(project.name),
-				domain: String(project.domain),
-				region: String(project.region),
-				language: String(project.language),
-				industry: project.industry ? String(project.industry) : null,
-				aliases: parseJsonColumn<string[]>(project.aliases as string | string[]),
-			},
-			competitors: competitors.rows.map((row) => ({
-				id: String(row.id),
-				name: String(row.name),
-				domain: String(row.domain),
-				aliases: parseJsonColumn<string[]>(row.aliases as string | string[]),
-			})),
-			prompts: prompts.rows.slice(0, 100).map((row) => ({
-				id: String(row.id),
-				question: String(row.question),
-				intent: String(row.intent),
-				topic: row.topic ? String(row.topic) : null,
-				persona: row.persona ? String(row.persona) : null,
-				tags: parseJsonColumn<string[]>(row.tags as string | string[]),
-			})),
-			platforms: [...new Set(data.platforms)],
-			repeats,
-			runnerVersion: currentRunnerVersion,
-			samplingMode: data.kind === "quick_audit" ? "quick" : "formal",
-			executionWindows: windowMinutes.map((minutes) => `PT${minutes}M`),
-			providers: enabledProviders.rows.map((row) => {
-				const searchStrategy = parseJsonColumn<Record<string, unknown>>(
-					row.search_strategy as string | Record<string, unknown>,
-				);
-				const options =
-					searchStrategy.options && typeof searchStrategy.options === "object"
-						? (searchStrategy.options as Record<string, unknown>)
-						: {};
-				return {
-					id: String(row.provider_id) as SearchProviderId,
-					endpoint: String(row.endpoint),
-					secondaryEndpoint: typeof options.secondaryEndpoint === "string" ? options.secondaryEndpoint : undefined,
-					model: String(row.model),
-					protocol: String(row.protocol),
-					searchToolVersion: providerDefinitions[String(row.provider_id) as SearchProviderId].searchToolVersion,
-					searchStrategy,
-					adapterVersion: String(row.adapter_version),
-				};
-			}),
-		};
-	}
+	const config =
+		data.kind === "retest"
+			? await loadRetestConfig(database, projectId, data.compareToBatchId)
+			: await buildBaselineConfig(database, project, {
+					kind: data.kind,
+					platforms: data.platforms,
+					repeats,
+					executionWindowMinutes: data.executionWindowMinutes,
+				});
 	const id = randomUUID();
 	const configHash = sha256(stableJson(config));
 	await database.query(
@@ -463,6 +862,10 @@ const scheduleSchema = z.object({
 	executionWindowMinutes: z.array(z.number().int().min(0).max(43_200)).max(10).optional(),
 });
 
+/**
+ * 保存周期监测计划。下一次运行时间：新启用时从现在起算一个周期；已启用时若周期改了，按上次运行时间
+ * 加新周期重算（已经到期就立刻可运行），否则保持原时间。保存计划视为成员介入，同时清掉上次失败记录。
+ */
 export async function saveMonitoringSchedule(database: Database, projectId: string, input: unknown): Promise<void> {
 	const data = scheduleSchema.parse(input);
 	const project = (await database.query<{ status: string }>("SELECT status FROM projects WHERE id=$1", [projectId]))
@@ -473,9 +876,14 @@ export async function saveMonitoringSchedule(database: Database, projectId: stri
 		`INSERT INTO monitoring_schedules (id,project_id,enabled,frequency_days,platforms,repeats,sampling_mode,execution_windows,next_run_at)
 		 VALUES ($1,$2,$3,$4,$5::jsonb,$6,'formal',$7::jsonb,$8)
 		 ON CONFLICT (project_id) DO UPDATE SET enabled=excluded.enabled,frequency_days=excluded.frequency_days,
-		 platforms=excluded.platforms,repeats=excluded.repeats,sampling_mode='formal',execution_windows=excluded.execution_windows,next_run_at=CASE
-		 WHEN monitoring_schedules.enabled=false AND excluded.enabled=true THEN excluded.next_run_at
-		 WHEN excluded.enabled=false THEN NULL ELSE monitoring_schedules.next_run_at END,updated_at=now()`,
+		 platforms=excluded.platforms,repeats=excluded.repeats,sampling_mode='formal',execution_windows=excluded.execution_windows,
+		 next_run_at=CASE
+		 WHEN excluded.enabled=false THEN NULL
+		 WHEN monitoring_schedules.enabled=false THEN excluded.next_run_at
+		 WHEN monitoring_schedules.frequency_days<>excluded.frequency_days OR monitoring_schedules.next_run_at IS NULL
+			THEN GREATEST(now(),COALESCE(monitoring_schedules.last_run_at,now())+(excluded.frequency_days::text||' days')::interval)
+		 ELSE monitoring_schedules.next_run_at END,
+		 last_error=NULL,last_error_at=NULL,failure_count=0,updated_at=now()`,
 		[
 			randomUUID(),
 			projectId,
@@ -484,14 +892,60 @@ export async function saveMonitoringSchedule(database: Database, projectId: stri
 			JSON.stringify(data.platforms),
 			data.repeats,
 			JSON.stringify(
-				(
-					data.executionWindowMinutes ??
-					Array.from({ length: data.repeats }, (_, index) => [0, 240, 1440][index] ?? index * 1440)
+				(data.executionWindowMinutes?.length === data.repeats
+					? data.executionWindowMinutes
+					: defaultExecutionWindowMinutes(data.repeats)
 				).map((minutes) => `PT${minutes}M`),
 			),
 			nextRunAt,
 		],
 	);
+}
+
+/**
+ * 到期计划创建批次：先按当前范围与平台配置构造基线配置，与最近完成/部分完成的基线可比就复测，
+ * 否则（问题、竞品、别名、平台或供应商配置变了）新建基线，避免复测永远只采旧基线里的问题。
+ */
+async function createScheduledBatch(
+	database: Database,
+	schedule: Record<string, unknown>,
+): Promise<{ id: string; jobCount: number; kind: "baseline" | "retest" }> {
+	const projectId = String(schedule.project_id);
+	const project = (await database.query<Record<string, unknown>>("SELECT * FROM projects WHERE id=$1", [projectId]))
+		.rows[0];
+	if (project?.status !== "active") throw new Error("客户项目未启用，不能自动监测");
+	const platforms = parseJsonColumn<SearchProviderId[]>(schedule.platforms as string | SearchProviderId[]);
+	const repeats = Number(schedule.repeats);
+	const executionWindowMinutes = parseJsonColumn<string[]>(schedule.execution_windows as string | string[]).map(
+		executionWindowToMinutes,
+	);
+	const candidate = await buildBaselineConfig(database, project, {
+		kind: "baseline",
+		platforms,
+		repeats,
+		executionWindowMinutes,
+	});
+	const latestBaseline = (
+		await database.query<{ id: string; config: FrozenBatchConfig | string }>(
+			`SELECT id,config FROM experiment_batches
+			 WHERE project_id=$1 AND kind='baseline' AND status IN ('complete','partial') ORDER BY completed_at DESC LIMIT 1`,
+			[projectId],
+		)
+	).rows[0];
+	if (
+		latestBaseline &&
+		areBatchConfigsComparable(candidate, parseJsonColumn<FrozenBatchConfig>(latestBaseline.config))
+	) {
+		const batch = await createBatch(database, projectId, { kind: "retest", compareToBatchId: latestBaseline.id });
+		return { ...batch, kind: "retest" };
+	}
+	const batch = await createBatch(database, projectId, {
+		kind: "baseline",
+		platforms,
+		repeats,
+		executionWindowMinutes,
+	});
+	return { ...batch, kind: "baseline" };
 }
 
 export async function processDueSchedules(database: Database): Promise<number> {
@@ -516,44 +970,33 @@ export async function processDueSchedules(database: Database): Promise<number> {
 			continue;
 		}
 		try {
-			const scheduledPlatforms = parseJsonColumn<SearchProviderId[]>(schedule.platforms as string);
-			const repeats = Number(schedule.repeats);
-			const latestBaseline = (
-				await database.query<{ id: string; config: FrozenBatchConfig | string }>(
-					`SELECT id,config FROM experiment_batches
-					 WHERE project_id=$1 AND kind='baseline' AND status='complete' ORDER BY completed_at DESC LIMIT 1`,
-					[projectId],
-				)
-			).rows[0];
-			const baselineConfig = latestBaseline ? parseJsonColumn<FrozenBatchConfig>(latestBaseline.config) : null;
-			const matchesSchedule =
-				baselineConfig?.repeats === repeats &&
-				JSON.stringify([...baselineConfig.platforms].sort()) === JSON.stringify([...scheduledPlatforms].sort());
-			const batch = await createBatch(
-				database,
-				projectId,
-				matchesSchedule && latestBaseline
-					? { kind: "retest", compareToBatchId: latestBaseline.id }
-					: {
-							kind: "baseline",
-							platforms: scheduledPlatforms,
-							repeats,
-							executionWindowMinutes: parseJsonColumn<string[]>(schedule.execution_windows as string).map((value) =>
-								Number(value.match(/^PT(\d+)M$/)?.[1] ?? 0),
-							),
-						},
-			);
+			const batch = await createScheduledBatch(database, schedule);
 			await database.query(
 				`UPDATE monitoring_schedules SET last_run_at=now(),last_batch_id=$2,
-				 next_run_at=now()+($3::text||' days')::interval,updated_at=now() WHERE id=$1`,
+				 next_run_at=now()+($3::text||' days')::interval,last_error=NULL,last_error_at=NULL,failure_count=0,updated_at=now()
+				 WHERE id=$1`,
 				[schedule.id, batch.id, Number(schedule.frequency_days)],
 			);
+			serviceLogger.info("schedule.batch_created", "周期监测已创建批次", {
+				projectId,
+				traceId: batch.id,
+				metadata: { scheduleId: String(schedule.id), kind: batch.kind, jobCount: batch.jobCount },
+			});
 			created += 1;
-		} catch {
+		} catch (error) {
+			// 失败不能静默：记在计划上供界面提示，写运行日志，一小时后再试。
+			const message = error instanceof Error ? error.message : "创建批次失败";
+			const failureCount = Number(schedule.failure_count ?? 0) + 1;
 			await database.query(
-				"UPDATE monitoring_schedules SET next_run_at=now()+interval '1 hour',updated_at=now() WHERE id=$1",
-				[schedule.id],
+				`UPDATE monitoring_schedules SET next_run_at=now()+interval '1 hour',last_error=$2,last_error_at=now(),
+				 failure_count=$3,updated_at=now() WHERE id=$1`,
+				[schedule.id, message.slice(0, 500), failureCount],
 			);
+			serviceLogger.error("schedule.batch_failed", safeErrorMessage(error), {
+				projectId,
+				traceId: String(schedule.id),
+				metadata: { scheduleId: String(schedule.id), failureCount },
+			});
 		}
 	}
 	return created;
@@ -856,6 +1299,8 @@ async function detectDriftAlerts(database: Database, batchId: string): Promise<v
 	const baselineMetrics = (baseline.metrics as { perPlatform: Record<string, Record<string, number | null>> })
 		.perPlatform;
 	for (const providerId of (current.config as FrozenBatchConfig).platforms) {
+		// 没有成功回答的平台（鉴权失败、限流等）品牌率不是 0 而是不可用：失败平台不进分母，也不产生“暴跌”告警。
+		if (!baselineMetrics[providerId]?.answeredCaptures || !currentMetrics[providerId]?.answeredCaptures) continue;
 		for (const metric of ["brandMentionRate", "brandShareOfVoice", "citationRate"] as const) {
 			const previous = baselineMetrics[providerId]?.[metric];
 			const next = currentMetrics[providerId]?.[metric];
@@ -1233,6 +1678,7 @@ const taskUpdateSchema = z.object({
 
 export async function updateTask(database: Database, taskId: string, input: unknown): Promise<void> {
 	const data = taskUpdateSchema.parse(input);
+	if (data.status === "verified") throw new Error("「已验收」只能由抓取验收或审计验收写入，不能手工选择");
 	await database.query(
 		`UPDATE remediation_tasks SET status = COALESCE($2,status), owner = CASE WHEN $3::boolean THEN $4 ELSE owner END,
 		 due_date = CASE WHEN $5::boolean THEN $6::timestamptz ELSE due_date END,
@@ -1260,15 +1706,60 @@ export async function deleteTask(database: Database, taskId: string): Promise<vo
 	await database.query("DELETE FROM remediation_tasks WHERE id=$1", [taskId]);
 }
 
-export async function verifyTask(database: Database, taskId: string): Promise<{ snapshotId: string }> {
+export type TaskVerificationMode = "audit" | "publish";
+
+/**
+ * 验收方式由任务来源决定：官网技术类结论（诊断类别含“技术”，或验收标准要求重跑官网审计）用审计验收，
+ * 其余任务必须发布真实页面后抓取快照验收。规则只在这里定义，前端按 `verification_mode` 展示入口。
+ */
+export function taskVerificationMode(task: {
+	acceptance_criteria?: unknown;
+	finding_category?: unknown;
+}): TaskVerificationMode {
+	const category = typeof task.finding_category === "string" ? task.finding_category : "";
+	const criteria = typeof task.acceptance_criteria === "string" ? task.acceptance_criteria : "";
+	return category.includes("技术") || criteria.includes("官网审计") ? "audit" : "publish";
+}
+
+/** 发布地址必须在客户官网域名（含子域名）下：第三方页面抓得通也不能作为官网整改的验收证据。 */
+export function publishedUrlBelongsToProject(publishedUrl: string, projectDomain: string): boolean {
+	const host = tryNormalizeDomain(publishedUrl);
+	const domain = tryNormalizeDomain(projectDomain);
+	if (!host || !domain) return false;
+	return host === domain || host.endsWith(`.${domain}`);
+}
+
+export async function verifyTask(
+	database: Database,
+	taskId: string,
+): Promise<{ mode: TaskVerificationMode; snapshotId: string | null; auditId: string | null }> {
 	const task = (
-		await database.query<Record<string, unknown>>("SELECT * FROM remediation_tasks WHERE id = $1", [taskId])
+		await database.query<Record<string, unknown>>(
+			`SELECT t.*,f.category AS finding_category,p.domain AS project_domain FROM remediation_tasks t
+			 LEFT JOIN diagnosis_findings f ON f.id=t.finding_id JOIN projects p ON p.id=t.project_id WHERE t.id=$1`,
+			[taskId],
+		)
 	).rows[0];
-	if (!task?.published_url) throw new Error("请先填写真实发布URL");
-	const snapshot = await crawlPublishedUrl(database, String(task.project_id), String(task.published_url));
+	if (!task) throw new Error("整改任务不存在");
+	const projectId = String(task.project_id);
+	if (taskVerificationMode(task) === "audit") {
+		const audit = await auditProject(database, projectId);
+		if (audit.result.verdict === "blocked")
+			throw new Error(`官网审计仍有阻断项（得分 ${audit.result.score}），技术整改未通过验收，请修复后重试`);
+		await database.query(
+			"UPDATE remediation_tasks SET status = 'verified', verified_audit_id = $2, completed_at = now(), updated_at = now() WHERE id = $1",
+			[taskId, audit.id],
+		);
+		return { mode: "audit", snapshotId: null, auditId: audit.id };
+	}
+	if (!task.published_url) throw new Error("请先填写真实发布URL");
+	const projectDomain = normalizeDomain(String(task.project_domain));
+	if (!publishedUrlBelongsToProject(String(task.published_url), projectDomain))
+		throw new Error(`发布地址必须位于客户官网域名 ${projectDomain} 下，第三方页面不能作为验收证据`);
+	const snapshot = await crawlPublishedUrl(database, projectId, String(task.published_url));
 	await database.query(
 		"UPDATE remediation_tasks SET status = 'verified', verified_snapshot_id = $2, completed_at = now(), updated_at = now() WHERE id = $1",
 		[taskId, snapshot.id],
 	);
-	return { snapshotId: snapshot.id };
+	return { mode: "publish", snapshotId: snapshot.id, auditId: null };
 }

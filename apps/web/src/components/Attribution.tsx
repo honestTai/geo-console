@@ -73,7 +73,11 @@ export function Attribution({ project }: { project: Project }) {
 	const [page, setPage] = useState(1);
 	const load = useCallback(
 		async (targetPage = page) => {
-			setData(await api<AttributionPayload>(`/api/projects/${project.id}/attribution?page=${targetPage}&pageSize=${DEFAULT_PAGE_SIZE}`));
+			setData(
+				await api<AttributionPayload>(
+					`/api/projects/${project.id}/attribution?page=${targetPage}&pageSize=${DEFAULT_PAGE_SIZE}`,
+				),
+			);
 		},
 		[page, project.id],
 	);

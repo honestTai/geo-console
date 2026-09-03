@@ -52,6 +52,70 @@ describe("HRouter Agent 领域工具边界", () => {
 		}
 	});
 
+	it("问题研究草稿批准后只落为未确认候选，并按问题文本去重", async () => {
+		const database = openMemoryDatabase();
+		try {
+			await migrateDatabase(database);
+			await database.query(
+				`INSERT INTO projects (id,name,website_url,domain,region,language,status)
+				 VALUES ('project','客户','https://brand.example','brand.example','成都','zh-CN','review')`,
+			);
+			await database.query(
+				`INSERT INTO prompts (id,project_id,question,intent,tags,approved,position)
+				 VALUES ('existing','project','已有候选？','购买','[]'::jsonb,false,0)`,
+			);
+			await database.query(
+				`INSERT INTO website_snapshots (id,project_id,url,domain,content_text,structured_data,content_hash,fetched_at)
+				 VALUES ('snapshot','project','https://brand.example','brand.example','官网','[]'::jsonb,$1,now())`,
+				["d".repeat(64)],
+			);
+			await database.query(
+				`INSERT INTO agent_runs (id,project_id,purpose,status,model,prompt_version,evidence_ids,draft)
+				 VALUES ('run','project','prompt_research','awaiting_approval','gpt-test','test','["snapshot"]'::jsonb,$1::jsonb)`,
+				[
+					JSON.stringify({
+						summary: "研究摘要",
+						prompts: [
+							{ question: "已有候选？", intent: "购买", tags: [], evidenceIds: ["snapshot"] },
+							{
+								question: "成都工业除尘设备哪家售后快？",
+								intent: "售后",
+								topic: "售后",
+								persona: "采购经理",
+								tags: ["本地"],
+								evidenceIds: ["snapshot"],
+							},
+						],
+					}),
+				],
+			);
+			// 手动审批与协调器自动审批可能同时到达：状态守卫保证只有一次进入物化，其余以明确错误失败。
+			const outcomes = await Promise.allSettled([
+				approveAgentRun(database, "run", null),
+				approveAgentRun(database, "run", null, "workbench"),
+			]);
+			expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+			const rejected = outcomes.find((outcome) => outcome.status === "rejected") as PromiseRejectedResult;
+			expect(String(rejected.reason)).toContain("已被其他操作处理");
+			await expect(approveAgentRun(database, "run", null)).rejects.toThrow("已处理");
+			expect((await database.query("SELECT id FROM audit_logs WHERE action='agent.approve'")).rows).toHaveLength(1);
+			const prompts = (
+				await database.query<{ question: string; approved: boolean; position: number; persona: string | null }>(
+					"SELECT question,approved,position,persona FROM prompts WHERE project_id='project' ORDER BY position",
+				)
+			).rows;
+			expect(prompts).toEqual([
+				{ question: "已有候选？", approved: false, position: 0, persona: null },
+				{ question: "成都工业除尘设备哪家售后快？", approved: false, position: 1, persona: "采购经理" },
+			]);
+			const project = (await database.query<{ status: string }>("SELECT status FROM projects WHERE id='project'"))
+				.rows[0];
+			expect(project.status).toBe("review");
+		} finally {
+			await database.close();
+		}
+	});
+
 	it("内容 Agent 只能更新目标任务且必须经过批准", async () => {
 		const database = openMemoryDatabase();
 		try {

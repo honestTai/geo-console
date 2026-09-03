@@ -20,6 +20,34 @@ describe("批次可比性", () => {
 		expect(areBatchConfigsComparable(config, structuredClone(config))).toBe(true);
 		expect(areBatchConfigsComparable(config, { ...config, repeats: 2 })).toBe(false);
 	});
+
+	it("内存中未设置的可选字段与 jsonb 读回的配置判定为可比", () => {
+		const withProviders: FrozenBatchConfig = {
+			...config,
+			providers: [
+				{
+					id: "kimi_api",
+					endpoint: "https://api.moonshot.ai/v1",
+					secondaryEndpoint: undefined,
+					model: "kimi-k3",
+					protocol: "moonshot-chat",
+					searchToolVersion: "web-search",
+					searchStrategy: {},
+					adapterVersion: "cloud-search.v1",
+				},
+			],
+		};
+		const roundTripped = JSON.parse(JSON.stringify(withProviders)) as FrozenBatchConfig;
+		expect(areBatchConfigsComparable(withProviders, roundTripped)).toBe(true);
+		expect(
+			areBatchConfigsComparable(withProviders, {
+				...roundTripped,
+				providers: [
+					{ ...(roundTripped.providers?.[0] as NonNullable<FrozenBatchConfig["providers"]>[number]), model: "other" },
+				],
+			}),
+		).toBe(false);
+	});
 });
 
 describe("PostgreSQL 连接配置", () => {

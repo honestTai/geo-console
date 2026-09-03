@@ -3,13 +3,14 @@ import type { ReactNode } from "react";
 import { Button } from "../access";
 import { type AgentRun, agentStatusLabels, type EvidenceIndexEntry } from "../types";
 import { FormattedAnswer } from "../ui/markdown";
-import { EvidenceRef, IdChip } from "../ui/primitives";
+import { type EvidenceOpener, EvidenceRef, IdChip } from "../ui/primitives";
 import "./AgentDraft.css";
 
 export const agentToolLabels: Record<string, string> = {
 	read_project_context: "读取项目",
 	read_batch_evidence_index: "建立证据索引",
 	read_evidence: "核验原始证据",
+	web_search: "联网搜索",
 	submit_draft: "校验草稿",
 };
 
@@ -42,6 +43,8 @@ export function agentRunPhase(run: AgentRun): string {
 	if (latest.tool === "read_project_context") return "项目范围已确认，正在建立证据索引";
 	if (latest.tool === "read_batch_evidence_index") return "证据索引已建立，正在选择支撑证据";
 	if (latest.tool === "read_evidence") return "原始证据已读取，正在形成结论";
+	if (latest.tool === "web_search")
+		return latest.isError ? "一次联网搜索未成功，Agent 正在调整问法或改用本地证据" : "联网搜索完成，正在整理研究结果";
 	return "正在整理结构化草稿";
 }
 
@@ -115,7 +118,7 @@ const ID_FIELD = /(^id$|Id$|Ids$)/;
 
 type DraftContext = {
 	evidenceIndex?: EvidenceIndexEntry[];
-	onOpenEvidence?(captureId: string): void;
+	onOpenEvidence?: EvidenceOpener;
 	/** 用于把 content_brief 的 taskId 显示成任务标题。 */
 	tasks?: Array<{ id: string; title: string }>;
 };
@@ -244,6 +247,13 @@ export function agentDraftStats(run: AgentRun): string[] {
 			draft.verdict === "pass" ? "结论 通过" : draft.verdict === "blocked" ? "结论 未通过" : null,
 			count("issues", "个"),
 		);
+	else if (run.purpose === "prompt_research") {
+		const prompts = asList(draft.prompts);
+		stats.push(
+			prompts.length ? `候选问题 ${prompts.length} 个` : null,
+			`引用联网/官网证据 ${new Set(prompts.flatMap((item) => asStrings(item.evidenceIds))).size} 条`,
+		);
+	}
 	stats.push(count("evidenceIds", "条", "证据"));
 	return stats.filter((item): item is string => item !== null);
 }
@@ -257,7 +267,7 @@ export function AgentDraftContent({
 }: {
 	run: AgentRun;
 	evidenceIndex?: EvidenceIndexEntry[];
-	onOpenEvidence?(captureId: string): void;
+	onOpenEvidence?: EvidenceOpener;
 	tasks?: DraftContext["tasks"];
 }) {
 	const draft = run.draft;
@@ -424,6 +434,37 @@ export function AgentDraftContent({
 			</div>
 		);
 	}
+	if (run.purpose === "prompt_research") {
+		const prompts = asList(draft.prompts);
+		return (
+			<div className="agent-draft-content">
+				<DraftSection title="研究摘要">
+					<p>{text(draft.summary)}</p>
+				</DraftSection>
+				<DraftSection title="候选问题" count={prompts.length}>
+					<ol className="recommendation-list">
+						{prompts.map((item) => (
+							<li key={`${item.question}`}>
+								<b>
+									<Tag>{text(item.intent)}</Tag>
+									{text(item.question)}
+								</b>
+								{(item.topic || item.persona || asStrings(item.tags).length > 0) && (
+									<small>
+										{[item.topic, item.persona, asStrings(item.tags).join("、")]
+											.filter(Boolean)
+											.map(String)
+											.join(" · ")}
+									</small>
+								)}
+								{refs(item.evidenceIds)}
+							</li>
+						))}
+					</ol>
+				</DraftSection>
+			</div>
+		);
+	}
 	if (run.purpose === "content_brief" || run.purpose === "optimization_article") {
 		const outline = asStrings(draft.outline);
 		const factGaps = asStrings(draft.factGaps);
@@ -490,7 +531,7 @@ export function AgentDraftCard({
 }: {
 	run: AgentRun;
 	evidenceIndex?: EvidenceIndexEntry[];
-	onOpenEvidence?(captureId: string): void;
+	onOpenEvidence?: EvidenceOpener;
 	tasks?: DraftContext["tasks"];
 	busy?: boolean;
 	onApprove(): void;

@@ -10,6 +10,9 @@ import {
 	agentThinkingLevels,
 	type Database,
 	readEncryptedCredential,
+	type ScopeProposal,
+	type ScopeProposalCompetitor,
+	type ScopeProposalQuestion,
 	type SearchProviderId,
 	searchProviderIds,
 } from "@geo/core";
@@ -31,12 +34,14 @@ import { getHRouterConfig } from "./hrouter";
 import { listLibraryQuestions } from "./knowledge-base";
 import { type Paginated, type PaginationInput, paginated } from "./pagination";
 import { providerDefinitions } from "./providers";
+import type { EvidenceIndexEntry } from "./report";
 import { advanceReportWorkflow, getReportPdfStatus } from "./report-snapshots";
 import { auditProject, confirmProject, createBatch, createTasksFromFindings, diagnoseBatch, getBatch } from "./service";
 import { parseJsonColumn } from "./utils";
+import { createWebSearchTool, WEB_SEARCH_LIMITS } from "./web-search";
 
 export const workbenchLogger = new StructuredLogger("workbench");
-const SESSION_PROMPT_VERSION = "geo-workbench.v1";
+const SESSION_PROMPT_VERSION = "geo-workbench.v3";
 
 type SessionRow = {
 	id: string;
@@ -47,6 +52,7 @@ type SessionRow = {
 	auto_approve: boolean;
 	model: string | null;
 	thinking_level: AgentThinkingLevel | null;
+	web_search_enabled: boolean;
 	transcript: unknown;
 	plan: unknown;
 	waiting: unknown;
@@ -70,6 +76,7 @@ const createSessionSchema = z.object({
 	autoApprove: z.boolean().optional(),
 	thinkingLevel: thinkingLevelSchema.optional().nullable(),
 	model: modelSchema.optional().nullable(),
+	webSearchEnabled: z.boolean().optional(),
 	message: z.string().trim().min(1).max(4000).optional(),
 });
 
@@ -77,22 +84,62 @@ const settingsSchema = z.object({
 	autoApprove: z.boolean().optional(),
 	thinkingLevel: thinkingLevelSchema.optional().nullable(),
 	model: modelSchema.optional().nullable(),
+	webSearchEnabled: z.boolean().optional(),
 	title: z.string().trim().min(1).max(80).optional(),
 });
 
 const messageSchema = z.object({ message: z.string().trim().min(1).max(4000) });
+
+const emptyToNull = (value: unknown) => (value === "" ? null : value);
+const proposalQuestionInputSchema = z.object({
+	id: z.string().optional().nullable(),
+	libraryQuestionId: z.string().optional().nullable(),
+	question: z.string().trim().min(4).max(500),
+	intent: z.string().trim().min(1).max(120),
+	topic: z.preprocess(emptyToNull, z.string().trim().min(1).max(120).optional().nullable()),
+	persona: z.preprocess(emptyToNull, z.string().trim().min(1).max(120).optional().nullable()),
+	tags: z.array(z.string().trim().min(1).max(80)).max(30).default([]),
+});
+const proposalCompetitorInputSchema = z.object({
+	id: z.string().optional().nullable(),
+	name: z.string().trim().min(1).max(120),
+	domain: z.string().trim().min(1).max(200),
+	aliases: z.array(z.string().trim().min(1).max(80)).max(20).default([]),
+});
 const answerSchema = z.object({
 	answer: z.string().trim().max(4000).optional(),
 	selected: z.array(z.string().trim().min(1)).max(50).optional(),
+	/** 候选问题表格确认后的最终列表；存在且非空时由服务端直接写入监测范围。 */
+	questions: z.array(proposalQuestionInputSchema).max(100).optional(),
+	competitors: z.array(proposalCompetitorInputSchema).max(20).optional(),
+	/** 是否把新问题同步写入客户行业知识库；调用方需先确认成员有 knowledge.manage 权限。 */
+	syncLibrary: z.boolean().optional(),
 });
 
+export type AnswerActor = { userId: string | null; canWriteKnowledge: boolean };
+
 export const WORKBENCH_QUICK_COMMANDS = [
+	{
+		key: "questions",
+		label: "帮我出监测问题",
+		message: "我不确定该监测哪些问题。请联网研究这个行业的买家会怎样向 AI 搜索提问，给我出一批监测问题候选并和我确认。",
+	},
 	{ key: "baseline", label: "跑正式基线", message: "为当前客户跑一次正式基线，并生成报告与优化文章。" },
 	{ key: "quick_audit", label: "跑售前快审", message: "为当前客户跑一次售前快审，并生成报告。" },
 	{ key: "report", label: "生成报告", message: "基于最近一个已完成批次生成报告，并同步生成优化文章。" },
 	{ key: "audit", label: "官网审计", message: "重新审计当前客户官网的 AI 可读性并总结阻断项。" },
 	{ key: "articles", label: "生成优化文章", message: "基于最近一份已批准报告的 GEO 建议逐条生成优化文章。" },
 ] as const;
+
+export type WorkbenchQuickCommand = (typeof WORKBENCH_QUICK_COMMANDS)[number];
+
+/** 问题不足或项目未启用时“帮我出监测问题”置顶，已有成熟问题集的活跃项目把它排到最后。 */
+export function orderQuickCommands(project: { status: string; approvedPromptCount: number }): WorkbenchQuickCommand[] {
+	const questions = WORKBENCH_QUICK_COMMANDS.filter((command) => command.key === "questions");
+	const rest = WORKBENCH_QUICK_COMMANDS.filter((command) => command.key !== "questions");
+	const needsQuestions = project.status !== "active" || project.approvedPromptCount < 5;
+	return needsQuestions ? [...questions, ...rest] : [...rest, ...questions];
+}
 
 function parseSession(row: SessionRow) {
 	return {
@@ -157,8 +204,8 @@ export async function createSession(
 	const id = randomUUID();
 	const title = data.title ?? (data.message ? data.message.slice(0, 40) : `${project.name} · 新会话`);
 	await database.query(
-		`INSERT INTO agent_sessions (id,organization_id,project_id,title,status,auto_approve,model,thinking_level,created_by)
-		 VALUES ($1,$2,$3,$4,'idle',$5,$6,$7,$8)`,
+		`INSERT INTO agent_sessions (id,organization_id,project_id,title,status,auto_approve,model,thinking_level,web_search_enabled,created_by)
+		 VALUES ($1,$2,$3,$4,'idle',$5,$6,$7,$8,$9)`,
 		[
 			id,
 			project.organization_id,
@@ -167,10 +214,16 @@ export async function createSession(
 			data.autoApprove ?? true,
 			model,
 			data.thinkingLevel ?? null,
+			data.webSearchEnabled ?? true,
 			createdBy,
 		],
 	);
-	await appendEvent(database, id, "session_created", { title, autoApprove: data.autoApprove ?? true, model });
+	await appendEvent(database, id, "session_created", {
+		title,
+		autoApprove: data.autoApprove ?? true,
+		model,
+		webSearchEnabled: data.webSearchEnabled ?? true,
+	});
 	if (data.message) await sendMessage(database, id, { message: data.message });
 	return { id };
 }
@@ -189,7 +242,7 @@ export async function listSessions(
 	);
 	const rows = (
 		await database.query<Record<string, unknown>>(
-			`SELECT id,title,status,auto_approve,model,thinking_level,plan,waiting,current_batch_id,error_message,
+			`SELECT id,title,status,auto_approve,model,thinking_level,web_search_enabled,plan,waiting,current_batch_id,error_message,
 			 created_at,updated_at,last_turn_at FROM agent_sessions WHERE project_id=$1
 			 ORDER BY updated_at DESC LIMIT $2 OFFSET $3`,
 			[projectId, input.pageSize, input.offset],
@@ -237,6 +290,7 @@ export async function updateSessionSettings(database: Database, sessionId: strin
 		 thinking_level=CASE WHEN $3::boolean THEN $4 ELSE thinking_level END,
 		 title=COALESCE($5,title),
 		 model=CASE WHEN $6::boolean THEN $7 ELSE model END,
+		 web_search_enabled=COALESCE($8,web_search_enabled),
 		 updated_at=now() WHERE id=$1`,
 		[
 			sessionId,
@@ -247,6 +301,7 @@ export async function updateSessionSettings(database: Database, sessionId: strin
 			// 传 null 表示恢复为机构默认模型；执行时再回退到平台设置。
 			data.model !== undefined,
 			data.model ?? null,
+			data.webSearchEnabled ?? null,
 		],
 	);
 	if (result.affectedRows !== 1) throw new Error("AI 工作台会话不存在");
@@ -266,10 +321,133 @@ export async function sendMessage(database: Database, sessionId: string, input: 
 	return { queued: true };
 }
 
-export async function answerQuestion(database: Database, sessionId: string, input: unknown): Promise<{ queued: true }> {
+type ProposalAnswer = z.infer<typeof answerSchema>;
+
+/**
+ * 成员在候选问题表格里确认后，由服务端直接写入监测范围（新版本范围；未建档项目随之启用），
+ * 不再依赖模型把编辑结果原样抄回 apply_scope。竞品：表格里有就用表格的，否则沿用已批准竞品。
+ */
+async function applyScopeProposal(
+	database: Database,
+	session: WorkbenchSession,
+	proposal: ScopeProposal,
+	data: ProposalAnswer & { questions: NonNullable<ProposalAnswer["questions"]> },
+	actor: AnswerActor,
+): Promise<{ promptCount: number; competitorCount: number; libraryAdded: number; libraryLinked: number }> {
+	const projectId = session.project_id;
+	const [project, approvedCompetitors] = await Promise.all([
+		database.query<{ aliases: unknown; name: string }>("SELECT aliases,name FROM projects WHERE id=$1", [projectId]),
+		database.query<{ id: string; name: string; domain: string; aliases: unknown }>(
+			"SELECT id,name,domain,aliases FROM competitors WHERE project_id=$1 AND approved=true AND archived_at IS NULL",
+			[projectId],
+		),
+	]);
+	const aliases = parseJsonColumn<string[]>((project.rows[0]?.aliases ?? []) as string | string[]);
+	const competitors =
+		data.competitors ??
+		(proposal.competitors.length
+			? proposal.competitors
+					.filter((item) => item.selected)
+					.map((item) => ({ id: item.id ?? undefined, name: item.name, domain: item.domain, aliases: item.aliases }))
+			: approvedCompetitors.rows.map((row) => ({
+					id: row.id,
+					name: row.name,
+					domain: row.domain,
+					aliases: parseJsonColumn<string[]>(row.aliases as string | string[]),
+				})));
+	const result = await confirmProject(
+		database,
+		projectId,
+		{
+			aliases: aliases.length ? aliases : [project.rows[0]?.name ?? ""].filter(Boolean),
+			competitors: competitors.map((item) => ({ ...item, id: item.id ?? undefined })),
+			prompts: data.questions.map((item) => ({
+				libraryQuestionId: item.libraryQuestionId ?? null,
+				question: item.question,
+				intent: item.intent,
+				topic: item.topic ?? null,
+				persona: item.persona ?? null,
+				tags: item.tags,
+			})),
+		},
+		{
+			syncLibrary:
+				data.syncLibrary && actor.canWriteKnowledge && proposal.industry
+					? { organizationId: session.organization_id, createdBy: actor.userId }
+					: null,
+		},
+	);
+	const detail = `${result.promptCount} 个问题${result.libraryAdded ? ` · 知识库新增 ${result.libraryAdded}` : ""}`;
+	await database.query("UPDATE agent_sessions SET plan=$2::jsonb,updated_at=now() WHERE id=$1", [
+		session.id,
+		JSON.stringify(planUpsert(session.plan, { key: "scope", label: "确认监测问题", status: "done", detail })),
+	]);
+	await appendEvent(database, session.id, "step", { key: "scope", status: "done", detail });
+	return result;
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: 普通问答与候选问题确认共用一个入口，确认分支还要区分采用/不采用两种结果。
+export async function answerQuestion(
+	database: Database,
+	sessionId: string,
+	input: unknown,
+	actor: AnswerActor = { userId: null, canWriteKnowledge: false },
+): Promise<{ queued: true; applied?: boolean; promptCount?: number; libraryAdded?: number }> {
 	const data = answerSchema.parse(input);
 	const session = await loadSession(database, sessionId);
 	if (session.status !== "waiting_user" || session.waiting?.kind !== "user") throw new Error("当前没有待回答的问题");
+	const proposal = session.waiting.proposal ?? null;
+	if (proposal && data.questions?.length) {
+		const applied = await applyScopeProposal(
+			database,
+			session,
+			proposal,
+			{ ...data, questions: data.questions },
+			actor,
+		);
+		const text = `已确认 ${applied.promptCount} 个监测问题并写入范围${applied.competitorCount ? `，竞品 ${applied.competitorCount} 个` : ""}${applied.libraryAdded ? `，${applied.libraryAdded} 个新问题已同步到行业知识库` : ""}${data.answer ? `。补充：${data.answer}` : ""}`;
+		await database.query("UPDATE agent_sessions SET status='running',updated_at=now() WHERE id=$1", [sessionId]);
+		await appendEvent(database, sessionId, "user_answer", {
+			text,
+			selected: [],
+			applied: true,
+			promptCount: applied.promptCount,
+			competitorCount: applied.competitorCount,
+			libraryAdded: applied.libraryAdded,
+		});
+		await enqueueTurn(database, {
+			sessionId,
+			trigger: "answer",
+			message: JSON.stringify({
+				applied: true,
+				promptCount: applied.promptCount,
+				competitorCount: applied.competitorCount,
+				libraryAdded: applied.libraryAdded,
+				answer: data.answer ?? "",
+				note: "监测范围已由系统写入，不需要再调用任何工具写入问题；继续后续步骤或 finish。",
+			}),
+		});
+		return { queued: true, applied: true, promptCount: applied.promptCount, libraryAdded: applied.libraryAdded };
+	}
+	if (proposal) {
+		if (!data.answer) throw new Error("请确认候选问题，或说明为什么不采用以便 Agent 调整");
+		await database.query("UPDATE agent_sessions SET status='running',updated_at=now() WHERE id=$1", [sessionId]);
+		await appendEvent(database, sessionId, "user_answer", {
+			text: `未采用候选：${data.answer}`,
+			selected: [],
+			applied: false,
+		});
+		await enqueueTurn(database, {
+			sessionId,
+			trigger: "answer",
+			message: JSON.stringify({
+				applied: false,
+				answer: data.answer,
+				note: "用户没有采用这批候选，监测范围未改变；根据反馈调整后可再次 propose_questions。",
+			}),
+		});
+		return { queued: true, applied: false };
+	}
 	const parts = [
 		...(data.selected?.length ? [`选择：${data.selected.join("；")}`] : []),
 		...(data.answer ? [data.answer] : []),
@@ -362,17 +540,99 @@ const platformsSchema = Type.Array(Type.Union(searchProviderIds.map((id) => Type
 	description: "监测平台 ID 列表",
 });
 
+const proposalQuestionSchema = Type.Object({
+	id: Type.Optional(Type.String({ description: "保留已有问题时带上其 id" })),
+	libraryQuestionId: Type.Optional(Type.String({ description: "来自知识库候选时带上其 id" })),
+	question: Type.String({ minLength: 4, maxLength: 500 }),
+	intent: Type.String({ minLength: 1, maxLength: 120 }),
+	topic: Type.Optional(Type.String({ maxLength: 120 })),
+	persona: Type.Optional(Type.String({ maxLength: 120 })),
+	tags: Type.Array(Type.String({ maxLength: 80 }), { maxItems: 30 }),
+	source: Type.Union(
+		[Type.Literal("existing"), Type.Literal("pending"), Type.Literal("library"), Type.Literal("research")],
+		{ description: "existing=已批准问题；pending=建档候选；library=知识库候选；research=本次研究新增" },
+	),
+	evidenceIds: Type.Optional(Type.Array(Type.String(), { maxItems: 10, description: "支撑该问题的证据 ID" })),
+	selected: Type.Optional(Type.Boolean({ description: "默认勾选；不建议纳入但值得让用户看到的设为 false" })),
+});
+
+const proposalCompetitorSchema = Type.Object({
+	id: Type.Optional(Type.String()),
+	name: Type.String({ minLength: 1, maxLength: 120 }),
+	domain: Type.String({ minLength: 1, maxLength: 200 }),
+	aliases: Type.Array(Type.String({ maxLength: 80 }), { maxItems: 20 }),
+	selected: Type.Optional(Type.Boolean()),
+});
+
+/** 会话级联网次数从证据表统计，跨回合、跨进程重启都不会漏算。 */
+async function countSessionSearches(database: Database, sessionId: string): Promise<number> {
+	return Number(
+		(
+			await database.query<{ count: number }>(
+				"SELECT count(*)::int AS count FROM web_search_evidence WHERE session_id=$1",
+				[sessionId],
+			)
+		).rows[0]?.count ?? 0,
+	);
+}
+
+/** 把候选引用的证据翻译成表格可读的条目（联网搜索→问题与来源数，快照→标题/网址），前端不必再查索引。 */
+async function describeProposalEvidence(
+	database: Database,
+	projectId: string,
+	evidenceIds: string[],
+): Promise<EvidenceIndexEntry[]> {
+	if (!evidenceIds.length) return [];
+	const [webSearches, snapshots] = await Promise.all([
+		database.query<{ id: string; query: string; sources: unknown; created_at: string }>(
+			"SELECT id,query,sources,created_at FROM web_search_evidence WHERE project_id=$1 AND id=ANY($2::text[])",
+			[projectId, evidenceIds],
+		),
+		database.query<{ id: string; url: string; title: string | null }>(
+			"SELECT id,url,title FROM website_snapshots WHERE project_id=$1 AND id=ANY($2::text[])",
+			[projectId, evidenceIds],
+		),
+	]);
+	const blank = { n: 0, platform: null, attempt: null, status: null, url: null, title: null };
+	return [
+		...webSearches.rows.map((row) => ({
+			...blank,
+			id: row.id,
+			kind: "web_search" as const,
+			platformLabel: "联网搜索",
+			question: row.query,
+			capturedAt: new Date(String(row.created_at)).toISOString(),
+			sourceUrls: parseJsonColumn<Array<{ url: string }>>(row.sources as string | Array<{ url: string }>)
+				.map((source) => source.url)
+				.slice(0, 12),
+		})),
+		...snapshots.rows.map((row) => ({
+			...blank,
+			id: row.id,
+			kind: "snapshot" as const,
+			platformLabel: "客户官网快照",
+			question: null,
+			capturedAt: null,
+			sourceUrls: [],
+			url: row.url,
+			title: row.title,
+		})),
+	];
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The workbench tool set intentionally lives in one auditable function so every write path is visible together.
-async function createWorkbenchTools(
+export async function createWorkbenchTools(
 	database: Database,
 	session: WorkbenchSession,
 	control: TurnControl,
 	persistControl: () => Promise<void>,
 	emit: (type: string, payload: Record<string, unknown>) => Promise<void>,
+	dependencies: { fetch?: typeof globalThis.fetch; sessionSearches?: number } = {},
 ): Promise<AgentTool[]> {
 	const projectId = session.project_id;
 	const organizationId = session.organization_id;
 	const allowedEvidence = await knownEvidenceIds(database, projectId, session.current_batch_id);
+	const sessionSearches = dependencies.sessionSearches ?? (await countSessionSearches(database, session.id));
 	const waitFor = async (waiting: WaitTarget, stepKey: string, label: string) => {
 		control.waiting = { ...waiting, stepKey };
 		const existing = control.plan.find((step) => step.key === stepKey);
@@ -454,24 +714,56 @@ async function createWorkbenchTools(
 			},
 		},
 		...createEvidenceReadTools(database, projectId, session.current_batch_id, allowedEvidence),
+		...(session.web_search_enabled
+			? [
+					createWebSearchTool(
+						database,
+						{ organizationId, projectId, sessionId: session.id, model: session.model },
+						allowedEvidence,
+						{
+							fetch: dependencies.fetch,
+							budget: {
+								perTurn: WEB_SEARCH_LIMITS.workbenchTurn,
+								perSession: WEB_SEARCH_LIMITS.workbenchSession,
+								sessionUsed: sessionSearches,
+							},
+						},
+					),
+				]
+			: []),
 		{
 			name: "suggest_questions",
 			label: "整理问题候选",
 			description:
-				"返回当前已批准监测问题，以及同机构同行业知识库中尚未纳入的问题候选。用于在跑基线前与用户确认要使用或追加的问题。",
+				"返回当前已批准监测问题、建档分析留下但尚未确认的候选，以及同机构同行业知识库中尚未纳入的问题候选。用于出题或跑基线前与用户确认要使用或追加的问题。",
 			parameters: Type.Object({}),
 			execute: async () => {
 				const project = (
-					await database.query<{ industry: string | null }>("SELECT industry FROM projects WHERE id=$1", [projectId])
+					await database.query<{ industry: string | null; status: string }>(
+						"SELECT industry,status FROM projects WHERE id=$1",
+						[projectId],
+					)
 				).rows[0];
-				const current = (
-					await database.query(
-						"SELECT id,question,intent,topic,persona,tags,library_question_id FROM prompts WHERE project_id=$1 AND approved=true AND archived_at IS NULL ORDER BY position",
+				// 未建档确认的项目：官网分析留下的竞品候选也一并交给用户确认，apply_scope 时可显式传入。
+				const pendingCompetitors =
+					project?.status === "active"
+						? []
+						: (
+								await database.query(
+									"SELECT id,name,domain,aliases FROM competitors WHERE project_id=$1 AND approved=false AND archived_at IS NULL",
+									[projectId],
+								)
+							).rows;
+				const rows = (
+					await database.query<Record<string, unknown> & { approved: boolean }>(
+						"SELECT id,question,intent,topic,persona,tags,library_question_id,approved FROM prompts WHERE project_id=$1 AND archived_at IS NULL ORDER BY position",
 						[projectId],
 					)
 				).rows;
-				const usedLibraryIds = new Set(current.map((row) => row.library_question_id).filter(Boolean));
-				const usedQuestions = new Set(current.map((row) => String(row.question)));
+				const current = rows.filter((row) => row.approved);
+				const pendingCandidates = rows.filter((row) => !row.approved);
+				const usedLibraryIds = new Set(rows.map((row) => row.library_question_id).filter(Boolean));
+				const usedQuestions = new Set(rows.map((row) => String(row.question)));
 				const library = await listLibraryQuestions(database, organizationId, project?.industry ?? null, {
 					page: 1,
 					pageSize: 100,
@@ -481,7 +773,14 @@ async function createWorkbenchTools(
 				const candidates = library.items.filter(
 					(item) => !usedLibraryIds.has(item.id) && !usedQuestions.has(String(item.question)),
 				);
-				return toolResult({ current, libraryCandidates: candidates, industry: project?.industry ?? null });
+				return toolResult({
+					current,
+					pendingCandidates,
+					libraryCandidates: candidates,
+					pendingCompetitors,
+					projectStatus: project?.status ?? null,
+					industry: project?.industry ?? null,
+				});
 			},
 		},
 		{
@@ -504,53 +803,119 @@ async function createWorkbenchTools(
 			},
 		},
 		{
-			name: "apply_scope",
-			label: "应用监测范围",
+			name: "propose_questions",
+			label: "提交问题候选",
 			description:
-				"在用户明确确认后，写入新的监测问题集（会生成新版本范围，旧批次不受影响）。必须传入完整的最终问题列表；保留已有问题时带上其 id。竞品与别名默认沿用现有值。",
+				"把最终候选问题（包含要保留的已有问题）交给用户在表格里勾选、修改、增删并确认。确认后系统会直接写入新版本监测范围（未建档项目随之启用），你不需要也不能再调用其他工具写入问题。调用后本回合结束，用户确认或拒绝后你会收到结果。未建档项目请把 suggest_questions 返回的候选竞品也放进 competitors 让用户一并确认。",
 			parameters: Type.Object({
-				prompts: Type.Array(
-					Type.Object({
-						id: Type.Optional(Type.String()),
-						libraryQuestionId: Type.Optional(Type.String()),
-						question: Type.String({ minLength: 4 }),
-						intent: Type.String({ minLength: 1 }),
-						topic: Type.Optional(Type.String()),
-						persona: Type.Optional(Type.String()),
-						tags: Type.Array(Type.String()),
-					}),
-					{ minItems: 1, maxItems: 100 },
-				),
+				intro: Type.String({
+					minLength: 4,
+					maxLength: 2000,
+					description: "给用户的说明：研究依据、按意图怎么分组、建议保留/新增了什么（可引用证据 ID）",
+				}),
+				questions: Type.Array(proposalQuestionSchema, { minItems: 1, maxItems: 100 }),
+				competitors: Type.Optional(Type.Array(proposalCompetitorSchema, { maxItems: 20 })),
 			}),
 			executionMode: "sequential",
-			execute: async (_toolCallId, params) => {
-				const { prompts } = params as { prompts: Array<Record<string, unknown>> };
-				const [project, competitors] = await Promise.all([
-					database.query<{ aliases: unknown }>("SELECT aliases FROM projects WHERE id=$1", [projectId]),
-					database.query(
-						"SELECT id,name,domain,aliases FROM competitors WHERE project_id=$1 AND approved=true AND archived_at IS NULL",
-						[projectId],
+			execute: async (toolCallId, params) => {
+				const input = params as {
+					intro: string;
+					questions: Array<{
+						id?: string;
+						libraryQuestionId?: string;
+						question: string;
+						intent: string;
+						topic?: string;
+						persona?: string;
+						tags: string[];
+						source: ScopeProposalQuestion["source"];
+						evidenceIds?: string[];
+						selected?: boolean;
+					}>;
+					competitors?: Array<{ id?: string; name: string; domain: string; aliases: string[]; selected?: boolean }>;
+				};
+				const [project, promptRows, libraryRows] = await Promise.all([
+					database.query<{ industry: string | null }>("SELECT industry FROM projects WHERE id=$1", [projectId]),
+					database.query<{ id: string }>("SELECT id FROM prompts WHERE project_id=$1 AND archived_at IS NULL", [
+						projectId,
+					]),
+					database.query<{ id: string }>(
+						"SELECT id FROM prompt_library_questions WHERE organization_id=$1 AND archived_at IS NULL",
+						[organizationId],
 					),
 				]);
-				await confirmProject(database, projectId, {
-					aliases: parseJsonColumn<string[]>((project.rows[0]?.aliases ?? []) as string | string[]),
-					competitors: competitors.rows.map((row) => ({
-						id: row.id,
-						name: row.name,
-						domain: row.domain,
-						aliases: parseJsonColumn<string[]>(row.aliases as string | string[]),
-					})),
-					prompts,
-				});
+				const knownPromptIds = new Set(promptRows.rows.map((row) => row.id));
+				const knownLibraryIds = new Set(libraryRows.rows.map((row) => row.id));
+				const unknownEvidence = input.questions.flatMap((item) =>
+					(item.evidenceIds ?? []).filter((id) => !allowedEvidence.has(id)),
+				);
+				if (unknownEvidence.length)
+					throw new Error(`候选引用了未知或越权证据：${[...new Set(unknownEvidence)].join("、")}`);
+				const unknownPrompts = input.questions.flatMap((item) =>
+					item.id && !knownPromptIds.has(item.id) ? [item.id] : [],
+				);
+				if (unknownPrompts.length) throw new Error(`候选引用了不存在的问题 id：${unknownPrompts.join("、")}`);
+				const unknownLibrary = input.questions.flatMap((item) =>
+					item.libraryQuestionId && !knownLibraryIds.has(item.libraryQuestionId) ? [item.libraryQuestionId] : [],
+				);
+				if (unknownLibrary.length) throw new Error(`候选引用了不存在的知识库问题：${unknownLibrary.join("、")}`);
+				const seen = new Set<string>();
+				const questions: ScopeProposalQuestion[] = [];
+				for (const item of input.questions) {
+					const normalized = item.question.trim().toLocaleLowerCase();
+					if (seen.has(normalized)) continue;
+					seen.add(normalized);
+					questions.push({
+						key: `q${questions.length + 1}`,
+						id: item.id ?? null,
+						libraryQuestionId: item.libraryQuestionId ?? null,
+						question: item.question.trim(),
+						intent: item.intent.trim(),
+						topic: item.topic?.trim() || null,
+						persona: item.persona?.trim() || null,
+						tags: [...new Set(item.tags.map((tag) => tag.trim()).filter(Boolean))],
+						source: item.source,
+						evidenceIds: [...new Set(item.evidenceIds ?? [])],
+						selected: item.selected ?? true,
+					});
+				}
+				const competitors: ScopeProposalCompetitor[] = (input.competitors ?? []).map((item, index) => ({
+					key: `c${index + 1}`,
+					id: item.id ?? null,
+					name: item.name.trim(),
+					domain: item.domain.trim(),
+					aliases: [...new Set(item.aliases.map((alias) => alias.trim()).filter(Boolean))],
+					selected: item.selected ?? true,
+				}));
+				const proposal: ScopeProposal = {
+					intro: input.intro,
+					questions,
+					competitors,
+					industry: project.rows[0]?.industry ?? null,
+				};
+				const evidence = await describeProposalEvidence(database, projectId, [
+					...new Set(questions.flatMap((item) => item.evidenceIds)),
+				]);
+				control.waiting = {
+					kind: "user",
+					question: input.intro,
+					options: [],
+					multiple: true,
+					toolCallId,
+					proposal,
+				};
 				control.plan = planUpsert(control.plan, {
 					key: "scope",
 					label: "确认监测问题",
-					status: "done",
-					detail: `${prompts.length} 个问题`,
+					status: "running",
+					detail: `${questions.length} 个候选待确认`,
 				});
 				await persistControl();
-				await emit("step", { key: "scope", status: "done", detail: `${prompts.length} 个问题` });
-				return toolResult({ applied: true, promptCount: prompts.length });
+				await emit("proposal", { ...proposal, evidence });
+				return {
+					...toolResult({ waiting: "user", proposal: true, questionCount: questions.length }),
+					terminate: true,
+				};
 			},
 		},
 		{
@@ -791,7 +1156,7 @@ async function createWorkbenchTools(
 			name: "advance_report",
 			label: "推进报告工作流",
 			description:
-				"推进批次的报告工作流：自动排队报告叙述 → 质检 → 冻结快照 → PDF/Word。返回当前 state 与 runId/reportId；若 state 不是 ready，用 wait_for 等待对应对象（narrative_*/quality_* 用 agent_run，documents_queued 用 report）。",
+				"推进批次的报告工作流：自动排队报告叙述 → 质检 → 冻结快照 → PDF/Word。返回当前 state 与 runId/reportId；若 state 不是 ready，用 wait_for 等待对应对象（narrative_*/quality_* 用 agent_run，documents_queued 用 report）。质检未通过（quality_blocked）后再次调用会重新生成叙述并重新质检，属于额外开销，先用 ask_user 征得用户同意。",
 			parameters: Type.Object({ batchId: Type.String(), restart: Type.Optional(Type.Boolean()) }),
 			executionMode: "sequential",
 			execute: async (_toolCallId, params) => {
@@ -865,17 +1230,35 @@ async function createWorkbenchTools(
 
 const WORKBENCH_SYSTEM_PROMPT = `你是 ZZ Geo 的 AI 工作台 Agent，负责替用户把 GEO 监测流程一口气跑完。你通过工具操作系统，所有工具只作用于当前客户项目。
 
+监测问题的唯一写入方式是 propose_questions：把最终列表（含要保留的已有问题）交给用户在表格里勾选、修改后确认，系统会在用户确认后自动写入范围；你不能、也不需要自己写入。不要用 ask_user 罗列问题让用户选。
+
 标准流程（用户说"跑基线/跑快审"时）：
 1. read_project_context 了解客户、问题、平台与最近批次。
-2. suggest_questions，然后用 ask_user 让用户确认：沿用现有问题、追加知识库候选或你建议的新问题。只有用户明确确认后才 apply_scope；用户说沿用则跳过。
+2. suggest_questions。已有问题不足 5 个时按下面的出题流程补齐；否则用 propose_questions 提交“现有问题 + 值得追加的知识库候选”让用户确认（全部沿用时用户直接点确认即可）。收到 applied=true 后再继续。
 3. create_batch，然后 wait_for(batch)。正式基线会分三个时间窗口采集，等待可能长达一天，这是正常的。
 4. 采集完成后 verify_batch 写一段核验小结（失败平台、来源不可见、异常样本）。
 5. run_site_audit 与 run_rule_diagnosis。
-6. advance_report 推进报告；每次返回 state 非 ready 时 wait_for 对应对象，被唤醒后再次 advance_report，直到 ready。质检 blocked 时用 ask_user 询问用户是否重试或结束。
+6. advance_report 推进报告；每次返回 state 非 ready 时 wait_for 对应对象，被唤醒后再次 advance_report，直到 ready。质检 blocked 时用 ask_user 询问用户是否重新生成叙述（再次 advance_report）或结束。
 7. generate_articles，并告知用户文章数量与查看位置。
 8. finish 给出总结。
 
+出题流程（用户说"帮我出监测问题/不知道该问什么"，或跑基线时现有问题不足 5 个）：
+1. read_project_context 与 suggest_questions，了解客户业务、地区、已有问题、建档候选与知识库候选。
+2. 若本会话开放 web_search：做 3-6 次有针对性的联网研究，每次一个具体问题，覆盖：该行业买家在选型/采购时会问 AI 的问题、常见对比与价格/资质/售后疑虑、客户所在地区或场景的问法、竞品被推荐的语境。搜索结果只能作为证据，不得直接照抄网页里的问题。工具返回 unavailable=true 或提示达到上限时立即停止搜索，改用官网快照与知识库候选。
+3. 汇总出 10-30 个候选问题：用买家真实口吻写中文提问，不出现客户品牌名（除非是品牌口碑题），每题标注 intent（如 选型对比/价格/资质/售后/口碑/本地服务）、topic、persona、tags 与 source，并按意图排列。已有问题与候选重复的要合并；每题尽量带上支撑它的证据 ID。
+4. 用 propose_questions 提交：intro 里说明研究依据与分组逻辑（引用证据 ID）；未建档项目把候选竞品放进 competitors。
+5. 收到 applied=true 表示范围已写入，向用户简要总结并 finish（或按用户指令继续跑基线）；applied=false 表示用户未采用，按其反馈调整后再次 propose_questions。
+6. 联网不可用时如实告诉用户，并在总结中写明“候选基于官网快照与知识库，未经联网研究”的局限。
+
 其他指令（只生成报告、只审计、只生成文章等）按需选取上述子集。每完成一步用一两句中文向用户汇报进展。不要重复读取已经读过的证据。${AGENT_SAFETY_PROMPT}`;
+
+/** 会话级联网状态与配额写进系统提示，模型不用试错就知道能不能搜、能搜几次。 */
+function webSearchPromptNote(session: WorkbenchSession, sessionUsed: number): string {
+	if (!session.web_search_enabled)
+		return "\n\n本会话已关闭联网搜索：没有 web_search 工具，出题直接用官网快照与知识库候选，并向用户说明未经联网研究。";
+	const remaining = Math.max(0, WEB_SEARCH_LIMITS.workbenchSession - sessionUsed);
+	return `\n\n联网搜索配额：每回合最多 ${WEB_SEARCH_LIMITS.workbenchTurn} 次，本会话还剩 ${remaining} 次（上限 ${WEB_SEARCH_LIMITS.workbenchSession}）。每次搜索都计费，问法要具体，不要为同一问题反复换词重试。`;
+}
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: A turn restores transcript, streams events and persists the outcome in one auditable path.
 export async function executeSessionTurn(
@@ -911,11 +1294,12 @@ export async function executeSessionTurn(
 		[sessionId],
 	);
 	const priorWaiting = session.waiting;
-	const tools = await createWorkbenchTools(database, session, control, persistControl, emit);
+	const sessionSearches = await countSessionSearches(database, sessionId);
+	const tools = await createWorkbenchTools(database, session, control, persistControl, emit, { sessionSearches });
 	const allowedToolNames = new Set(tools.map((tool) => tool.name));
 	const agent = new Agent({
 		initialState: {
-			systemPrompt: WORKBENCH_SYSTEM_PROMPT,
+			systemPrompt: `${WORKBENCH_SYSTEM_PROMPT}${webSearchPromptNote(session, sessionSearches)}`,
 			model: createHRouterModel(model, config.baseUrl),
 			thinkingLevel: session.thinking_level ?? config.thinkingLevel,
 			tools,
@@ -965,12 +1349,15 @@ export async function executeSessionTurn(
 	});
 	try {
 		if (trigger === "answer" && priorWaiting?.kind === "user") {
-			// 用户回答作为 ask_user 的工具结果续接，保持对话结构完整。
+			// 用户回答作为 ask_user / propose_questions 的工具结果续接，保持对话结构完整。
+			// 候选确认的结果已经是服务端生成的 JSON（applied、数量），普通回答则包成 {answer}。
 			const answered: AgentMessage = {
 				role: "toolResult",
 				toolCallId: priorWaiting.toolCallId,
-				toolName: "ask_user",
-				content: [{ type: "text", text: JSON.stringify({ answer: message ?? "" }) }],
+				toolName: priorWaiting.proposal ? "propose_questions" : "ask_user",
+				content: [
+					{ type: "text", text: priorWaiting.proposal ? (message ?? "{}") : JSON.stringify({ answer: message ?? "" }) },
+				],
 				isError: false,
 				timestamp: Date.now(),
 			};
@@ -995,8 +1382,11 @@ export async function executeSessionTurn(
 		} else {
 			await agent.prompt(message ?? "请继续。");
 		}
-		const assistants = agent.state.messages.filter((item) => item.role === "assistant");
-		const usage = assistants.reduce(
+		// 只统计本回合新增的 assistant 消息：transcript 每回合都会恢复历史，按全量累加会把旧回合的 Token 重复记进费用。
+		const turnAssistants = agent.state.messages
+			.slice(session.transcript.length)
+			.filter((item) => item.role === "assistant");
+		const turnUsage = turnAssistants.reduce(
 			(total, item) => ({
 				input: total.input + (item.usage?.input ?? 0),
 				output: total.output + (item.usage?.output ?? 0),
@@ -1004,6 +1394,11 @@ export async function executeSessionTurn(
 			}),
 			{ input: 0, output: 0, totalTokens: 0 },
 		);
+		const usage = {
+			input: (session.usage?.input ?? 0) + turnUsage.input,
+			output: (session.usage?.output ?? 0) + turnUsage.output,
+			totalTokens: (session.usage?.totalTokens ?? 0) + turnUsage.totalTokens,
+		};
 		let status: AgentSessionStatus = "idle";
 		if (control.finished) status = "done";
 		else if (control.waiting?.kind === "user") status = "waiting_user";
@@ -1023,16 +1418,21 @@ export async function executeSessionTurn(
 		);
 		if (control.finished) await emit("finished", { summary: control.finished });
 		else if (status === "idle") await emit("turn_idle", {});
-		await database.query(
-			`INSERT INTO project_costs (id,project_id,batch_id,provider_id,operation,usage,cost_micros)
-			 VALUES ($1,$2,$3,'hrouter_gpt','workbench',$4::jsonb,NULL)`,
-			[
-				randomUUID(),
-				session.project_id,
-				control.currentBatchId,
-				JSON.stringify({ inputTokens: usage.input, outputTokens: usage.output, totalTokens: usage.totalTokens }),
-			],
-		);
+		if (turnUsage.totalTokens > 0)
+			await database.query(
+				`INSERT INTO project_costs (id,project_id,batch_id,provider_id,operation,usage,cost_micros)
+				 VALUES ($1,$2,$3,'hrouter_gpt','workbench',$4::jsonb,NULL)`,
+				[
+					randomUUID(),
+					session.project_id,
+					control.currentBatchId,
+					JSON.stringify({
+						inputTokens: turnUsage.input,
+						outputTokens: turnUsage.output,
+						totalTokens: turnUsage.totalTokens,
+					}),
+				],
+			);
 	} catch (error) {
 		const detail = error instanceof Error ? error.message.slice(0, 2000) : "Agent 执行失败";
 		await database.query(
@@ -1143,6 +1543,8 @@ export async function resumeWaitingSessions(database: Database): Promise<number>
 						}),
 				);
 		} catch (error) {
+			// 成员抢先手动审批时守卫会拒绝本次自动批准：这不是失败，也不能把已批准的草稿改成拒绝。
+			if (error instanceof Error && error.message.includes("已被其他操作处理")) continue;
 			await appendEvent(database, run.session_id, "auto_approve_failed", {
 				runId: run.id,
 				purpose: run.purpose,

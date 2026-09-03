@@ -92,9 +92,10 @@ export type ReportAnalysis = {
 };
 
 export type EvidenceIndexEntry = {
+	/** 报告内编号；联网搜索等不进入冻结报告的证据为 0，前端按 kind 显示标签。 */
 	n: number;
 	id: string;
-	kind: "capture" | "snapshot" | "audit";
+	kind: "capture" | "snapshot" | "audit" | "web_search";
 	platform: string | null;
 	platformLabel: string | null;
 	question: string | null;

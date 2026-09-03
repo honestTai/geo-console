@@ -1,7 +1,14 @@
-import { migrateDatabase, openMemoryDatabase } from "@geo/core";
+import { migrateDatabase, openMemoryDatabase, writeEncryptedCredential } from "@geo/core";
 import { describe, expect, it } from "vitest";
 import { approveAgentRun, createDomainTools } from "./agent";
-import { approvedRecommendations, deleteArticle, getArticle, listArticles, updateArticle } from "./articles";
+import {
+	approvedRecommendations,
+	deleteArticle,
+	generateArticlesForBatch,
+	getArticle,
+	listArticles,
+	updateArticle,
+} from "./articles";
 
 async function seed() {
 	const database = openMemoryDatabase();
@@ -172,6 +179,35 @@ describe("优化文章", () => {
 			await expect(updateArticle(database, "article", { publishedUrl: "not a url" })).rejects.toThrow();
 			await deleteArticle(database, "article");
 			expect(await getArticle(database, "article")).toBeNull();
+		} finally {
+			await database.close();
+		}
+	});
+
+	it("在途文章 run 只按当前已批准叙述去重：旧叙述的 run 不会吃掉同序号的新文章", async () => {
+		const database = await seed();
+		try {
+			await writeEncryptedCredential(database, "hrouter_api_key", "hrouter-key-1234567890", "default");
+			await database.query(
+				`INSERT INTO settings (key,value) VALUES ('organization:default:hrouter_config','{"baseUrl":"https://hrouter.test/v1","model":"gpt-5.4","thinkingLevel":"low"}'::jsonb)`,
+			);
+			// 叙述重生成前排队的 run：绑定旧叙述、同一批次、同序号 0。
+			await database.query(
+				`INSERT INTO agent_runs (id,project_id,batch_id,purpose,status,model,prompt_version,target_ref)
+				 VALUES ('stale-run','project','batch','optimization_article','queued','gpt-test','test',$1::jsonb)`,
+				[JSON.stringify({ narrativeRunId: "old-narrative", recommendationIndex: 0 })],
+			);
+			// 新叙述序号 1 已有文章。
+			await database.query(
+				`INSERT INTO optimization_articles (id,project_id,batch_id,narrative_run_id,recommendation_index,recommendation_title,title,content_markdown)
+				 VALUES ('article-1','project','batch','narrative',1,'发布案例库','案例库','正文')`,
+			);
+			const first = await generateArticlesForBatch(database, "batch");
+			expect(first.narrativeRunId).toBe("narrative");
+			expect(first.queued.map((item) => item.recommendationIndex)).toEqual([0]);
+			// 再次生成：刚排队的 run 绑定当前叙述，序号 0 已在途，不重复排队。
+			const second = await generateArticlesForBatch(database, "batch");
+			expect(second.queued).toEqual([]);
 		} finally {
 			await database.close();
 		}

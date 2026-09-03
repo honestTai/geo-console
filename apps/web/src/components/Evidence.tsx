@@ -1,8 +1,21 @@
-import { IconDownload, IconFileText, IconShieldCheck } from "@tabler/icons-react";
-import { Collapse, Segmented } from "antd";
+import { IconDownload, IconFileText, IconShieldCheck, IconWorldSearch } from "@tabler/icons-react";
+import { Collapse, Segmented, Tag } from "antd";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Button, useBatch } from "../access";
-import { type Capture, type Competitor, DEFAULT_PAGE_SIZE, type Project, providerIds, providerLabel, providerShortLabel } from "../types";
+import { api } from "../api";
+import { usePaginated } from "../hooks/usePagination";
+import {
+	type Capture,
+	type Competitor,
+	DEFAULT_PAGE_SIZE,
+	type Paginated,
+	type Project,
+	providerIds,
+	providerLabel,
+	providerShortLabel,
+	type WebSearchRecord,
+	webSearchStatusLabels,
+} from "../types";
 import { answerInline, FormattedAnswer } from "../ui/markdown";
 import type { EvidenceFocus } from "../ui/navigation";
 import {
@@ -23,6 +36,12 @@ import { Page } from "./Page";
 export { answerInline, FormattedAnswer };
 
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
+
+type EvidenceKind = "captures" | "web_search";
+const KIND_OPTIONS = [
+	{ label: "AI 回答", value: "captures" },
+	{ label: "联网搜索", value: "web_search" },
+];
 
 /** 判定提及时用的品牌口径：客户品牌 id 就是项目 id（与指标口径一致），竞品取批次冻结配置。 */
 type BrandScope = { customerId: string; customerName: string; competitors: Competitor[] };
@@ -48,6 +67,7 @@ function summarizeMentions(capture: Capture, brands: BrandScope) {
 	};
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: 证据中心同时承载回答证据与联网搜索两类记录的定位、筛选与分页。
 export function Evidence({
 	project,
 	focus = null,
@@ -57,6 +77,8 @@ export function Evidence({
 	focus?: EvidenceFocus;
 	onConsumeFocus?(): void;
 }) {
+	const [kind, setKind] = useState<EvidenceKind>(project.batches.length ? "captures" : "web_search");
+	const [webFocusId, setWebFocusId] = useState<string | null>(null);
 	const { selected, setSelected, batch } = useBatch(project, focus?.batchId ?? null);
 	const [platform, setPlatform] = useState("all");
 	const captures = useMemo(
@@ -75,18 +97,26 @@ export function Evidence({
 	);
 	const [capturePage, setCapturePage] = useState(1);
 	const [activeCaptureId, setActiveCaptureId] = useState<string | null>(null);
+	// 从草稿/工作台的联网证据引用跳转过来：切到“联网搜索”分区并只显示该条记录。
+	useEffect(() => {
+		if (focus?.kind !== "web_search") return;
+		setKind("web_search");
+		setWebFocusId(focus.evidenceId);
+		onConsumeFocus?.();
+	}, [focus, onConsumeFocus]);
 	// 从报告/诊断的证据引用跳转过来时定位到具体回答。
 	useEffect(() => {
-		if (!focus || !batch) return;
-		const index = batch.captures.findIndex((item) => item.captureId === focus.captureId);
+		if (!focus || focus.kind === "web_search" || !batch) return;
+		const index = batch.captures.findIndex((item) => item.captureId === focus.evidenceId);
 		if (index === -1) {
 			const owner = project.batches.find((item) => item.id !== batch.id && focus.batchId === item.id);
 			if (owner) setSelected(owner.id);
 			return;
 		}
+		setKind("captures");
 		setPlatform("all");
 		setCapturePage(Math.floor(index / PAGE_SIZE) + 1);
-		setActiveCaptureId(focus.captureId);
+		setActiveCaptureId(focus.evidenceId);
 		onConsumeFocus?.();
 	}, [focus, batch, project.batches, setSelected, onConsumeFocus]);
 	const visibleCaptures = captures.slice((capturePage - 1) * PAGE_SIZE, capturePage * PAGE_SIZE);
@@ -146,10 +176,31 @@ export function Evidence({
 			"text/csv;charset=utf-8",
 		);
 	}
+	const kindSwitch = (
+		<Segmented options={KIND_OPTIONS} value={kind} onChange={(value) => setKind(value as EvidenceKind)} />
+	);
+	if (kind === "web_search")
+		return (
+			<Page
+				breadcrumb={project.name}
+				eyebrow="证据中心"
+				title="联网搜索存证"
+				description="Agent 每次联网搜索（含未触发与失败）都只追加记录；只有已完成的记录可被草稿引用。"
+			>
+				<FilterBar>{kindSwitch}</FilterBar>
+				<WebSearchEvidence
+					project={project}
+					focusId={webFocusId}
+					onClearFocus={() => setWebFocusId(null)}
+					onConsumeFocus={onConsumeFocus}
+				/>
+			</Page>
+		);
 	if (!project.batches.length)
 		return (
 			<Page breadcrumb={project.name} eyebrow="证据中心" title="回答原文存证">
-				<Empty title="还没有证据" detail="完成至少一个真实采集批次后，回答、来源和原始 API 响应会出现在这里。" />
+				<FilterBar>{kindSwitch}</FilterBar>
+				<Empty title="还没有回答证据" detail="完成至少一个真实采集批次后，回答、来源和原始 API 响应会出现在这里。" />
 			</Page>
 		);
 	return (
@@ -165,6 +216,7 @@ export function Evidence({
 			}
 		>
 			<FilterBar extra={<span className="evidence-count">{captures.length ? `${captures.length} 条回答` : ""}</span>}>
+				{kindSwitch}
 				<BatchPicker
 					project={project}
 					selected={selected}
@@ -230,6 +282,174 @@ export function Evidence({
 				</div>
 			)}
 		</Page>
+	);
+}
+
+/** 联网搜索分区：左侧记录列表（服务端分页），右侧归纳文本、来源与检索拆解；从引用跳转时只显示被引用的那条。 */
+function WebSearchEvidence({
+	project,
+	focusId,
+	onClearFocus,
+	onConsumeFocus,
+}: {
+	project: Project;
+	focusId: string | null;
+	onClearFocus(): void;
+	onConsumeFocus?(): void;
+}) {
+	const page = usePaginated<WebSearchRecord>(
+		(pageNumber, pageSize) => {
+			const params = new URLSearchParams({ page: String(pageNumber), pageSize: String(pageSize) });
+			if (focusId) params.set("id", focusId);
+			return api<Paginated<WebSearchRecord>>(`/api/projects/${project.id}/web-searches?${params}`);
+		},
+		[project.id, focusId],
+	);
+	const [activeId, setActiveId] = useState<string | null>(null);
+	const active = page.items.find((item) => item.id === activeId) ?? page.items[0] ?? null;
+	useEffect(() => {
+		if (focusId) onConsumeFocus?.();
+	}, [focusId, onConsumeFocus]);
+	if (!page.loading && !page.items.length)
+		return (
+			<Empty
+				title={focusId ? "没有找到这条联网搜索记录" : "还没有联网搜索记录"}
+				detail={
+					focusId
+						? "记录可能属于其他客户或已不存在。"
+						: "在 AI 工作台让 Agent 联网出题，或建档分析核实竞品后，每次联网搜索都会出现在这里。"
+				}
+				action={
+					focusId ? (
+						<Button variant="secondary" onClick={onClearFocus}>
+							显示全部记录
+						</Button>
+					) : undefined
+				}
+			/>
+		);
+	return (
+		<>
+			{focusId && <Notice message={`正在显示被引用的一条联网搜索记录。`} />}
+			<div className="evidence-layout">
+				<div className="evidence-list">
+					{page.items.map((record) => (
+						<button
+							type="button"
+							className={`evidence-card ${active?.id === record.id ? "selected" : ""}`}
+							key={record.id}
+							onClick={() => setActiveId(record.id)}
+						>
+							<span className="evidence-card-head">
+								<span className="ev-platform">
+									<IconWorldSearch size={12} /> 联网搜索
+								</span>
+								<span className="ev-meta">{shortDate(record.created_at)}</span>
+							</span>
+							<strong>{record.query}</strong>
+							<span className={`ev-result ${record.status === "complete" ? "ok" : "fail"}`}>
+								{record.status === "complete"
+									? `${webSearchStatusLabels[record.status]} · ${record.sources.length} 个来源`
+									: `${webSearchStatusLabels[record.status] ?? record.status}${record.failure_message ? ` · ${record.failure_message}` : ""}`}
+							</span>
+						</button>
+					))}
+					{focusId ? (
+						<Button variant="link" size="small" onClick={onClearFocus}>
+							显示全部记录
+						</Button>
+					) : (
+						<Pagination {...page} onPage={(next) => void page.reload(next)} onPageSize={page.setPageSize} />
+					)}
+				</div>
+				<div className="evidence-detail-pane">
+					{active ? (
+						<WebSearchDetail record={active} />
+					) : (
+						<Empty compact title="选择一条记录" detail="左侧点击任意联网搜索查看归纳文本与来源。" />
+					)}
+				</div>
+			</div>
+		</>
+	);
+}
+
+function WebSearchDetail({ record }: { record: WebSearchRecord }) {
+	const panels: EvidencePanel[] = [];
+	if (record.answer_text)
+		panels.push({
+			key: "answer",
+			label: `归纳文本（${record.answer_text.length} 字）`,
+			children: (
+				<div className="ed-answer-scroll">
+					<FormattedAnswer value={record.answer_text} />
+				</div>
+			),
+		});
+	if (record.sources.length || record.search_queries.length)
+		panels.push({
+			key: "sources",
+			label: `来源与检索拆解（来源 ${record.sources.length} 条）`,
+			children: (
+				<>
+					{record.sources.length > 0 && (
+						<div className="sources">
+							<b>来源网址</b>
+							{record.sources.map((source, index) => (
+								<a href={source.url} target="_blank" rel="noreferrer" key={source.url}>
+									{index + 1}. {source.title ?? source.url}
+								</a>
+							))}
+						</div>
+					)}
+					{record.search_queries.length > 0 && (
+						<div className="query-fanout">
+							<b>实际检索词</b>
+							<div>
+								{record.search_queries.map((query) => (
+									<span key={query}>{query}</span>
+								))}
+							</div>
+						</div>
+					)}
+				</>
+			),
+		});
+	return (
+		<article className="evidence-detail">
+			<div className="ed-head">
+				<div className="ed-head-text">
+					<span className="ev-platform">联网搜索 · HRouter</span>
+					<strong>{record.query}</strong>
+					<span className="ed-time">
+						搜索于 {date(record.created_at)} · {record.model}
+						{record.latency_ms ? ` · ${(record.latency_ms / 1000).toFixed(1)} 秒` : ""}
+					</span>
+				</div>
+				<div className="ed-ids">
+					<Tag className="ev-status-tag">{webSearchStatusLabels[record.status] ?? record.status}</Tag>
+					<IdChip value={record.id} label="证据" />
+					{record.session_id && <IdChip value={record.session_id} label="会话" />}
+					{record.agent_run_id && <IdChip value={record.agent_run_id} label="草稿" />}
+				</div>
+			</div>
+			{panels.length ? (
+				<Collapse className="ed-collapse" defaultActiveKey={["answer", "sources"]} items={panels} />
+			) : (
+				<Notice type="error" message={record.failure_message ?? "本次联网搜索没有可展示的结果"} />
+			)}
+			<div className="ed-foot">
+				<span className="ed-status">
+					结论：
+					{record.status === "complete"
+						? "搜索已触发并返回归纳文本，可被草稿引用"
+						: `${webSearchStatusLabels[record.status] ?? record.status}，不可被草稿引用`}
+				</span>
+				<span className="ed-tags">
+					{record.failure_message ? record.failure_message : `实际检索 ${record.search_queries.length} 次`}
+				</span>
+			</div>
+		</article>
 	);
 }
 

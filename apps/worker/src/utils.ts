@@ -19,7 +19,8 @@ export function sha256(value: string | Buffer): string {
 
 /** 与 JSON.stringify 一样忽略 undefined，保证冻结配置在写库前后哈希一致。 */
 export function stableJson(value: unknown): string {
-	if (Array.isArray(value)) return `[${value.map((item) => (item === undefined ? "null" : stableJson(item))).join(",")}]`;
+	if (Array.isArray(value))
+		return `[${value.map((item) => (item === undefined ? "null" : stableJson(item))).join(",")}]`;
 	if (value && typeof value === "object") {
 		return `{${Object.entries(value as Record<string, unknown>)
 			.filter(([, item]) => item !== undefined)
@@ -34,6 +35,16 @@ export function normalizeDomain(urlOrDomain: string): string {
 	const raw = urlOrDomain.trim();
 	const hostname = raw.includes("://") ? new URL(raw).hostname : raw.split("/")[0];
 	return hostname.toLowerCase().replace(/^www\./, "");
+}
+
+/** 用户或模型给出的域名可能是垃圾值：无法解析或不像域名（含中文等国际化域名）时返回 null，由调用方决定报错还是丢弃。 */
+export function tryNormalizeDomain(urlOrDomain: string): string | null {
+	try {
+		const domain = normalizeDomain(urlOrDomain);
+		return /^[\p{L}\p{N}-]+(\.[\p{L}\p{N}-]+)+$/u.test(domain) ? domain : null;
+	} catch {
+		return null;
+	}
 }
 
 export function parseJsonColumn<T>(value: T | string): T {

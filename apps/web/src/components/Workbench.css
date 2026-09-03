@@ -508,3 +508,22 @@
 		max-width: 90%;
 	}
 }
+
+/* 候选问题确认卡比普通气泡宽，表格才能一行放下问题、意图、主题、角色 */
+.wb-bubble.wb-bubble-wide {
+	max-width: 100%;
+}
+
+/* 模型联网提示：与设置项同一行，用柔和红字提示失败，不铺红底 */
+.wb-model-hint {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	font-size: 12px;
+	color: var(--danger-strong);
+}
+
+.wb-model-hint .ant-btn {
+	padding-inline: 4px;
+	font-size: 12px;
+}

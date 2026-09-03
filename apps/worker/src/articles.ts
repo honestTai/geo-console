@@ -57,12 +57,13 @@ export async function generateArticlesForBatch(
 			)
 		).rows.map((row) => row.recommendation_index),
 	);
+	// 只看绑定当前已批准叙述的在途 run：叙述重生成后，旧叙述的 run 不能再挡住同序号的新文章。
 	const pending = new Set(
 		(
 			await database.query<{ target_ref: unknown }>(
 				`SELECT target_ref FROM agent_runs WHERE purpose='optimization_article' AND batch_id=$1
-				 AND status IN ('queued','running','awaiting_approval')`,
-				[batchId],
+				 AND status IN ('queued','running','awaiting_approval') AND target_ref->>'narrativeRunId'=$2`,
+				[batchId, approved.narrativeRunId],
 			)
 		).rows.map((row) => {
 			const target = parseJsonColumn<{ recommendationIndex?: number }>(

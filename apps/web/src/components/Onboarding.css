@@ -1,0 +1,22 @@
+/* 客户建档：竞品联网核实标签与知识库同步选项 */
+.verify-tag.ant-tag {
+	margin: 0;
+	background: var(--surface-2);
+	border-color: transparent;
+	color: var(--ink-3);
+	white-space: nowrap;
+}
+
+.verify-tag.ok.ant-tag {
+	color: var(--ink-2);
+}
+
+.verify-tag.pending.ant-tag {
+	font-style: italic;
+}
+
+.onboarding-sync {
+	margin-top: var(--space-2);
+	font-size: 13px;
+	color: var(--ink-2);
+}

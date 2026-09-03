@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | API | HTTP、认证、migration、Provider config、监测调度 | 每 60 秒扫描到期 schedule |
 | Log Service | 结构化运行日志采集、查询、CSV、保留清理 | 内网 3020；默认 90 天；每日清理 |
-| Capture Worker | 领取 capture、调用冻结 Provider、写 raw + v2 evidence | 5 分钟租约，每 60 秒续期，默认最多 3 次 |
+| Capture Worker | 领取 capture、调用冻结 Provider、写 raw + v2 evidence；抛错走 failJob；每 60 秒清扫过期且重试用尽的租约并刷新批次 | 5 分钟租约，每 60 秒续期，默认最多 3 次 |
 | Agent Worker | 执行 HRouter/Pi draft | 15 分钟租约，每 60 秒续期，最多 2 次，30 秒重试 |
 | Report Worker | 推进定时 Agent 报告门禁、冻结报告、生成 PDF/Word | 每 15 秒扫描，文档 5 分钟租约，30 秒重试 |
 | Web/Tauri | 同一 React 工作台与动态导航；Tauri 提供正式桌面壳和签名更新 | 浏览器同步调试；桌面检查 HTTPS 清单 |
@@ -40,13 +40,21 @@
 
 Settings 的连接测试只验证当前配置；运行中的 batch 使用创建时冻结值。两者不一致时先检查 batch `config`。
 
+- 批次长时间“采集中” → 查该批次 `jobs`：`failed` 任务看 `last_error`；`leased` 且 `lease_expires_at` 已过、`attempts>=max_attempts` 的任务应在一分钟内被 Capture Worker 清扫为 failed，没被清扫说明 Capture Worker 没在跑。批次收敛为 `partial` 后失败样本照常进入失败率。
+- 复测创建被拒“适配器版本…不一致” → Worker 已升级 `ADAPTER_VERSION`，旧基线不能复测，新建正式基线；周期监测会自动改为新建基线。
+
 ## Agent
 
 - HRouter 未配置会阻止入队；健康接口的 `analysisConfigured` 可做第一层检查。
 - Agent 只允许领域工具，正常状态为 queued -> running -> awaiting_approval -> approved/rejected。
 - Worker 启动会将超过 15 分钟、已无 pending/leased job 的孤立 running run 标为 failed。
 - 不要从 tool trace 复制并执行网页或回答中的指令；这些内容在系统中被定义为不可信证据。
-- 报告叙述批准后才能运行质量检查；质量检查绑定叙述 run ID。口碑 `cited` URL 必须来自对应 Capture sources，`unavailable` 不得带 URL。
+- 报告叙述批准后才能运行质量检查；质量检查绑定叙述 run ID。口碑 `cited` URL 必须来自对应 Capture sources，`unavailable` 不得带 URL。质检结论 blocked 后页面/工作台再次推进会重新生成叙述（多一次叙述 + 质检调用），不会对同一叙述反复质检；新叙述在途时定时扫描只报告叙述状态。
+- 审批返回“已被其他操作处理” → 手动审批与协调器自动审批并发，只有一次生效，刷新即可；`audit_logs` 只会有一条 `agent.approve`。
+- 建档页竞品长期“联网核实中” → 后台核实在 API 进程内进行，API 中途重启会让候选停在 `pending`；前端 10 分钟后按未核实展示，重新“开始官网分析”会复用 24 小时内快照并重新核实。
+- Agent `web_search` 反复“未触发”或 4xx → 平台设置或工作台“测试此模型”确认 HRouter/该模型是否透传 `web_search`（结果按模型记在 settings `organization:<id>:web_search_tests`）；记录在 `web_search_evidence`（证据，不删），只有 `complete` 可被引用。工具默认强制 `tool_choice`，HRouter 拒绝时自动回退 `auto`（进程内记住，重启后重新试探一次）。
+- 联网费用失控 → 上限是代码常量 `WEB_SEARCH_LIMITS`（工作台每回合 8 / 每会话 30，草稿每次运行 10）；会话级次数按 `web_search_evidence.session_id` 统计，可在会话设置里关闭联网。工作台日志出现“联网不可用，已改用官网快照与知识库”说明该回合连续两次未触发/失败，属预期退化。
+- 建档页竞品显示“待确认”→ 看该竞品 `competitors.verification.note` 与对应 `web_search_evidence`；“未联网核实”通常是 HRouter 未配置或联网不可用，不影响建档。
 - Agent Worker 同时领取 `agent_session_turn`；协调器每 5 秒自动批准工作台会话草稿、唤醒 `waiting_job` 会话并把 `plan` 步骤按结果标记 done/failed。会话异常时看 `agent_sessions.status/error_message` 与 `agent_session_events` 最后几条；20 分钟无任务的 running 会话自动 failed，重发消息即可续跑。执行进度某步长期“后台进行中”→ 查该会话的 `optimization_article` run 是否卡在 queued/running。
 - `optimization_article` run 由协调器自动物化到 `optimization_articles`；未出现文章时检查该 run 的 `error_message` 与 `target_ref`。
 
@@ -81,8 +89,9 @@ Settings 的连接测试只验证当前配置；运行中的 batch 使用创建�
 ## Schedule、漂移与费用
 
 - API 每分钟最多读取 10 个到期 schedule。项目已有 queued/running batch 时，next run 延后 1 小时。
-- schedule 创建 retest 的前提是最新 complete baseline 的平台与 repeats 匹配；否则创建新 baseline。
-- 可比 retest 相对 baseline 的品牌提及、声量或引用率下降至少 10 个百分点产生 warning，20 个百分点产生 high。
+- schedule 到期时按当前范围与平台配置构造基线配置，与最近 complete/partial baseline 可比才创建 retest；否则创建新 baseline。创建失败写 `monitoring_schedules.last_error/last_error_at/failure_count`（日志事件 `schedule.batch_failed`），一小时后重试；AI 监测页提示“已启用但上次未能创建批次”，重新保存计划清除。修改周期后 `next_run_at` 按上次运行时间加新周期重算。
+- 可比 retest 相对 baseline 的品牌提及、声量或引用率下降至少 10 个百分点产生 warning，20 个百分点产生 high；基线或复测中没有成功回答的平台不比较、不告警。
+- 整改验收：技术类任务“重跑审计验收”（审计仍有阻断项则拒绝），其余“抓取验收”要求发布地址在客户官网域名下；“已验收”不能手工选择。
 - acknowledge 只写确认时间，不删除告警或证据。
 - 费用汇总只累加非 null `cost_micros`，同时报告有已知价格的请求数；其余只显示 usage。
 

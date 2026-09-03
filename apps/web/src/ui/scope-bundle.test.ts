@@ -19,17 +19,19 @@ describe("监测范围导入导出包", () => {
 		],
 	};
 
-	it("导出只保留业务字段，导入后能原样恢复", () => {
+	it("导出只保留业务字段与知识库引用，导入后能原样恢复", () => {
 		const bundle = buildScopeBundle(project, scope, "2026-09-03T00:00:00.000Z");
 		expect(bundle.kind).toBe(SCOPE_BUNDLE_KIND);
 		expect(JSON.stringify(bundle)).not.toContain("competitor-1");
-		expect(JSON.stringify(bundle)).not.toContain("library-1");
+		expect(JSON.stringify(bundle)).not.toContain("prompt-1");
+		expect(bundle.prompts[0].libraryQuestionId).toBe("library-1");
 		const restored = parseScopeBundle(JSON.parse(JSON.stringify(bundle)));
 		expect(restored).toEqual({
 			aliases: ["诚泰科技", "诚泰"],
 			competitors: [{ name: "云脉智搜", domain: "yunmai-ai.example.com", aliases: ["云脉"] }],
 			prompts: [
 				{
+					library_question_id: "library-1",
 					question: "成都有哪些靠谱的 GEO 服务商？",
 					intent: "供应商推荐",
 					topic: "服务商选择",
@@ -44,13 +46,23 @@ describe("监测范围导入导出包", () => {
 		const restored = parseScopeBundle({
 			kind: SCOPE_BUNDLE_KIND,
 			aliases: ["  客户 ", "", 3],
-			competitors: [{ name: " 竞品 ", domain: "" }, { name: "有效竞品", domain: "rival.cn", aliases: "不是数组" }],
+			competitors: [
+				{ name: " 竞品 ", domain: "" },
+				{ name: "有效竞品", domain: "rival.cn", aliases: "不是数组" },
+			],
 			prompts: [{ question: "短" }, { question: "这个问题足够长了吗？", topic: "", persona: null }],
 		});
 		expect(restored.aliases).toEqual(["客户"]);
 		expect(restored.competitors).toEqual([{ name: "有效竞品", domain: "rival.cn", aliases: [] }]);
 		expect(restored.prompts).toEqual([
-			{ question: "这个问题足够长了吗？", intent: "购买决策", topic: null, persona: null, tags: [] },
+			{
+				library_question_id: null,
+				question: "这个问题足够长了吗？",
+				intent: "购买决策",
+				topic: null,
+				persona: null,
+				tags: [],
+			},
 		]);
 	});
 

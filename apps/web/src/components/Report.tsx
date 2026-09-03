@@ -54,6 +54,7 @@ import {
 	date,
 	downloadText,
 	Empty,
+	type EvidenceOpener,
 	EvidenceRef,
 	IdChip,
 	Notice,
@@ -535,7 +536,7 @@ function ShareLinkTable({
 }
 
 /** 原始证据索引：编号、平台、问题、采样与来源，全部可读，不出现 UUID。 */
-function EvidenceIndexTable({ entries, onOpen }: { entries: EvidenceIndexEntry[]; onOpen(captureId: string): void }) {
+function EvidenceIndexTable({ entries, onOpen }: { entries: EvidenceIndexEntry[]; onOpen: EvidenceOpener }) {
 	const [page, setPage] = useState(1);
 	const pageSize = 15;
 	const rows = entries.slice((page - 1) * pageSize, page * pageSize);
@@ -664,6 +665,7 @@ export function Report({ project }: { project: Project }) {
 	const agentRuns = agentRunsPage.items;
 	const [reportBusy, setReportBusy] = useState<string | null>(null);
 	const [workflowState, setWorkflowState] = useState<ReportWorkflowState | null>(null);
+	const [documentNotice, setDocumentNotice] = useState<string | null>(null);
 	const [shareUrl, setShareUrl] = useState<string | null>(null);
 	const [sharesPage, setSharesPage] = useState<Paginated<ReportShare>>({
 		items: [],
@@ -724,8 +726,10 @@ export function Report({ project }: { project: Project }) {
 	}, [workflowState, pendingDocumentSnapshot, loadSnapshots]);
 	useEffect(() => {
 		const latest = snapshots.find((item) => item.batch_id === selected);
-		if (workflowState === "documents_queued" && latest?.pdf_artifact_key && latest.word_artifact_key)
+		if (workflowState === "documents_queued" && latest?.pdf_artifact_key && latest.word_artifact_key) {
 			setWorkflowState("ready");
+			setDocumentNotice(null);
+		}
 	}, [workflowState, snapshots, selected]);
 	useEffect(() => {
 		setShareUrl(null);
@@ -741,6 +745,7 @@ export function Report({ project }: { project: Project }) {
 		let cancelled = false;
 		setWorkflowState(null);
 		setReportError(null);
+		setDocumentNotice(null);
 		setReportLoading(true);
 		api<ReportPayload>(`/api/batches/${selected}/report`)
 			.then((value) => {
@@ -782,11 +787,24 @@ export function Report({ project }: { project: Project }) {
 			run.draft?.verdict === "pass" &&
 			run.draft.reviewedNarrativeRunId === approvedNarrative?.id,
 	);
-	const openEvidence = (captureId: string) => navigation.openEvidence(captureId, selected);
+	// 绑定当前叙述的质检被批准但结论是 blocked：叙述本身有问题，下一步是重新生成叙述而不是再质检一次。
+	const qualityBlocked =
+		workflowState === "quality_blocked" ||
+		(!approvedQuality &&
+			agentRuns.some(
+				(run) =>
+					run.purpose === "quality_review" &&
+					run.status === "approved" &&
+					run.draft?.verdict === "blocked" &&
+					run.draft.reviewedNarrativeRunId === approvedNarrative?.id,
+			));
+	const openEvidence: EvidenceOpener = (id, kind) => navigation.openEvidence(id, selected, kind);
 	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Polling preserves each explicit server-side PDF terminal state for the user.
 	async function createDocuments() {
 		if (!latestSnapshot) return;
 		setReportBusy("pdf");
+		setReportError(null);
+		setDocumentNotice(null);
 		try {
 			let result = await post<{ status: "ready" | "queued"; artifactKey: string | null }>(
 				`/api/reports/${latestSnapshot.id}/pdf`,
@@ -802,9 +820,14 @@ export function Report({ project }: { project: Project }) {
 				if (status.status === "failed" || status.status === "missing") throw new Error(status.error ?? "PDF 生成失败");
 				result = { status: status.status === "ready" ? "ready" : "queued", artifactKey: status.artifactKey };
 			}
-			if (!result.artifactKey) throw new Error("Report Worker 尚未在 2 分钟内完成 PDF 与 Word");
+			if (result.status !== "ready") {
+				// 两分钟只是前台等待上限，任务仍在 Report Worker 排队/执行：交给快照轮询接手，不报成失败。
+				setWorkflowState("documents_queued");
+				setDocumentNotice("PDF 与 Word 仍在后台生成（Report Worker 排队或渲染中），完成后会自动出现在“版本与分享”里。");
+				return;
+			}
 			await loadSnapshots();
-			window.open(`/artifacts/${result.artifactKey}`, "_blank", "noopener,noreferrer");
+			if (result.artifactKey) window.open(`/artifacts/${result.artifactKey}`, "_blank", "noopener,noreferrer");
 		} catch (reason) {
 			setReportError(reason instanceof Error ? reason.message : "报告文档生成失败");
 		} finally {
@@ -854,8 +877,8 @@ export function Report({ project }: { project: Project }) {
 			? "HRouter Agent 处理中"
 			: reportReady
 				? "生成新报告版本"
-				: workflowState === "quality_blocked"
-					? "重试质量检查"
+				: qualityBlocked
+					? "质检未通过 · 重新生成叙述"
 					: approvedNarrative && !approvedQuality
 						? "继续质量检查"
 						: "生成并校验报告";
@@ -887,7 +910,10 @@ export function Report({ project }: { project: Project }) {
 	};
 	const workflowSteps = [
 		{ title: "报告叙述", status: hasActiveAgentRuns ? "process" : approvedNarrative ? "finish" : "wait" },
-		{ title: "质量检查", status: approvedQuality ? "finish" : approvedNarrative ? "process" : "wait" },
+		{
+			title: "质量检查",
+			status: approvedQuality ? "finish" : qualityBlocked ? "error" : approvedNarrative ? "process" : "wait",
+		},
 		{ title: "冻结版本", status: latestSnapshot ? "finish" : approvedQuality ? "process" : "wait" },
 		{ title: "PDF / Word", status: reportReady ? "finish" : latestSnapshot ? "process" : "wait" },
 	] as const;
@@ -1270,6 +1296,14 @@ export function Report({ project }: { project: Project }) {
 				<Steps size="small" items={[...workflowSteps]} />
 			</div>
 			{reportError && <Alert type="error" showIcon title={reportError} />}
+			{documentNotice && <Alert type="info" showIcon title={documentNotice} />}
+			{qualityBlocked && !hasActiveAgentRuns && (
+				<Alert
+					type="warning"
+					showIcon
+					title="质量检查未通过：点击“重新生成叙述”会生成新的报告叙述并重新质检；已通过的旧版本不受影响。"
+				/>
+			)}
 			{!report && !reportError ? (
 				<div className="center report-loading-placeholder">
 					<IconLoader2 className="spin" />

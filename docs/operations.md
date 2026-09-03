@@ -37,27 +37,33 @@ Log Service 仅绑定本机 `127.0.0.1:3020` 或 Compose 内网 `log-service:302
 
 ## 采集队列
 
-Capture 任务状态为 `pending -> leased -> complete`。进程退出后租约过期即可被其他 Worker 领取。供应商的鉴权、限流、超时、模型下线和协议变化会写入不可变 `QueryCapture`；不得补数或改写为成功。
+Capture 任务状态为 `pending -> leased -> complete`，执行抛错时为 `pending`（30 秒后重试）或 `failed`（用尽 3 次），`last_error` 记录原因。进程退出后租约过期即可被其他 Worker 领取；租约过期且重试已用尽的任务由 Capture Worker 每分钟清扫为 `failed` 并刷新批次，所以批次不会永久停在“采集中”。供应商的鉴权、限流、超时、模型下线和协议变化会写入不可变 `QueryCapture`；不得补数或改写为成功。
 
-排查部分批次时记录批次 ID、配置哈希、计划/有效/失败样本和按平台失败码。先修复 Key、配额、网络或适配器，再创建新基线或严格复测。不要手工把未完成租约改成 `complete`。
+排查部分批次时记录批次 ID、配置哈希、计划/有效/失败样本、按平台失败码以及 `failed` 任务的 `last_error`。先修复 Key、配额、网络或适配器，再创建新基线或严格复测。不要手工把未完成租约改成 `complete`。批次长时间“采集中”而 `jobs` 里没有 pending/leased 任务时，检查 Capture Worker 是否在运行（清扫也由它执行）。
+
+周期监测到期创建批次失败时，`monitoring_schedules.last_error/last_error_at/failure_count` 记录原因与连续次数，运行日志事件 `schedule.batch_failed`，一小时后自动重试；AI 监测页在“周期监测”里提示，修正后重新保存计划即清除。常见原因：范围没有已批准问题、平台被停用、旧基线适配器版本过期（此时自动改为新建基线）。修改周期后下一次运行时间按上次运行时间加新周期重算，已到期则立即可运行。
 
 ## Report Worker
 
-PDF/Word 请求创建 `report_document` 数据库任务；旧 `report_pdf` 任务仍可兼容领取。页面显示排队超过两分钟时检查 Report Worker、Chromium、中文字体、对象存储写权限和任务 `last_error`。报告 payload 已冻结，不需要重建快照；修复环境后让任务按租约重试。PDF 和 Word 必须都存在才显示 ready。
+PDF/Word 请求创建 `report_document` 数据库任务；旧 `report_pdf` 任务仍可兼容领取。页面前台最多等两分钟，之后提示“仍在后台生成”并继续轮询快照，不会把仍在跑的任务报成失败；真正失败以任务 `status='failed'` 与 `last_error` 为准。排队超过两分钟时检查 Report Worker、Chromium、中文字体、对象存储写权限和任务 `last_error`。报告 payload 已冻结，不需要重建快照；修复环境后让任务按租约重试。PDF 和 Word 必须都存在才显示 ready。
 
-Report Worker 每 15 秒检查一次定时监测最近完成的批次。手工和定时链路都使用同一个幂等工作流：创建叙述，等待人工批准；自动排队绑定的质量检查，再等待人工批准；通过后自动冻结并创建 PDF/Word。失败或拒绝后从当前阶段重试，不重复冻结同一叙述版本。
+Report Worker 每 15 秒检查一次定时监测最近完成的批次。手工和定时链路都使用同一个幂等工作流：创建叙述，等待人工批准；自动排队绑定的质量检查，再等待人工批准；通过后自动冻结并创建 PDF/Word。失败或拒绝后从当前阶段重试，不重复冻结同一叙述版本。质量检查结论为 blocked 时，页面按钮变为“重新生成叙述”（工作台 `advance_report` 同理）：再次推进会排队新的叙述而不是再质检一次；新叙述在途期间定时扫描只报告叙述状态，不会用旧叙述冻结。
 
 ## Agent Worker
 
-Agent 请求只创建 `agent_draft` 数据库任务并立即返回。Agent Worker 按租约执行，页面轮询展示排队、工具步骤、结构校验重试、Token、失败原因与待审批草稿。单次失败会在 30 秒后重试一次；不要手工把未完成任务改成成功。
+Agent 请求只创建 `agent_draft` 数据库任务并立即返回。Agent Worker 按租约执行，页面轮询展示排队、工具步骤、结构校验重试、Token、失败原因与待审批草稿。单次失败会在 30 秒后重试一次；不要手工把未完成任务改成成功。审批带状态守卫：同一草稿被手动和协调器同时批准时只有一次生效，另一次返回“已被其他操作处理”，属正常并发，不是故障。
 
 报告口碑来源校验失败时先对照 Capture `sources` 和 `source_visibility`。不得把任意网页 URL 写进口碑信号；平台未开放来源时保留 `unavailable`。质量检查引用过期的叙述 run 时应重新排队检查，不能手工改 run ID。
 
+Agent 的 `web_search` 工具依赖 HRouter 透传 OpenAI `web_search`。工作台里“联网搜索”步骤反复报“未触发”或 HTTP 4xx 时，先到平台设置点“测试联网搜索”或在工作台模型旁点“测试此模型”（`POST /api/settings/hrouter/test-web-search`，可带 `model`，不落证据，结果按模型记住并在工作台选模型时提示）；未触发通常是 HRouter 或所选模型不支持该工具，换模型或联系 HRouter，不要改代码伪造结果。工具默认强制调用（`tool_choice:{type:"web_search"}`），HRouter 拒绝时自动回退 `auto`。每次搜索（含失败）都落在 `web_search_evidence`，是证据，不作为日常修复的删除对象，证据中心“联网搜索”分区可查；只有 `status='complete'` 的记录可被草稿引用。
+
+联网搜索有硬上限：工作台每回合 8 次、每会话 30 次，`prompt_research` 草稿每次运行 10 次，超出直接拒绝；同一回合连续两次“未触发/失败”后 Agent 会收到“联网不可用”并改用官网快照与知识库出题（工作台日志会显示）。费用敏感的会话可在会话设置里关闭“联网搜索”。建档分析在请求返回后于 API 进程后台为每个竞品候选做一次联网核实并回写 `competitors.verification`（期间为 `pending`，建档页显示“联网核实中”并轮询），未通过的候选标为“待确认”，联网不可用时标“未联网核实”。API 在核实中途重启会让候选停留在 `pending`，前端 10 分钟后按“未核实”展示；重新点“开始官网分析”会复用 24 小时内的快照并重新核实。
+
 ## AI 工作台
 
-会话状态：`idle`（等待指令）、`running`（Agent 回合执行中）、`waiting_user`（等待成员回答问题或手动审批）、`waiting_job`（等待批次/Agent run/报告 PDF 完成）、`done`、`failed`。协调器由 Agent Worker 每 5 秒运行：自动批准工作台草稿并推进报告工作流，唤醒等待对象已完成的会话（入队 `agent_session_turn`），并把 `agent_sessions.plan` 中对应步骤按结果改为 `done/failed`；会话 `done` 后仍在后台生成的优化文章由协调器在全部 run 落地后收尾。会话卡在 `waiting_job` 时先看等待对象本身（批次是否完成、Agent run 是否终态、报告是否有 `pdf_artifact_key`）；卡在 `running` 超过 20 分钟且无 pending/leased 回合任务会被自动标为 failed，成员重新发送消息即可续跑（transcript 保留）。工作台“执行进度”里某步长期显示“后台进行中”，对应看该会话 `optimization_article` run 是否卡在 `queued/running`。不要手工修改 `transcript` 或 `plan`；终止会话只改状态，不会取消已排队的批次。
+会话状态：`idle`（等待指令）、`running`（Agent 回合执行中）、`waiting_user`（等待成员回答问题、在候选问题表格里确认，或手动审批）、`waiting_job`（等待批次/Agent run/报告 PDF 完成）、`done`、`failed`。候选问题确认由服务端直接写入监测范围（`agent_session_events` 里是 `proposal` → `step(scope)` + `user_answer(applied=true)`），成员确认失败时错误直接返回给页面，会话仍停在 `waiting_user`，可重新确认。协调器由 Agent Worker 每 5 秒运行：自动批准工作台草稿并推进报告工作流，唤醒等待对象已完成的会话（入队 `agent_session_turn`），并把 `agent_sessions.plan` 中对应步骤按结果改为 `done/failed`；会话 `done` 后仍在后台生成的优化文章由协调器在全部 run 落地后收尾。会话卡在 `waiting_job` 时先看等待对象本身（批次是否完成、Agent run 是否终态、报告是否有 `pdf_artifact_key`）；卡在 `running` 超过 20 分钟且无 pending/leased 回合任务会被自动标为 failed，成员重新发送消息即可续跑（transcript 保留）。工作台“执行进度”里某步长期显示“后台进行中”，对应看该会话 `optimization_article` run 是否卡在 `queued/running`。不要手工修改 `transcript` 或 `plan`；终止会话只改状态，不会取消已排队的批次。
 
-优化文章 run（`purpose='optimization_article'`）到 `awaiting_approval` 后由协调器自动物化到 `optimization_articles`，失败会写 `error_message`；重新生成会覆盖同一建议的文章并递增 `version`。
+优化文章 run（`purpose='optimization_article'`）到 `awaiting_approval` 后由协调器自动物化到 `optimization_articles`，失败会写 `error_message`；重新生成会覆盖同一建议的文章并递增 `version`。“生成文章”只把绑定当前已批准叙述的在途 run 视为重复；叙述重生成后旧叙述的 run 不会挡住新文章。
 
 ## 多租户与权限
 
@@ -77,7 +83,9 @@ Provider/HRouter 凭据继续按机构隔离；环境变量 Key 只对默认机�
 
 ## 漂移与费用
 
-复测相对正式基线下降至少 10 个百分点时生成漂移告警，20 个百分点为高等级。确认告警不会删除证据。费用只有供应商明确返回时才汇总金额；否则展示请求和 Token，并标注费用未知。
+复测相对正式基线下降至少 10 个百分点时生成漂移告警，20 个百分点为高等级；基线或复测中没有成功回答的平台（鉴权失败、限流）不参与比较，不会因“0%”产生假告警——这类平台看批次失败码而不是告警。确认告警不会删除证据。费用只有供应商明确返回时才汇总金额；否则展示请求和 Token，并标注费用未知。
+
+整改任务验收：技术类任务（诊断类别含“技术”或验收标准要求重跑官网审计）点“重跑审计验收”，审计仍有阻断项则拒绝；其余任务填写发布地址后“抓取验收”，地址必须在客户官网域名（含子域名）下，第三方页面直接拒绝。“已验收”不能在状态下拉里手工选择。
 
 ## 备份恢复
 

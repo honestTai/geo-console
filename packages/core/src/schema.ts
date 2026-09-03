@@ -99,6 +99,17 @@ export const promptLibraryQuestions = pgTable(
 	],
 );
 
+/**
+ * 建档分析后对竞品候选的联网核实结论；`confirmed` 之外都在建档页标为“待确认”。
+ * `pending` 表示核实在建档请求返回后仍在后台进行，前端据此轮询项目。
+ */
+export type CompetitorVerification = {
+	status: "pending" | "confirmed" | "domain_mismatch" | "industry_mismatch" | "unverified";
+	note: string | null;
+	evidenceId: string | null;
+	checkedAt: string;
+};
+
 export const competitors = pgTable(
 	"competitors",
 	{
@@ -110,6 +121,7 @@ export const competitors = pgTable(
 		domain: text("domain").notNull(),
 		aliases: jsonb("aliases").$type<string[]>().notNull().default([]),
 		approved: boolean("approved").notNull().default(false),
+		verification: jsonb("verification").$type<CompetitorVerification | null>(),
 		archivedAt: timestamp("archived_at", { withTimezone: true }),
 		createdAt,
 	},
@@ -321,8 +333,47 @@ export type AgentSessionTurnPayload = {
 
 export type AgentSessionStatus = "idle" | "running" | "waiting_user" | "waiting_job" | "done" | "failed";
 
+/** 工作台 `propose_questions` 交给成员确认的候选问题；成员可改字、删行、加行后再确认。 */
+export type ScopeProposalQuestion = {
+	key: string;
+	id: string | null;
+	libraryQuestionId: string | null;
+	question: string;
+	intent: string;
+	topic: string | null;
+	persona: string | null;
+	tags: string[];
+	source: "existing" | "pending" | "library" | "research";
+	evidenceIds: string[];
+	selected: boolean;
+};
+
+export type ScopeProposalCompetitor = {
+	key: string;
+	id: string | null;
+	name: string;
+	domain: string;
+	aliases: string[];
+	selected: boolean;
+};
+
+export type ScopeProposal = {
+	intro: string;
+	questions: ScopeProposalQuestion[];
+	competitors: ScopeProposalCompetitor[];
+	industry: string | null;
+};
+
 export type AgentSessionWaiting =
-	| { kind: "user"; question: string; options: string[]; multiple: boolean; toolCallId: string }
+	| {
+			kind: "user";
+			question: string;
+			options: string[];
+			multiple: boolean;
+			toolCallId: string;
+			/** 存在时表示等待成员确认候选问题表格，而不是普通问答；确认后由服务端直接写入监测范围。 */
+			proposal?: ScopeProposal;
+	  }
 	| { kind: "batch"; id: string; label: string; toolCallId: string; stepKey?: string }
 	| { kind: "agent_run"; id: string; label: string; toolCallId: string; stepKey?: string }
 	| { kind: "report"; id: string; label: string; toolCallId: string; stepKey?: string };
@@ -453,6 +504,8 @@ export const remediationTasks = pgTable(
 		draftContent: text("draft_content"),
 		publishedUrl: text("published_url"),
 		verifiedSnapshotId: text("verified_snapshot_id").references(() => websiteSnapshots.id),
+		/** 技术类任务以重跑官网审计验收，记录通过时的审计 ID。 */
+		verifiedAuditId: text("verified_audit_id").references(() => websiteAudits.id),
 		completedAt: timestamp("completed_at", { withTimezone: true }),
 		createdAt,
 		updatedAt,
@@ -476,6 +529,10 @@ export const monitoringSchedules = pgTable(
 		nextRunAt: timestamp("next_run_at", { withTimezone: true }),
 		lastRunAt: timestamp("last_run_at", { withTimezone: true }),
 		lastBatchId: text("last_batch_id").references(() => experimentBatches.id, { onDelete: "set null" }),
+		/** 最近一次到期创建批次失败的原因；成功后清空。界面据此提示“已启用但未能运行”。 */
+		lastError: text("last_error"),
+		lastErrorAt: timestamp("last_error_at", { withTimezone: true }),
+		failureCount: integer("failure_count").notNull().default(0),
 		createdAt,
 		updatedAt,
 	},
@@ -830,6 +887,7 @@ export const agentSessions = pgTable(
 		autoApprove: boolean("auto_approve").notNull().default(true),
 		model: text("model"),
 		thinkingLevel: text("thinking_level").$type<AgentThinkingLevel>(),
+		webSearchEnabled: boolean("web_search_enabled").notNull().default(true),
 		transcript: jsonb("transcript").$type<unknown[]>().notNull().default([]),
 		plan: jsonb("plan").$type<AgentSessionPlanStep[]>().notNull().default([]),
 		waiting: jsonb("waiting").$type<AgentSessionWaiting | null>(),
@@ -860,6 +918,53 @@ export const agentSessionEvents = pgTable(
 		createdAt,
 	},
 	(table) => [uniqueIndex("agent_session_events_seq_unique").on(table.sessionId, table.seq)],
+);
+
+export type WebSearchStatus = "complete" | "search_not_triggered" | "no_answer" | "failed";
+export type WebSearchSource = { url: string; title: string | null };
+
+/** 平台设置“测试联网搜索”按模型记住的结果，保存在 settings `organization:<id>:web_search_tests`。 */
+export type WebSearchModelTest = {
+	status: "ok" | "failed";
+	searchStatus: WebSearchStatus;
+	toolChoice: "forced" | "auto";
+	message: string | null;
+	sourceCount: number;
+	latencyMs: number;
+	testedAt: string;
+};
+
+/** Agent `web_search` 工具的每次调用都是一条只追加的证据；草稿只能引用这里的 ID。 */
+export const webSearchEvidence = pgTable(
+	"web_search_evidence",
+	{
+		id: id("id"),
+		organizationId: text("organization_id")
+			.notNull()
+			.default("default")
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		sessionId: text("session_id").references(() => agentSessions.id, { onDelete: "set null" }),
+		agentRunId: text("agent_run_id").references(() => agentRuns.id, { onDelete: "set null" }),
+		backend: text("backend").notNull(),
+		model: text("model").notNull(),
+		query: text("query").notNull(),
+		status: text("status").$type<WebSearchStatus>().notNull(),
+		answerText: text("answer_text"),
+		sources: jsonb("sources").$type<WebSearchSource[]>().notNull().default([]),
+		searchQueries: jsonb("search_queries").$type<string[]>().notNull().default([]),
+		rawResponse: jsonb("raw_response").$type<unknown>(),
+		usage: jsonb("usage").$type<Record<string, number> | null>(),
+		latencyMs: integer("latency_ms"),
+		failureMessage: text("failure_message"),
+		createdAt,
+	},
+	(table) => [
+		index("web_search_evidence_project_idx").on(table.projectId, table.createdAt),
+		index("web_search_evidence_session_idx").on(table.sessionId),
+	],
 );
 
 export type OptimizationArticleStatus = "draft" | "reviewing" | "published";

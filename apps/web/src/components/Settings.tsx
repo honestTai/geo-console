@@ -11,8 +11,10 @@ import {
 	providerLogoPaths,
 	providerShortLabel,
 	thinkingLevelOptions,
+	type WebSearchTestStatus,
+	webSearchStatusLabels,
 } from "../types";
-import { SectionTitle } from "../ui/primitives";
+import { SectionTitle, shortDate } from "../ui/primitives";
 import { downloadJson, TransferButtons, transferFileName } from "../ui/transfer";
 import { Page } from "./Page";
 import "./Settings.css";
@@ -48,7 +50,9 @@ function useProviderModels(provider: ProviderSetting, currentModel: string) {
 	const models = modelList?.models ?? [];
 	const modelOptions = [
 		...models.map((id) => ({ value: id, label: id })),
-		...(currentModel && !models.includes(currentModel) ? [{ value: currentModel, label: `${currentModel}（当前值）` }] : []),
+		...(currentModel && !models.includes(currentModel)
+			? [{ value: currentModel, label: `${currentModel}（当前值）` }]
+			: []),
 	];
 	const modelHelp = modelsLoading
 		? "正在从平台读取模型列表…"
@@ -61,7 +65,9 @@ function useProviderModels(provider: ProviderSetting, currentModel: string) {
 function providerTestStatus(provider: ProviderSetting): string {
 	const label =
 		provider.lastTestStatus === "ok" ? "连接正常" : provider.lastTestStatus === "failed" ? "连接失败" : "未测试";
-	return provider.lastTestMessage && provider.lastTestMessage !== label ? `${label} · ${provider.lastTestMessage}` : label;
+	return provider.lastTestMessage && provider.lastTestMessage !== label
+		? `${label} · ${provider.lastTestMessage}`
+		: label;
 }
 
 function ProviderContract({ provider }: { provider: ProviderSetting }) {
@@ -243,7 +249,15 @@ export function Settings() {
 	const [analysisKey, setAnalysisKey] = useState("");
 	const [models, setModels] = useState<HRouterModel[]>([]);
 	const [modelsError, setModelsError] = useState<string | null>(null);
+	const [webSearchTests, setWebSearchTests] = useState<WebSearchTestStatus | null>(null);
 	const [busy, setBusy] = useState<string | null>(null);
+	const loadWebSearchTests = useCallback(async () => {
+		try {
+			setWebSearchTests(await api<WebSearchTestStatus>("/api/settings/hrouter/web-search-status"));
+		} catch {
+			setWebSearchTests(null);
+		}
+	}, []);
 	const loadModels = useCallback(async () => {
 		setBusy("hrouter-models");
 		try {
@@ -284,10 +298,10 @@ export function Settings() {
 	useEffect(() => {
 		void load()
 			.then((configured) => {
-				if (configured) return loadModels();
+				if (configured) return Promise.all([loadModels(), loadWebSearchTests()]).then(() => undefined);
 			})
 			.catch((reason) => message.error(reason instanceof Error ? reason.message : "设置加载失败"));
-	}, [load, loadModels, message]);
+	}, [load, loadModels, loadWebSearchTests, message]);
 	async function action(name: string, run: () => Promise<unknown>, successText = "操作成功") {
 		setBusy(name);
 		try {
@@ -465,7 +479,48 @@ export function Settings() {
 					>
 						测试连接
 					</Button>
+					<Button
+						permission="settings.manage"
+						variant="secondary"
+						busy={busy === "hrouter-web-search"}
+						disabled={!analysis.configured || !analysis.model}
+						onClick={() =>
+							action(
+								"hrouter-web-search",
+								async () => {
+									const result = await post<{
+										searchTriggered: boolean;
+										model: string;
+										toolChoice: "forced" | "auto";
+										message: string | null;
+									}>("/api/settings/hrouter/test-web-search", { model: analysis.model || null });
+									await loadWebSearchTests();
+									if (!result.searchTriggered)
+										throw new Error(
+											`${result.model}：${result.message ?? "HRouter 没有触发联网搜索"}。该模型的 Agent 将无法联网出题`,
+										);
+								},
+								`${analysis.model} 联网搜索可用，Agent 可以联网研究问题`,
+							)
+						}
+					>
+						测试联网搜索
+					</Button>
 				</div>
+				{webSearchTests && Object.keys(webSearchTests.tests).length > 0 && (
+					<p className="hrouter-web-search-tests">
+						联网搜索测试记录（按模型记住，工作台选模型时据此提示）：
+						{Object.entries(webSearchTests.tests).map(([model, test]) => (
+							<span key={model} className={test.status === "ok" ? "ok" : "failed"}>
+								{model} ·{" "}
+								{test.status === "ok"
+									? "可用"
+									: `失败（${webSearchStatusLabels[test.searchStatus] ?? test.searchStatus}）`}
+								{test.status === "ok" && test.toolChoice === "auto" ? " · 未强制调用" : ""} · {shortDate(test.testedAt)}
+							</span>
+						))}
+					</p>
+				)}
 			</Form>
 			<SectionTitle
 				title="联网监测平台"

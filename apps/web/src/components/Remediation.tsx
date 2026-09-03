@@ -1,14 +1,22 @@
 import { IconCheck, IconFileText, IconPlus, IconTrash } from "@tabler/icons-react";
 import { Alert, Card, DatePicker, Input, Popconfirm, Select, Space, Tag } from "antd";
 import dayjs from "dayjs";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, useAgentRunPolling, usePermission } from "../access";
 import { api, patch, post } from "../api";
 import { useEvidenceIndex } from "../hooks/useEvidenceIndex";
 import { usePaginated } from "../hooks/usePagination";
-import { type AgentRun, DEFAULT_PAGE_SIZE, type Paginated, type Project, type Task, taskStatusLabels } from "../types";
+import {
+	type AgentRun,
+	batchKindLabel,
+	DEFAULT_PAGE_SIZE,
+	type Paginated,
+	type Project,
+	type Task,
+	taskStatusLabels,
+} from "../types";
 import { useWorkspaceNavigation } from "../ui/navigation";
-import { Empty, Pagination, SectionTitle } from "../ui/primitives";
+import { Empty, Pagination, SectionTitle, shortDate } from "../ui/primitives";
 import { AgentDraftCard } from "./AgentDraft";
 import { Page } from "./Page";
 import "./Remediation.css";
@@ -17,6 +25,13 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 	const [busy, setBusy] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const navigation = useWorkspaceNavigation();
+	// 规划草稿与建任务都要指向一个已完成的批次；默认最近完成的一条，成员可切换到已诊断的其他批次。
+	const finishedBatches = project.batches.filter((batch) => ["complete", "partial"].includes(batch.status));
+	const [selectedBatch, setSelectedBatch] = useState<string | null>(finishedBatches[0]?.id ?? null);
+	useEffect(() => {
+		if (!selectedBatch || !finishedBatches.some((batch) => batch.id === selectedBatch))
+			setSelectedBatch(finishedBatches[0]?.id ?? null);
+	}, [finishedBatches, selectedBatch]);
 	const agentRunsPage = usePaginated<AgentRun>(
 		(page, pageSize) => {
 			const params = new URLSearchParams({
@@ -31,14 +46,13 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 	const agentRuns = agentRunsPage.items;
 	const [taskPage, setTaskPage] = useState(1);
 	const visibleTasks = project.tasks.slice((taskPage - 1) * DEFAULT_PAGE_SIZE, taskPage * DEFAULT_PAGE_SIZE);
-	const latestBatch = project.batches[0]?.id;
 	useAgentRunPolling(agentRuns, agentRunsPage.reload);
 	const activeRuns = agentRuns.filter((run) =>
 		["queued", "running", "awaiting_approval", "failed"].includes(run.status),
 	);
-	// 草稿引用的证据按其批次翻译；待审批草稿通常都来自最近一个完成批次
-	const draftBatchId = activeRuns.find((run) => run.batch_id)?.batch_id ?? latestBatch ?? null;
-	const evidenceIndex = useEvidenceIndex(draftBatchId);
+	// 草稿引用的证据按其批次翻译；待审批草稿通常都来自当前选中的完成批次
+	const draftBatchId = activeRuns.find((run) => run.batch_id)?.batch_id ?? selectedBatch ?? null;
+	const evidenceIndex = useEvidenceIndex(draftBatchId, project.id);
 	async function call(id: string, action: () => Promise<unknown>) {
 		setBusy(id);
 		setError(null);
@@ -60,26 +74,38 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 			description="Agent 只出草稿，负责人核对后批准；发布后填写地址，系统重抓验收。"
 			extra={
 				<div className="actions">
+					<Select
+						aria-label="来源批次"
+						className="remediation-batch"
+						value={selectedBatch}
+						placeholder="没有已完成批次"
+						disabled={!finishedBatches.length}
+						onChange={setSelectedBatch}
+						options={finishedBatches.map((batch) => ({
+							value: batch.id,
+							label: `${batchKindLabel(batch.kind)} · ${shortDate(batch.created_at)}`,
+						}))}
+					/>
 					<Button
 						permission="agent.run"
 						variant="secondary"
-						disabled={!latestBatch}
+						disabled={!selectedBatch}
 						busy={busy === "agent-plan"}
 						onClick={() =>
-							latestBatch &&
-							call("agent-plan", () => post(`/api/batches/${latestBatch}/agent`, { purpose: "remediation" }))
+							selectedBatch &&
+							call("agent-plan", () => post(`/api/batches/${selectedBatch}/agent`, { purpose: "remediation" }))
 						}
 					>
 						HRouter Agent 规划草稿
 					</Button>
 					<Button
 						permission="remediation.manage"
-						disabled={!latestBatch}
+						disabled={!selectedBatch}
 						busy={busy === "create"}
 						icon={<IconPlus size={17} />}
 						onClick={() =>
-							latestBatch &&
-							call("create", () => post(`/api/projects/${project.id}/tasks/from-findings`, { batchId: latestBatch }))
+							selectedBatch &&
+							call("create", () => post(`/api/projects/${project.id}/tasks/from-findings`, { batchId: selectedBatch }))
 						}
 					>
 						从已批准诊断建任务
@@ -97,7 +123,7 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 								key={run.id}
 								run={run}
 								evidenceIndex={evidenceIndex}
-								onOpenEvidence={(captureId) => navigation.openEvidence(captureId, run.batch_id)}
+								onOpenEvidence={(id, kind) => navigation.openEvidence(id, run.batch_id, kind)}
 								tasks={project.tasks}
 								busy={busy === run.id}
 								onReject={() => call(run.id, () => post(`/api/agent-runs/${run.id}/reject`))}
@@ -135,7 +161,63 @@ export function taskPriorityMeta(priority: string): { className: string; label: 
 	return { className: "low", label: "常规" };
 }
 
-const STATUS_SELECT_OPTIONS = Object.entries(taskStatusLabels).map(([value, label]) => ({ value, label }));
+function TaskVerifiedTag({ task }: { task: Task }) {
+	const label = task.verified_audit_id ? "已审计验收" : task.verified_snapshot_id ? "已抓取验收" : null;
+	if (!label) return null;
+	return (
+		<Tag icon={<IconCheck size={12} />} className="task-verified">
+			{label}
+		</Tag>
+	);
+}
+
+/** 验收入口按服务端给出的方式展示：技术类任务重跑官网审计，其余发布后按官网域名抓取快照。 */
+function TaskVerifyButton({
+	task,
+	url,
+	busy,
+	act,
+}: {
+	task: Task;
+	url: string;
+	busy: boolean;
+	act(action: () => Promise<unknown>): void;
+}) {
+	if (task.verification_mode === "audit")
+		return (
+			<Button
+				permission="remediation.manage"
+				busy={busy}
+				title="技术类整改按验收标准重跑官网审计，无阻断项才算通过"
+				onClick={() => act(() => post(`/api/tasks/${task.id}/verify`))}
+			>
+				重跑审计验收
+			</Button>
+		);
+	return (
+		<Button
+			permission="remediation.manage"
+			disabled={!url}
+			busy={busy}
+			title="重新抓取发布页面形成快照；地址必须在客户官网域名下"
+			onClick={() =>
+				act(async () => {
+					await patch(`/api/tasks/${task.id}`, { publishedUrl: url, status: "published" });
+					await post(`/api/tasks/${task.id}/verify`);
+				})
+			}
+		>
+			抓取验收
+		</Button>
+	);
+}
+
+/** “已验收”只能由验收动作写入：下拉里保留它只是为了显示当前状态，不能手工选中。 */
+const STATUS_SELECT_OPTIONS = Object.entries(taskStatusLabels).map(([value, label]) => ({
+	value,
+	label,
+	disabled: value === "verified",
+}));
 
 export function TaskItem({
 	task,
@@ -152,6 +234,7 @@ export function TaskItem({
 	const [expanded, setExpanded] = useState(false);
 	const priority = taskPriorityMeta(task.priority);
 	const canManage = usePermission("remediation.manage");
+	const auditMode = task.verification_mode === "audit";
 	const dirty =
 		owner !== (task.owner ?? "") ||
 		dueDate !== (task.due_date ? task.due_date.slice(0, 10) : "") ||
@@ -164,11 +247,7 @@ export function TaskItem({
 				<div className="task-head">
 					<Tag className={`task-priority ${priority.className}`}>{priority.label}</Tag>
 					<span className="task-title">{task.title}</span>
-					{task.verified_snapshot_id && (
-						<Tag icon={<IconCheck size={12} />} className="task-verified">
-							已抓取验收
-						</Tag>
-					)}
+					<TaskVerifiedTag task={task} />
 				</div>
 			}
 			extra={
@@ -263,22 +342,24 @@ export function TaskItem({
 						onChange={(value) => setDueDate(value ? value.format("YYYY-MM-DD") : "")}
 					/>
 				</div>
-				<div className="task-field task-form-url">
-					<span>真实发布地址</span>
-					<Input
-						aria-label="真实发布地址"
-						type="url"
-						placeholder="https://"
-						value={url}
-						disabled={!canManage}
-						onChange={(event) => setUrl(event.target.value)}
-					/>
-				</div>
+				{!auditMode && (
+					<div className="task-field task-form-url">
+						<span>真实发布地址</span>
+						<Input
+							aria-label="真实发布地址"
+							type="url"
+							placeholder="https://（须在客户官网域名下）"
+							value={url}
+							disabled={!canManage}
+							onChange={(event) => setUrl(event.target.value)}
+						/>
+					</div>
+				)}
 				<div className="task-form-actions">
 					<Button
 						permission="remediation.manage"
 						variant="secondary"
-						disabled={!dirty}
+						disabled={!dirty || busy}
 						onClick={() =>
 							act(() =>
 								patch(`/api/tasks/${task.id}`, {
@@ -291,18 +372,7 @@ export function TaskItem({
 					>
 						保存
 					</Button>
-					<Button
-						permission="remediation.manage"
-						disabled={!url}
-						onClick={() =>
-							act(async () => {
-								await patch(`/api/tasks/${task.id}`, { publishedUrl: url, status: "published" });
-								await post(`/api/tasks/${task.id}/verify`);
-							})
-						}
-					>
-						抓取验收
-					</Button>
+					<TaskVerifyButton task={task} url={url} busy={busy} act={act} />
 				</div>
 			</div>
 			{expanded && (

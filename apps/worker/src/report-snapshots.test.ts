@@ -1,4 +1,4 @@
-import { migrateDatabase, openMemoryDatabase } from "@geo/core";
+import { migrateDatabase, openMemoryDatabase, writeEncryptedCredential } from "@geo/core";
 import { describe, expect, it } from "vitest";
 import { readArtifact } from "./object-store";
 import {
@@ -192,6 +192,53 @@ describe("不可变报告快照", () => {
 				await database.close();
 			}
 		},
-		process.env.GEO_PDF_E2E === "true" ? 30_000 : 5_000,
+		// 单跑约 1.5 秒；turbo 并行 14 个任务时 PGlite + docx 会拖到 5 秒以上，留足余量避免偶发超时。
+		process.env.GEO_PDF_E2E === "true" ? 30_000 : 15_000,
 	);
+
+	it("质检未通过时重试是重新生成叙述，而不是对同一份叙述反复质检；新叙述在途时不再拿旧叙述冻结", async () => {
+		const database = openMemoryDatabase();
+		try {
+			await migrateDatabase(database);
+			await writeEncryptedCredential(database, "hrouter_api_key", "hrouter-key-1234567890", "default");
+			await database.query(
+				`INSERT INTO settings (key,value) VALUES ('organization:default:hrouter_config','{"baseUrl":"https://hrouter.test/v1","model":"gpt-5.4","thinkingLevel":"low"}'::jsonb)`,
+			);
+			await database.query(
+				`INSERT INTO projects (id,name,website_url,domain,region,language,aliases,status)
+				 VALUES ('project','客户','https://brand.example','brand.example','成都','zh-CN','["客户"]'::jsonb,'active')`,
+			);
+			await database.query(
+				`INSERT INTO experiment_batches (id,project_id,kind,status,config,config_hash,started_at,completed_at)
+				 VALUES ('batch','project','quick_audit','complete','{}'::jsonb,'hash',now(),now())`,
+			);
+			await database.query(
+				`INSERT INTO agent_runs (id,project_id,batch_id,purpose,status,model,prompt_version,draft,approved_at,created_at)
+				 VALUES ('narrative','project','batch','report_narrative','approved','gpt-test','test','{"summary":"叙述"}'::jsonb,now()-interval '2 minutes',now()-interval '3 minutes'),
+				        ('quality','project','batch','quality_review','approved','gpt-test','test',
+				         '{"summary":"有高严重度问题","verdict":"blocked","reviewedNarrativeRunId":"narrative","issues":[],"evidenceIds":[]}'::jsonb,now()-interval '1 minute',now()-interval '1 minute')`,
+			);
+			expect(await advanceReportWorkflow(database, "batch", { allowRetry: false })).toMatchObject({
+				state: "quality_blocked",
+				runId: "quality",
+			});
+			const retried = await advanceReportWorkflow(database, "batch", { allowRetry: true });
+			expect(retried.state).toBe("narrative_queued");
+			const runs = (
+				await database.query<{ purpose: string; status: string }>(
+					"SELECT purpose,status FROM agent_runs WHERE batch_id='batch' AND status='queued'",
+				)
+			).rows;
+			expect(runs).toEqual([{ purpose: "report_narrative", status: "queued" }]);
+			// 新叙述在途：再次推进（包括定时扫描）只报告叙述状态，不会再排质检或冻结旧叙述。
+			expect(await advanceReportWorkflow(database, "batch", { allowRetry: true })).toMatchObject({
+				state: "narrative_queued",
+				runId: retried.runId,
+			});
+			expect((await database.query("SELECT id FROM agent_runs WHERE purpose='quality_review'")).rows).toHaveLength(1);
+			expect((await database.query("SELECT id FROM report_snapshots")).rows).toHaveLength(0);
+		} finally {
+			await database.close();
+		}
+	});
 });

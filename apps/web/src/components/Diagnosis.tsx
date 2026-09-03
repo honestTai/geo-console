@@ -51,7 +51,7 @@ export function Diagnosis({ project, refresh }: { project: Project; refresh(): P
 	);
 	const agentRuns = agentRunsPage.items;
 	const navigation = useWorkspaceNavigation();
-	const evidenceIndex = useEvidenceIndex(selected);
+	const evidenceIndex = useEvidenceIndex(selected, project.id);
 	const [findingPage, setFindingPage] = useState(1);
 	const findings = project.findings.filter((item) => item.batch_id === selected);
 	const visibleFindings = findings.slice((findingPage - 1) * DEFAULT_PAGE_SIZE, findingPage * DEFAULT_PAGE_SIZE);
@@ -122,7 +122,7 @@ export function Diagnosis({ project, refresh }: { project: Project; refresh(): P
 								key={run.id}
 								run={run}
 								evidenceIndex={evidenceIndex}
-								onOpenEvidence={(captureId) => navigation.openEvidence(captureId, selected)}
+								onOpenEvidence={(id, kind) => navigation.openEvidence(id, selected, kind)}
 								busy={busy === run.id}
 								onReject={() => void decide(run.id, "reject")}
 								onApprove={() => void decide(run.id, "approve")}
@@ -164,7 +164,7 @@ export function Diagnosis({ project, refresh }: { project: Project; refresh(): P
 											<EvidenceRef
 												ids={finding.evidence_ids}
 												index={evidenceIndex}
-												onOpen={(captureId) => navigation.openEvidence(captureId, selected)}
+												onOpen={(id, kind) => navigation.openEvidence(id, selected, kind)}
 											/>
 										) : (
 											"-"

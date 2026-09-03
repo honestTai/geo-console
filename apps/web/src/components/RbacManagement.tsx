@@ -40,7 +40,8 @@ export function PermissionChecklist({
 		const childrenOf = new Map<string, string[]>();
 		const orphanActions: PermissionRecord[] = [];
 		for (const action of actions) {
-			const parent = action.parent_key && pages.some((page) => page.key === action.parent_key) ? action.parent_key : null;
+			const parent =
+				action.parent_key && pages.some((page) => page.key === action.parent_key) ? action.parent_key : null;
 			if (!parent) {
 				orphanActions.push(action);
 				continue;
@@ -109,11 +110,18 @@ export function PermissionChecklist({
 	// 分组节点：全部子项选中时勾选。
 	const checkedKeys = [
 		...selectedSet,
-		...[...groupKeys.entries()].filter(([, keys]) => keys.length && keys.every((key) => selectedSet.has(key))).map(([key]) => key),
+		...[...groupKeys.entries()]
+			.filter(([, keys]) => keys.length && keys.every((key) => selectedSet.has(key)))
+			.map(([key]) => key),
 	];
 	const halfCheckedKeys = [
 		...[...childrenOf.entries()]
-			.filter(([page, children]) => selectedSet.has(page) && children.some((key) => selectedSet.has(key)) && !children.every((key) => selectedSet.has(key)))
+			.filter(
+				([page, children]) =>
+					selectedSet.has(page) &&
+					children.some((key) => selectedSet.has(key)) &&
+					!children.every((key) => selectedSet.has(key)),
+			)
 			.map(([page]) => page),
 		...[...groupKeys.entries()]
 			.filter(([key, keys]) => !checkedKeys.includes(key) && keys.some((item) => selectedSet.has(item)))

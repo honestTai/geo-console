@@ -116,7 +116,10 @@ export function AppShell({
 					</div>
 				)}
 			</div>
-			<Tooltip title={collapsed && !narrow ? (switchLabel ?? project?.name ?? "客户项目") : undefined} placement="right">
+			<Tooltip
+				title={collapsed && !narrow ? (switchLabel ?? project?.name ?? "客户项目") : undefined}
+				placement="right"
+			>
 				<button type="button" className="project-switch app-sider-switch" onClick={onSwitchProject}>
 					<IconArrowLeft size={16} />
 					{(!collapsed || narrow) && <span>{switchLabel ?? project?.name ?? "客户项目"}</span>}

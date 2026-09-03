@@ -43,7 +43,11 @@ export const serviceLogLabels: Record<string, string> = {
 };
 
 /** 列表用页码分页（与全站列表同口径）；不传 page 时只带筛选条件，供 CSV 导出整段下载。 */
-export function serviceLogParams(filters: ServiceLogFilters, page?: number, pageSize = DEFAULT_PAGE_SIZE): URLSearchParams {
+export function serviceLogParams(
+	filters: ServiceLogFilters,
+	page?: number,
+	pageSize = DEFAULT_PAGE_SIZE,
+): URLSearchParams {
 	const params = new URLSearchParams();
 	if (filters.service) params.set("service", filters.service);
 	if (filters.level) params.set("level", filters.level);
@@ -159,7 +163,12 @@ export function ServiceLogs() {
 				const result = await api<ServiceLogResponse>(`/api/service-logs?${params}`);
 				setLogs(result.logs);
 				setCounts(result.counts);
-				setPagination({ page: result.page, pageSize: result.pageSize, total: result.total, totalPages: result.totalPages });
+				setPagination({
+					page: result.page,
+					pageSize: result.pageSize,
+					total: result.total,
+					totalPages: result.totalPages,
+				});
 			} catch (reason) {
 				setError(reason instanceof Error ? reason.message : "运行日志加载失败");
 			} finally {

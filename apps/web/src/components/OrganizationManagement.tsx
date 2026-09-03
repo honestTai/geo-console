@@ -42,9 +42,15 @@ function CreateOrganization({ open, onClose, onCreated }: { open: boolean; onClo
 				</AntdButton>,
 			]}
 		>
-			<p className="muted">新机构会拥有独立的项目、证据、模型凭据、问题库、报告、成员和审计日志，创建后可随时进入配置。</p>
+			<p className="muted">
+				新机构会拥有独立的项目、证据、模型凭据、问题库、报告、成员和审计日志，创建后可随时进入配置。
+			</p>
 			<Form<CreateOrganizationValues> form={form} layout="vertical" onFinish={submit} requiredMark="optional">
-				<Form.Item name="name" label="机构名称" rules={[{ required: true, whitespace: true, message: "请输入机构名称" }]}>
+				<Form.Item
+					name="name"
+					label="机构名称"
+					rules={[{ required: true, whitespace: true, message: "请输入机构名称" }]}
+				>
 					<Input autoFocus placeholder="公司或团队全称" maxLength={80} />
 				</Form.Item>
 			</Form>

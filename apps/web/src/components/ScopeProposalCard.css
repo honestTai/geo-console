@@ -1,0 +1,74 @@
+/* 工作台候选问题确认卡：Agent 出题后的可编辑表格 */
+.sp-card {
+	background: var(--surface);
+	border: 1px solid var(--brand-line);
+	border-radius: 4px 14px 14px 14px;
+	padding: var(--space-4);
+	display: grid;
+	gap: var(--space-3);
+	flex: 1;
+	min-width: 0;
+}
+
+.sp-intro .formatted-answer {
+	font-size: 14px;
+	gap: 6px;
+}
+
+.sp-table .ant-table {
+	font-size: 13px;
+}
+
+.sp-table .ant-table-cell {
+	vertical-align: top;
+}
+
+.sp-table .ant-input,
+.sp-table textarea.ant-input {
+	font-size: 13px;
+}
+
+.sp-source {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+}
+
+.sp-source .ant-tag {
+	margin: 0;
+	background: var(--surface-2);
+	border-color: transparent;
+	color: var(--ink-3);
+}
+
+.sp-section {
+	margin: var(--space-2) 0 0;
+	font-size: 12.5px;
+	font-weight: 600;
+	color: var(--ink-2);
+}
+
+.sp-switch {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 12.5px;
+	color: var(--ink-3);
+}
+
+.sp-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: var(--space-2);
+}
+
+.sp-answered {
+	margin: 0;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 12.5px;
+	color: var(--ink-3);
+}

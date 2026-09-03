@@ -70,7 +70,42 @@ export type ProjectSummary = {
 	batch_count: number;
 	last_batch_at: string | null;
 };
-export type Competitor = { id?: string; name: string; domain: string; aliases: string[] };
+/** 建档分析后的竞品联网核实结论；`pending` 表示仍在后台核实，`confirmed` 之外在建档页显示为“待确认”。 */
+export type CompetitorVerification = {
+	status: "pending" | "confirmed" | "domain_mismatch" | "industry_mismatch" | "unverified";
+	note: string | null;
+	evidenceId: string | null;
+	checkedAt: string;
+};
+/** 后台核实超过这个时长仍是 pending，多半是 API 进程中途重启，按“未核实”展示并停止轮询。 */
+export const COMPETITOR_VERIFICATION_PENDING_MAX_MS = 10 * 60_000;
+export const isCompetitorVerificationPending = (
+	verification: CompetitorVerification | null | undefined,
+	now = Date.now(),
+): boolean =>
+	verification?.status === "pending" &&
+	now - new Date(verification.checkedAt).getTime() < COMPETITOR_VERIFICATION_PENDING_MAX_MS;
+export const competitorVerificationLabel = (verification: CompetitorVerification | null | undefined): string =>
+	!verification
+		? "未联网核实"
+		: verification.status === "pending"
+			? isCompetitorVerificationPending(verification)
+				? "联网核实中"
+				: "待确认 · 未核实"
+			: verification.status === "confirmed"
+				? "已联网核实"
+				: verification.status === "domain_mismatch"
+					? "待确认 · 域名未核实"
+					: verification.status === "industry_mismatch"
+						? "待确认 · 行业不符"
+						: "待确认 · 未核实";
+export type Competitor = {
+	id?: string;
+	name: string;
+	domain: string;
+	aliases: string[];
+	verification?: CompetitorVerification | null;
+};
 export type Prompt = {
 	id?: string;
 	library_question_id?: string | null;
@@ -106,6 +141,9 @@ export type Task = {
 	content_brief: string | null;
 	draft_content: string | null;
 	verified_snapshot_id: string | null;
+	verified_audit_id?: string | null;
+	/** 服务端按任务来源决定：技术类结论重跑官网审计验收，其余发布真实页面后抓取验收。 */
+	verification_mode: "audit" | "publish";
 };
 export type BatchSummary = {
 	id: string;
@@ -134,6 +172,10 @@ export type MonitoringSchedule = {
 	repeats: number;
 	next_run_at: string | null;
 	last_run_at: string | null;
+	/** 最近一次到期创建批次失败的原因；成功或重新保存计划后清空。 */
+	last_error?: string | null;
+	last_error_at?: string | null;
+	failure_count?: number;
 };
 export type AuditCheck = {
 	id: string;
@@ -318,9 +360,10 @@ export type AttributionPayload = {
 	importsPagination: Omit<Paginated<never>, "items">;
 };
 export type EvidenceIndexEntry = {
+	/** 报告内编号；联网搜索等不进入冻结报告的证据为 0，引用按 kind 显示标签。 */
 	n: number;
 	id: string;
-	kind: "capture" | "snapshot" | "audit";
+	kind: "capture" | "snapshot" | "audit" | "web_search";
 	platform: string | null;
 	platformLabel: string | null;
 	question: string | null;
@@ -349,8 +392,50 @@ export type AgentSessionPlanStep = {
 	ref?: string | null;
 	detail?: string | null;
 };
+/** 工作台 Agent 交给成员确认的候选问题；表格里可改字、删行、加行。 */
+export type ScopeProposalQuestion = {
+	key: string;
+	id: string | null;
+	libraryQuestionId: string | null;
+	question: string;
+	intent: string;
+	topic: string | null;
+	persona: string | null;
+	tags: string[];
+	source: "existing" | "pending" | "library" | "research";
+	evidenceIds: string[];
+	selected: boolean;
+};
+export type ScopeProposalCompetitor = {
+	key: string;
+	id: string | null;
+	name: string;
+	domain: string;
+	aliases: string[];
+	selected: boolean;
+};
+export type ScopeProposal = {
+	intro: string;
+	questions: ScopeProposalQuestion[];
+	competitors: ScopeProposalCompetitor[];
+	industry: string | null;
+	evidence?: EvidenceIndexEntry[];
+};
+export const proposalSourceLabels: Record<ScopeProposalQuestion["source"], string> = {
+	existing: "现有",
+	pending: "建档候选",
+	library: "知识库",
+	research: "联网研究",
+};
 export type AgentSessionWaiting =
-	| { kind: "user"; question: string; options: string[]; multiple: boolean; toolCallId: string }
+	| {
+			kind: "user";
+			question: string;
+			options: string[];
+			multiple: boolean;
+			toolCallId: string;
+			proposal?: ScopeProposal;
+	  }
 	| { kind: "batch" | "agent_run" | "report"; id: string; label: string; toolCallId: string; stepKey?: string };
 export type WorkbenchSession = {
 	id: string;
@@ -359,6 +444,7 @@ export type WorkbenchSession = {
 	auto_approve: boolean;
 	model: string | null;
 	thinking_level: AgentThinkingLevel | null;
+	web_search_enabled: boolean;
 	plan: AgentSessionPlanStep[];
 	waiting: AgentSessionWaiting | null;
 	current_batch_id: string | null;
@@ -375,6 +461,39 @@ export type WorkbenchEvent = {
 	created_at: string;
 };
 export type WorkbenchQuickCommand = { key: string; label: string; message: string };
+export type WebSearchStatus = "complete" | "search_not_triggered" | "no_answer" | "failed";
+export const webSearchStatusLabels: Record<WebSearchStatus, string> = {
+	complete: "已完成",
+	search_not_triggered: "未触发搜索",
+	no_answer: "无归纳正文",
+	failed: "失败",
+};
+/** 证据中心“联网搜索”分区的一条记录（不含原始响应）。 */
+export type WebSearchRecord = {
+	id: string;
+	query: string;
+	status: WebSearchStatus;
+	model: string;
+	answer_text: string | null;
+	sources: Array<{ url: string; title: string | null }>;
+	search_queries: string[];
+	session_id: string | null;
+	agent_run_id: string | null;
+	latency_ms: number | null;
+	failure_message: string | null;
+	created_at: string;
+};
+/** 平台设置“测试联网搜索”按模型记住的结果。 */
+export type WebSearchModelTest = {
+	status: "ok" | "failed";
+	searchStatus: WebSearchStatus;
+	toolChoice: "forced" | "auto";
+	message: string | null;
+	sourceCount: number;
+	latencyMs: number;
+	testedAt: string;
+};
+export type WebSearchTestStatus = { defaultModel: string | null; tests: Record<string, WebSearchModelTest> };
 export const sessionStatusLabel: Record<AgentSessionStatus, string> = {
 	idle: "待指令",
 	running: "执行中",

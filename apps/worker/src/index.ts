@@ -77,6 +77,7 @@ import {
 	createTasksFromFindings,
 	deleteTask,
 	diagnoseBatch,
+	ensureProjectSnapshots,
 	getBatch,
 	getBatchReport,
 	getProject,
@@ -99,6 +100,7 @@ import {
 	setOrganizationStatus,
 } from "./tenancy";
 import { json, readJson } from "./utils";
+import { getWebSearchTestStatus, listWebSearchEvidencePage, testWebSearch } from "./web-search";
 import {
 	answerQuestion,
 	cancelSession,
@@ -106,9 +108,9 @@ import {
 	getSession,
 	listSessionEvents,
 	listSessions,
+	orderQuickCommands,
 	sendMessage,
 	updateSessionSettings,
-	WORKBENCH_QUICK_COMMANDS,
 } from "./workbench";
 
 const host = process.env.GEO_WORKER_HOST?.trim() || "127.0.0.1";
@@ -126,6 +128,10 @@ function routeMatch(pathname: string, expression: RegExp): string[] | null {
 	const match = pathname.match(expression);
 	return match ? match.slice(1).map(decodeURIComponent) : null;
 }
+
+/** 路由策略之外的附加功能开关（如“同步写入知识库”）仍按有效权限判断，超管始终放行。 */
+const hasPermission = (identity: Identity, permission: string): boolean =>
+	identity.isSuperAdmin || identity.permissions.includes(permission);
 
 async function serveArtifact(response: ServerResponse, artifactPath: string): Promise<void> {
 	try {
@@ -180,8 +186,35 @@ async function handleProjectRoutes(
 	}
 	const confirm = routeMatch(path, /^\/api\/projects\/([^/]+)\/confirm$/);
 	if (confirm && request.method === "POST") {
-		await confirmProject(database, confirm[0], await readJson(request));
-		json(response, 200, { confirmed: true });
+		const body = (await readJson(request)) as Record<string, unknown>;
+		const syncLibrary = body.syncLibrary === true;
+		if (syncLibrary && !hasPermission(identity, "knowledge.manage"))
+			throw new AccessDeniedError("把问题写入知识库需要「维护问题知识库」权限");
+		const result = await confirmProject(database, confirm[0], body, {
+			syncLibrary: syncLibrary ? { organizationId: identity.organizationId, createdBy: identity.id } : null,
+		});
+		json(response, 200, { confirmed: true, ...result });
+		return true;
+	}
+	const research = routeMatch(path, /^\/api\/projects\/([^/]+)\/agent$/);
+	if (research && request.method === "POST") {
+		// 建档页“后台联网出题”：非交互的 prompt_research 草稿，批准后作为候选进入建档页；先保证有官网快照可引用。
+		const body = z.object({ purpose: z.literal("prompt_research") }).parse(await readJson(request));
+		await ensureProjectSnapshots(database, research[0]);
+		json(response, 202, await enqueueAgentDraft(database, { projectId: research[0], purpose: body.purpose }));
+		return true;
+	}
+	const webSearches = routeMatch(path, /^\/api\/projects\/([^/]+)\/web-searches$/);
+	if (webSearches && request.method === "GET") {
+		const url = new URL(request.url ?? path, `http://${request.headers.host ?? "127.0.0.1"}`);
+		json(
+			response,
+			200,
+			await listWebSearchEvidencePage(database, webSearches[0], parsePagination(url), {
+				id: url.searchParams.get("id"),
+				status: url.searchParams.get("status"),
+			}),
+		);
 		return true;
 	}
 	const audit = routeMatch(path, /^\/api\/projects\/([^/]+)\/audit$/);
@@ -458,14 +491,25 @@ async function handleWorkbenchRoutes(
 	request: IncomingMessage,
 	response: ServerResponse,
 	path: string,
-	actorUserId: string | null,
+	identity: Identity,
 ): Promise<boolean> {
+	const actorUserId = identity.id;
 	const sessions = routeMatch(path, /^\/api\/projects\/([^/]+)\/workbench\/sessions$/);
 	if (sessions && request.method === "GET") {
 		const url = new URL(request.url ?? path, `http://${request.headers.host ?? "127.0.0.1"}`);
+		const projectRow = (
+			await database.query<{ status: string; approved_prompt_count: number }>(
+				`SELECT status,(SELECT count(*)::int FROM prompts WHERE project_id=p.id AND approved=true AND archived_at IS NULL) AS approved_prompt_count
+				 FROM projects p WHERE id=$1`,
+				[sessions[0]],
+			)
+		).rows[0];
 		json(response, 200, {
 			...(await listSessions(database, sessions[0], parsePagination(url))),
-			quickCommands: WORKBENCH_QUICK_COMMANDS,
+			quickCommands: orderQuickCommands({
+				status: projectRow?.status ?? "draft",
+				approvedPromptCount: Number(projectRow?.approved_prompt_count ?? 0),
+			}),
 		});
 		return true;
 	}
@@ -492,7 +536,17 @@ async function handleWorkbenchRoutes(
 	}
 	const answer = routeMatch(path, /^\/api\/workbench\/sessions\/([^/]+)\/answer$/);
 	if (answer && request.method === "POST") {
-		json(response, 202, await answerQuestion(database, answer[0], await readJson(request)));
+		const body = (await readJson(request)) as Record<string, unknown>;
+		if (body.syncLibrary === true && !hasPermission(identity, "knowledge.manage"))
+			throw new AccessDeniedError("把问题写入知识库需要「维护问题知识库」权限");
+		json(
+			response,
+			202,
+			await answerQuestion(database, answer[0], body, {
+				userId: actorUserId,
+				canWriteKnowledge: hasPermission(identity, "knowledge.manage"),
+			}),
+		);
 		return true;
 	}
 	const cancel = routeMatch(path, /^\/api\/workbench\/sessions\/([^/]+)\/cancel$/);
@@ -619,6 +673,26 @@ async function handleHRouterRoutes(
 		const config = await getHRouterConfig(database, organizationId);
 		const models = await listHRouterModels(database, organizationId);
 		json(response, 200, { connected: true, selectedModelAvailable: models.some((model) => model.id === config.model) });
+		return true;
+	}
+	if (path === "/api/settings/hrouter/test-web-search" && request.method === "POST") {
+		// 验证 HRouter 对指定模型（缺省为机构默认模型）是否真的透传 OpenAI web_search；不落证据，结果按模型记住。
+		const body = z
+			.object({
+				model: z
+					.string()
+					.trim()
+					.regex(/^gpt(?:-|\.)/i, "联网搜索测试只支持 GPT 系列模型")
+					.optional()
+					.nullable(),
+			})
+			.parse(await readJson(request));
+		const result = await testWebSearch(database, organizationId, body.model ?? null);
+		json(response, 200, { ...result, searchTriggered: result.status === "ok" });
+		return true;
+	}
+	if (path === "/api/settings/hrouter/web-search-status" && request.method === "GET") {
+		json(response, 200, await getWebSearchTestStatus(database, organizationId));
 		return true;
 	}
 	return false;
@@ -866,7 +940,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 		(await handleProjectRoutes(request, response, path, identity)) ||
 		(await handleProjectDataRoutes(request, response, path)) ||
 		(await handleBatchTaskRoutes(request, response, path, identity.id)) ||
-		(await handleWorkbenchRoutes(request, response, path, identity.id)) ||
+		(await handleWorkbenchRoutes(request, response, path, identity)) ||
 		(await handleSettingsRoutes(request, response, path, identity.organizationId)) ||
 		(await handleHRouterRoutes(request, response, path, identity.organizationId)) ||
 		(await handleKnowledgeRoutes(request, response, path, identity.organizationId, identity.id));

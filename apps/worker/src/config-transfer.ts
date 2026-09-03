@@ -43,7 +43,10 @@ const settingsBundleSchema = z.object({
 
 export type SettingsBundle = z.infer<typeof settingsBundleSchema>;
 
-export async function exportSettings(database: Database, organizationId: string): Promise<SettingsBundle & { exportedAt: string }> {
+export async function exportSettings(
+	database: Database,
+	organizationId: string,
+): Promise<SettingsBundle & { exportedAt: string }> {
 	const hrouter = await getHRouterConfig(database, organizationId);
 	const rows = await database.query<Record<string, unknown>>(
 		"SELECT provider_id,enabled,model,endpoint,search_strategy FROM provider_configs WHERE organization_id=$1 ORDER BY provider_id",
@@ -56,7 +59,9 @@ export async function exportSettings(database: Database, organizationId: string)
 		hrouter: { baseUrl: hrouter.baseUrl, model: hrouter.model, thinkingLevel: hrouter.thinkingLevel },
 		providers: rows.rows.map((row) => {
 			const providerId = String(row.provider_id) as SearchProviderId;
-			const strategy = parseJsonColumn<Record<string, unknown>>(row.search_strategy as string | Record<string, unknown>);
+			const strategy = parseJsonColumn<Record<string, unknown>>(
+				row.search_strategy as string | Record<string, unknown>,
+			);
 			const { secondaryEndpoint, ...options } =
 				strategy.options && typeof strategy.options === "object" ? (strategy.options as Record<string, unknown>) : {};
 			return {
@@ -111,7 +116,10 @@ export async function importSettings(
 				JSON.stringify({
 					forced: true,
 					returnSources: true,
-					options: { ...provider.options, secondaryEndpoint: provider.secondaryEndpoint ?? definition.secondaryEndpoint },
+					options: {
+						...provider.options,
+						secondaryEndpoint: provider.secondaryEndpoint ?? definition.secondaryEndpoint,
+					},
 				}),
 				ADAPTER_VERSION,
 				organizationId,

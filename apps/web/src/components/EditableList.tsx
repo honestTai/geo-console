@@ -34,6 +34,8 @@ type EditableRowsProps<T> = EditableListBase & {
 	addPermission?: string;
 	empty?: ReactNode;
 	indexed?: boolean;
+	/** 行尾附加只读内容（如竞品的联网核实标签） */
+	extra?(item: T): ReactNode;
 };
 
 type JoinedListProps = EditableListBase & {
@@ -107,6 +109,7 @@ export function EditableList<T extends object>(props: EditableRowsProps<T> | Joi
 									}}
 								/>
 							))}
+							{props.extra?.(item)}
 							<Button
 								type="text"
 								aria-label={`删除${typeof title === "string" ? `该${title}` : "该条"}`}
