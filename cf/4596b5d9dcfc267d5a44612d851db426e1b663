@@ -1,0 +1,191 @@
+.agents/skills/geo-development/SKILL.md
+  s_48aed5ff225092::t_2192b5149350a7 28
+.agents/skills/geo-development/references/domain-contracts.md
+  s_48aed5ff225092::t_6ee58b9f6729a7 72-77
+.agents/skills/geo-development/references/project-map.md
+  s_48aed5ff225092::t_9cfc4250a2d100 20,42
+AGENTS.md
+  s_48aed5ff225092::t_69307c3b993e51 8
+README.md
+  s_48aed5ff225092::t_5e88e16a690380 8,48,51-53
+apps/log-service/src/service.test.ts
+  s_48aed5ff225092::t_b256b025d48f4c 44-71
+apps/log-service/src/service.ts
+  s_48aed5ff225092::t_7fc8659ae99c24 48,139-141,149-150,154,163-166,171-175,282
+apps/web/src/App.tsx
+  s_48aed5ff225092::t_671b36c5d72283 46,60,116
+apps/web/src/components/Articles.css
+  s_985284738297e9::t_46a644289a2722 122-126,130,132,134-154,158-159
+apps/web/src/components/Articles.tsx
+  s_48aed5ff225092::t_b046e5258fbbc9 13,61-64,84,88,143,147-152,172-179,181-191,205,220,225,308-309,331-338,348-349,430
+apps/web/src/components/Attribution.css
+  s_48aed5ff225092::t_8f40ef31395a8d 11-14,25-47,55-67,70-71
+apps/web/src/components/Attribution.tsx
+  s_48aed5ff225092::t_b110e4bca2a06b 3,7-8,15-26,28,52-62,76,106-107,109,117,134-153,163,183
+apps/web/src/components/AuditLogs.tsx
+  s_48aed5ff225092::t_a77299540b66c6 12-13
+apps/web/src/components/Diagnosis.css
+  s_48aed5ff225092::t_61787e17cb05aa 13-17
+apps/web/src/components/Diagnosis.tsx
+  s_48aed5ff225092::t_eddf2ce50a3692 7-16,34-43,98-99,185,203,211-212,217,230,288,290
+apps/web/src/components/Evidence.tsx
+  s_48aed5ff225092::t_f56275df5c81dc 5,25-49,94-98,160,184-197,199-211,225,299-300,339-341,345-346
+apps/web/src/components/KnowledgeBase.tsx
+  s_48aed5ff225092::t_ff206a69131c60 2,9,61,63-83,85-86,159-164,170-175,180-183
+apps/web/src/components/Login.tsx
+  s_985284738297e9::t_e393b0147fbf58 63
+apps/web/src/components/Management.css
+  s_985284738297e9::t_20ee6047c47f63 1-3
+apps/web/src/components/Management.tsx
+  s_985284738297e9::t_3d66e5b3da02cd 1-2,13,16-19,31,39-66
+apps/web/src/components/Members.tsx
+  s_48aed5ff225092::t_9c066347a9bcbc 16-17,83
+apps/web/src/components/Monitoring.tsx
+  s_48aed5ff225092::t_85ad051f337dd3 33-34,76-77,92,99,109,170,178,288,290,362
+apps/web/src/components/Onboarding.tsx
+  s_48aed5ff225092::t_dd13b7d6f348f2 66,73-74,109
+apps/web/src/components/OrganizationManagement.tsx
+  s_48aed5ff225092::t_0ef452b5494b6f 2,11-54,63,99,101,103-105,108,138,161-168
+apps/web/src/components/Overview.tsx
+  s_48aed5ff225092::t_555416e7cd628c 6-14,38,40,49-50,52-75,77-82,113,138-141,160-162,189,201,212
+apps/web/src/components/Page.css
+  s_985284738297e9::t_0e8237189209e0 52-64
+apps/web/src/components/Page.tsx
+  s_48aed5ff225092::t_f2400e9c09c606 1,5-7,15,28-29,52-54
+apps/web/src/components/ProjectHome.tsx
+  s_985284738297e9::t_4040d63c2a22e4 202
+apps/web/src/components/RbacManagement.tsx
+  s_48aed5ff225092::t_6153717e5c0fc7 6-14,180,187,194,333-335,337
+apps/web/src/components/Remediation.css
+  s_48aed5ff225092::t_29280e76b8a32d 9,13,18-19,60,70-71,83-91,93-96,98-104,109-114,125,128,135,140-141,144
+apps/web/src/components/Remediation.tsx
+  s_48aed5ff225092::t_8accdba73ebba7 2-3,8-16,37,60-61,74,91,111,113,136,168,173-175,257-266,297-325,339-341,343-344
+apps/web/src/components/Report.css
+  s_985284738297e9::t_32aa24ce55dbeb 150-191
+apps/web/src/components/Report.tsx
+  s_48aed5ff225092::t_295829eb17bdd8 28,31-32,36,39,46,48,63,65,122,214,312,435,456-488,504,514,528,532,575-577,587-588,590-591,595,680,735-742,748-759,761-765,769-773,776-787,790-796,799-809,812-827,830-849,852-855,861,864,869,877,888,957-958,961,963-974,986-990,1002,1042,1059,1071,1111-1424,1430-1431,1451,1459,1462-1464,1468-1474
+apps/web/src/components/ScopeEditor.tsx
+  s_48aed5ff225092::t_84b3eaf0037c15 7-8,39,56,59-89,104-105
+apps/web/src/components/ServiceLogs.css
+  s_48aed5ff225092::t_fe95d126e9ee83 1-5,33-45
+apps/web/src/components/ServiceLogs.tsx
+  s_48aed5ff225092::t_71c0db1c1b6226 11,22-30,45-46,53-56,128,143,154,158,162,172,181,194,205,225,289-316,320,327
+apps/web/src/components/Settings.css
+  s_985284738297e9::t_240287b4649c8b 20-29,89-106
+apps/web/src/components/Settings.tsx
+  s_48aed5ff225092::t_30a9952da0e8df 2,16,20-91,105-106,124,127-140,175,177-185,230-231,244,250,252-256,259,309-318,320,323-329,334,336-360,367,370,387-400,404,421,425-426,428,431-435,445,454
+apps/web/src/components/Shell.css
+  s_48aed5ff225092::t_b3cff289eed296 22-23,29,52,56-57,60-61,74,78,207-220
+apps/web/src/components/Shell.tsx
+  s_48aed5ff225092::t_adddc095fb38e0 49-51,61-65,88,119,122,136,163,169,176
+apps/web/src/components/WebsiteAudit.tsx
+  s_48aed5ff225092::t_862b8a7517bcdf 60-61,68,82-83,90
+apps/web/src/components/Workbench.css
+  s_985284738297e9::t_dcfe4724202c7c 185-189,191-199
+apps/web/src/components/Workbench.tsx
+  s_48aed5ff225092::t_bcfe861213f451 240-241,247-263,371-376,405-410,448-453,488,498-504,507,509,589-630,632,642-643,683-694,762,771,799-800
+apps/web/src/components/charts.tsx
+  s_48aed5ff225092::t_3a8888f419fa42 14,21,28-33,129-132,136,152-160,172,245,257-258,261-263,289-292,335,337-341,345,353-354
+apps/web/src/hooks/useDelayedLoading.ts
+  s_985284738297e9::t_13f405bd5b56fe 1-19
+apps/web/src/hooks/usePagination.ts
+  s_48aed5ff225092::t_ed65dcdc62f9d0 2,12
+apps/web/src/styles.css
+  s_48aed5ff225092::t_5f2a67e234f6fb 120-135,523-542,836,838-839,844-846,960-969,1939-1940,2280,2356-2365,2375,2729
+apps/web/src/types.ts
+  s_48aed5ff225092::t_a681dcd114c10a 50-51,442-449,500-503,596-630
+apps/web/src/ui/markdown.tsx
+  s_48aed5ff225092::t_3ed4bb52f7ce06 3-24,28,32,70-80
+apps/web/src/ui/primitives.css
+  s_48aed5ff225092::t_c3d09ee5e90912 151-156,236-263
+apps/web/src/ui/primitives.tsx
+  s_48aed5ff225092::t_bc7eea15deb3a8 2,10-12,253-259,266,272-273,277-284,286-299,301-343
+apps/web/src/ui/scope-bundle.test.ts
+  s_48aed5ff225092::t_4d3d1d732f8d3f 1-61
+apps/web/src/ui/scope-bundle.ts
+  s_48aed5ff225092::t_badb942743bfa4 1-68
+apps/web/src/ui/transfer.tsx
+  s_48aed5ff225092::t_242373d378970a 1-96
+apps/worker/src/agent.test.ts
+  s_48aed5ff225092::t_d001f759165486 5
+apps/worker/src/agent.ts
+  s_48aed5ff225092::t_966c9aa973549a 627,659,742
+apps/worker/src/attribution.test.ts
+  s_48aed5ff225092::t_352b6fea5aa6f4 23-36
+apps/worker/src/attribution.ts
+  s_48aed5ff225092::t_aa634233ab0cbf 36,39-44
+apps/worker/src/config-transfer.test.ts
+  s_48aed5ff225092::t_d0dafaa0a75675 1-143
+apps/worker/src/config-transfer.ts
+  s_48aed5ff225092::t_843822c68cd0d3 1-199
+apps/worker/src/docx.ts
+  s_48aed5ff225092::t_5344c03bb43b7e 1,110,119,137
+apps/worker/src/hrouter.ts
+  s_48aed5ff225092::t_ac7f203af13b68 45,72,76-78,90-103,110-112
+apps/worker/src/index.ts
+  s_48aed5ff225092::t_1cd3a990be2cd4 31,37-43,568-569,572-573,589-623,647-655,871
+apps/worker/src/labels.ts
+  s_48aed5ff225092::t_f80a124d6ea98c 1-51
+apps/worker/src/providers.ts
+  s_985284738297e9::t_e90f4691c7a614 250-326
+apps/worker/src/rbac.test.ts
+  s_48aed5ff225092::t_dd6d68973d3de6 163-164,167-169
+apps/worker/src/report-citations.test.ts
+  s_985284738297e9::t_40c0ea7c1dbfef 3,83-90
+apps/worker/src/report-snapshots.ts
+  s_48aed5ff225092::t_6d760d5b679bce 10,235,251,253,456,460,463-465
+apps/worker/src/report.ts
+  s_985284738297e9::t_e90d20603de315 212-227,241-244
+apps/worker/src/scope.test.ts
+  s_985284738297e9::t_37825f3ad3e54a 5-6,78-111
+apps/worker/src/service-log-proxy.ts
+  s_48aed5ff225092::t_674e6546597645 22-24,29-30
+apps/worker/src/service.ts
+  s_985284738297e9::t_817ab19b7352e7 727,729-732
+apps/worker/src/tenancy.test.ts
+  s_48aed5ff225092::t_bf2f9f80dcd147 3-9,36-108
+apps/worker/src/utils.test.ts
+  s_985284738297e9::t_7036a30879cec7 2,7-12
+apps/worker/src/utils.ts
+  s_985284738297e9::t_2905661e279a2b 20,22,25
+apps/worker/src/workbench.ts
+  s_985284738297e9::t_88ff23970012fc 63-66,72,79,155-156,168,173,238-240,247-249,315-326,788,794,863-864,891
+deploy/install.sh
+  s_48aed5ff225092::t_0353012a899245 32
+docs/architecture.md
+  s_48aed5ff225092::t_817f9addf242c2 61-62,70
+docs/capability-matrix.md
+  s_48aed5ff225092::t_c635286328bff5 5-6,13-14,20,22
+landing/index.html
+  s_48aed5ff225092::t_c229c6469b2b20 136,222,237,246,250,431,466,469,508,536,539,556,614
+packages/core/migrations/0014_config_transfer_routes.sql
+  s_48aed5ff225092::t_df8b7fc50389e8 1-8
+packages/logging/src/index.ts
+  s_48aed5ff225092::t_58d07206901456 40-41,49-53,146
+scripts/geo.ts
+  s_48aed5ff225092::t_773ed48b0e6dcb 32,67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "cf4596b5d9dcfc267d5a44612d851db426e1b663",
+  "prompts": {},
+  "sessions": {
+    "s_48aed5ff225092": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0ae2dbd1-d57f-445a-9738-1b148e353db1",
+        "model": "unknown"
+      },
+      "human_author": "honest.tai <honest.tai@outlook.com>"
+    },
+    "s_985284738297e9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5fdf5df5-b098-42ae-8a2d-adc56a288adc",
+        "model": "unknown"
+      },
+      "human_author": "honest.tai <honest.tai@outlook.com>"
+    }
+  }
+}
