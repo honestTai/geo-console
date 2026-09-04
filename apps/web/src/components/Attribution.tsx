@@ -162,6 +162,7 @@ export function Attribution({ project }: { project: Project }) {
 				</div>
 			</div>
 			<Alert
+				className="attribution-notice"
 				type="info"
 				showIcon
 				title="业务数据与 AI 监测并列展示。系统不会仅凭时间上的同步变化宣称 GEO 整改带来了线索；成交与有效咨询仍需业务人员确认。"
