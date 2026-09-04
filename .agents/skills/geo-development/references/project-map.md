@@ -38,6 +38,7 @@ Tauri 2 桌面客户端加载同一个工作台 URL，是所有角色的正式�
 | 指标分母与汇总 | `packages/metrics/src/visibility.ts` | batch/report UI |
 | HTTP、RBAC、租户隔离、公开分享 | `apps/worker/src/index.ts`、`auth.ts`、`tenancy.ts` | `apps/web/src/api.ts` |
 | 动态权限目录与分页 | `apps/worker/src/rbac.ts`、`pagination.ts`、`permissions/permission_routes/roles` migration | API、Web/Tauri 导航与列表 |
+| Web 外壳与页头导航 | `apps/web/src/components/Shell.tsx`、`Page.tsx`、`ui/navigation.tsx`（NavigationContext：`openView/openProjectList/panelViews/openEvidence/openBatch/openWorkbench`） | 全部客户工作台页面（面包屑前级返回客户列表、末级下拉切换面板） |
 | 结构化运行日志 | `packages/logging`、`apps/log-service`、`service_logs` migration | API、Capture/Agent/Report Worker、Web 日志中心 |
 | 行业问题知识库 | `apps/worker/src/knowledge-base.ts`、`packages/core/src/schema.ts` | onboarding、Web 知识库 |
 | 配置导入导出（平台设置/知识库/监测范围） | `apps/worker/src/config-transfer.ts`、`apps/web/src/ui/transfer.tsx`、`apps/web/src/ui/scope-bundle.ts` | Settings、知识库、ScopeEditor |

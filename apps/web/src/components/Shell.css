@@ -149,18 +149,6 @@
 	border-color: transparent;
 }
 
-.topbar-view {
-	color: var(--ink-4);
-	font-size: 13px;
-	white-space: nowrap;
-}
-
-.topbar-view::before {
-	content: "/";
-	margin-right: var(--space-3);
-	color: var(--line-strong);
-}
-
 .topbar-right {
 	display: flex;
 	align-items: center;
@@ -197,7 +185,6 @@
 		max-width: 200px;
 	}
 
-	.topbar-view,
 	.topbar-domain {
 		display: none;
 	}

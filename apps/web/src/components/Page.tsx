@@ -1,5 +1,7 @@
 import { Breadcrumb, Spin, Typography } from "antd";
 import type { ReactNode } from "react";
+import type { View } from "../types";
+import { useWorkspaceNavigation } from "../ui/navigation";
 import "./Page.css";
 
 /** 加载指示延迟：短于这个时间的请求不闪 loading，避免切换视图/批次时的抖动。 */
@@ -15,9 +17,9 @@ export function Page({
 	loading,
 	children,
 }: {
-	/** 面包屑前缀，如当前客户名；与 eyebrow 组成 "客户 / 页面" */
+	/** 面包屑前缀，如当前客户名；点击返回客户列表，与 eyebrow 组成 "客户 / 页面" */
 	breadcrumb?: string;
-	/** 页面类别小标签，同时作为面包屑末级 */
+	/** 页面类别小标签，同时作为面包屑末级；有客户上下文时末级带面板切换下拉 */
 	eyebrow: string;
 	title: string;
 	description?: ReactNode;
@@ -29,9 +31,29 @@ export function Page({
 	loading?: boolean;
 	children?: ReactNode;
 }) {
+	const { openView, openProjectList, panelViews } = useWorkspaceNavigation();
+	const currentCrumb = { title: <span className="page-crumb-current">{eyebrow}</span> };
 	const crumbs = [
-		...(breadcrumb ? [{ title: breadcrumb }] : []),
-		{ title: <span className="page-crumb-current">{eyebrow}</span> },
+		...(breadcrumb
+			? [
+					{
+						title: (
+							<button type="button" className="page-crumb-link" onClick={openProjectList}>
+								{breadcrumb}
+							</button>
+						),
+					},
+				]
+			: []),
+		breadcrumb && panelViews.length
+			? {
+					...currentCrumb,
+					menu: {
+						items: panelViews.map((item) => ({ key: item.id, label: item.label })),
+						onClick: ({ key }: { key: string }) => openView(key as View),
+					},
+				}
+			: currentCrumb,
 	];
 	return (
 		<section className={className ? `page ${className}` : "page"}>
