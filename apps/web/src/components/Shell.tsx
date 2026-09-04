@@ -185,7 +185,7 @@ export function AppShell({
 						{account}
 					</div>
 				</header>
-				<main className="workspace">
+				<main className={view === "workbench" ? "workspace workspace-wide" : "workspace"}>
 					{error && <Alert className="app-shell-alert" type="error" title={error} showIcon />}
 					{children}
 				</main>

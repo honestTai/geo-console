@@ -441,6 +441,11 @@ export type WorkbenchSession = {
 	id: string;
 	title: string;
 	status: AgentSessionStatus;
+	execution_target: "server" | "desktop";
+	desktop_pending_trigger?: "user" | "resume" | "answer" | null;
+	desktop_turn_start_index?: number | null;
+	desktop_run_id?: string | null;
+	desktop_lease_expires_at?: string | null;
 	auto_approve: boolean;
 	model: string | null;
 	thinking_level: AgentThinkingLevel | null;

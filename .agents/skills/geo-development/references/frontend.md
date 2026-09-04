@@ -43,7 +43,7 @@ apps/web/src/
 
 ## 验证
 
-改前端后跑 `pnpm --filter @geo/web check-types && pnpm --filter @geo/web test && pnpm --filter @geo/web build` 及 biome check;窄屏(900px、600px、390px)与桌面端都要检查无重叠截断;桌面与 Tauri 客户端加载同一份构建产物。
+改前端后跑 `pnpm --filter @geo/web check-types && pnpm --filter @geo/web test && pnpm --filter @geo/web build` 及 biome check;窄屏(900px、600px、390px)与桌面端都要检查无重叠截断;桌面与 Tauri 客户端加载同一份构建产物。涉及桌面 Agent 时还要验证运行时独立 chunk、Tauri Channel 首字节流、断线后的 transcript/toolResult 恢复，以及浏览器入口不会创建 desktop 会话。
 
 ## 2026-09 布局重做后的约定
 
@@ -59,9 +59,9 @@ apps/web/src/
 - Agent 草稿一律通过 `components/AgentDraft.tsx` 渲染：`AgentDraftCard` 是差距诊断/整改中心/建档页共用的审批卡（首屏 = 摘要 + 概览标签 + 查看草稿详情 + 批准/拒绝），`AgentDraftContent` 按 purpose 分节（含 `prompt_research` 候选问题列表）；新增 purpose 时在该文件加分支和 `draftFieldLabels` 中文字段名，不在视图里重新 `Object.entries(draft)`。证据 ID 用 `EvidenceRef`（索引来自 `hooks/useEvidenceIndex(batchId, projectId)`：批次报告索引 + 项目内成功的联网搜索），任务 ID 显示任务标题，其余 ID 用 `IdChip`。
 - `EvidenceRef` 的 `onOpen(id, kind)` 带证据种类；`navigation.openEvidence(id, batchId, kind)` 对 `web_search` 切到证据中心“联网搜索”分区并只显示该条记录，回答证据仍按批次定位。联网搜索引用显示为 `[联网] 检索问题`，不占报告编号。
 - 页头面包屑是真实导航：前级客户名点击调 `navigation.openProjectList()` 返回客户列表，末级当前面板带下拉（`navigation.panelViews`，仅客户工作台视图）可直接切换面板；顶栏不再重复显示当前视图名。机构管理视图没有客户上下文，面包屑无前级也不带下拉。
-- 工作台候选问题走 `components/ScopeProposalCard.tsx`（`proposal` 事件 → 可勾选、可编辑的 antd `Table`：问题/意图/主题/角色 + 来源标签与证据引用，竞品小表，知识库同步开关只对 `knowledge.manage` 显示），确认调用 `POST …/answer` 带 `questions/competitors/syncLibrary`，不采用时必须填原因。不要再用 `ask_user` 的 options 罗列问题。
+- 工作台使用 `workspace-wide` 专用 1600px 上限，桌面三栏为会话/对话/执行进度；900px 下会话改成横向列表且进度栏移到对话下方，600px 下头部设置、输入区和操作按钮单列或弹性重排。工作台候选问题走 `components/ScopeProposalCard.tsx`（`proposal` 事件 → 可勾选、可编辑的 antd `Table`：问题/意图/主题/角色 + 来源标签与证据引用，竞品小表，知识库同步开关只对 `knowledge.manage` 显示）；列显隐按候选卡自身的实际宽度分紧凑/常规/完整三档，紧凑档把问题元数据和竞品字段收进主单元格，不以整个窗口宽度猜测中栏空间，也不保留整表横向滚动。确认调用 `POST …/answer` 带 `questions/competitors/syncLibrary`，不采用时必须填原因。不要再用 `ask_user` 的 options 罗列问题。
 - 会话设置除模型/思考强度/自动批准外还有“联网搜索”开关；模型下拉按 `/api/settings/hrouter/web-search-status` 标注“联网未验证/联网测试失败”，并提供“测试此模型”（`workbench.run`）。
-- 工作台对话流里的 `web_search` 工具不走通用的 `.wb-tool` 一行胶囊，而是 `SearchCard`：连续几次搜索（中间没有别的气泡）合成一张卡，逐条显示检索问题（`tool_start.args.query`）、Agent 声明的目的（`args.purpose`）、模型实际发出的检索词、来源超链接（`cleanSourceUrl` + `sourceHost`，默认 5 条可展开）和可跳转证据中心的“证据 xxxxxxxx”芯片；失败/联网不可用按失败样式显示原因。服务端 `tool_end.payload.details` 对 `web_search` 用 `toolEventDetails` 按字段保留 `evidenceId/query/searchQueries/sources/remaining/unavailable/reason`（不含归纳全文），其他工具超过 1500 字仍整体截成 `{truncated,preview}`。
+- 工作台对话流里的 `web_search` 工具不走通用的 `.wb-tool` 一行胶囊，而是 `SearchCard`：连续几次搜索（中间没有别的气泡）合成一张卡，逐条显示检索问题（`tool_start.args.query`）、Agent 声明的目的（`args.purpose`）、模型实际发出的检索词、来源超链接（`cleanSourceUrl` + `sourceHost`，默认 5 条可展开）和可跳转证据中心的“证据 xxxxxxxx”芯片；失败/联网不可用按失败样式显示原因。并行搜索事件必须按 `toolCallId` 配对，不能按工具名猜测完成顺序；`tool_update` 显示搜索/保存证据阶段。服务端 `tool_end.payload.details` 对 `web_search` 用 `toolEventDetails` 按字段保留 `evidenceId/query/searchQueries/sources/remaining/unavailable/reason/phase`（不含归纳全文），其他工具超过 1500 字仍整体截成 `{truncated,preview}`。前端通过原 events 路由的有界长轮询接收带会话快照的增量，收到后立即续订；不要退回固定 1.5 秒定时刷新。
 - 项目级数据（批次、任务、诊断）不是打开客户时的一次性快照：需要跨视图定位时走 `ui/navigation.tsx`（`openEvidence`/`openBatch`/`openWorkbench`）并在目标视图消费焦点；后台任务会创建数据的页面要自行安排列表刷新，不能只轮询当前选中项。
 - `access.tsx useAgentRunPolling(runs, reload, activeStatuses?)` 默认只在 `queued/running` 轮询；由协调器在后台物化的用途（优化文章）传 `["queued","running","awaiting_approval"]`，否则页面会停在“正在生成”。建档页在任一竞品 `verification.status==='pending'`（`isCompetitorVerificationPending`，10 分钟内）时每 3 秒刷新项目。
 - 前台等待有上限的操作（报告 PDF/Word 两分钟）超时后不能报成失败：改成 info 提示并把 `workflowState` 置为 `documents_queued` 让快照轮询接手；真正失败只以服务端 `status='failed'` 为准。

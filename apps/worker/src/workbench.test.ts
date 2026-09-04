@@ -19,6 +19,7 @@ import {
 	sendMessage,
 	toolEventDetails,
 	type WorkbenchSession,
+	waitForSessionUpdates,
 } from "./workbench";
 
 const previousMasterKey = process.env.GEO_MASTER_KEY;
@@ -132,6 +133,24 @@ describe("AI 工作台会话", () => {
 		}
 	});
 
+	it("长轮询在新事件写入后立即返回事件与同一会话快照", async () => {
+		const database = await seedSession();
+		try {
+			const updatesPromise = waitForSessionUpdates(database, "session", 0, 2_000);
+			const writePromise = new Promise<void>((resolve, reject) => {
+				setTimeout(
+					() => void sendMessage(database, "session", { message: "立即开始" }).then(() => resolve(), reject),
+					20,
+				);
+			});
+			const [updates] = await Promise.all([updatesPromise, writePromise]);
+			expect(updates?.items.map((event) => event.type)).toEqual(["user_message"]);
+			expect(updates?.session).toMatchObject({ id: "session", status: "running" });
+		} finally {
+			await database.close();
+		}
+	});
+
 	it("只有等待用户回答时才能提交回答，并以工具结果续跑", async () => {
 		const database = await seedSession("waiting_user", {
 			kind: "user",
@@ -230,6 +249,34 @@ describe("AI 工作台会话", () => {
 			const [step] = await readPlan(database);
 			expect(step).toMatchObject({ key: "batch", label: "正式基线采集", status: "done" });
 			expect(step.detail).toBe("3 个采集任务 · 部分平台失败，原始证据已保留");
+		} finally {
+			await database.close();
+		}
+	});
+
+	it("桌面会话的后台等待完成后只登记待续跑回合，不进入服务端 Agent 队列", async () => {
+		const database = await seedSession(
+			"waiting_job",
+			{ kind: "batch", id: "batch", label: "等待采集", toolCallId: "call-desktop", stepKey: "batch" },
+			true,
+			[{ key: "batch", label: "正式基线采集", status: "running", ref: "batch" }],
+		);
+		try {
+			await database.query("UPDATE agent_sessions SET execution_target='desktop' WHERE id='session'");
+			await database.query(
+				`INSERT INTO experiment_batches (id,project_id,kind,status,config,config_hash)
+				 VALUES ('batch','project','baseline','complete','{"project":{"name":"客户","domain":"brand.example","region":"成都","language":"zh-CN","aliases":["客户"]},"competitors":[],"prompts":[],"platforms":["deepseek_api"],"repeats":1}'::jsonb,'hash')`,
+			);
+			expect(await resumeWaitingSessions(database)).toBe(1);
+			const session = (
+				await database.query<{ status: string; desktop_pending_trigger: string; desktop_pending_message: string }>(
+					"SELECT status,desktop_pending_trigger,desktop_pending_message FROM agent_sessions WHERE id='session'",
+				)
+			).rows[0];
+			expect(session.status).toBe("running");
+			expect(session.desktop_pending_trigger).toBe("resume");
+			expect(session.desktop_pending_message).toContain("complete");
+			expect(await database.query("SELECT id FROM jobs WHERE type='agent_session_turn'")).toMatchObject({ rows: [] });
 		} finally {
 			await database.close();
 		}
@@ -388,6 +435,7 @@ describe("AI 工作台会话", () => {
 			await database.query("UPDATE agent_sessions SET web_search_enabled=true WHERE id='session'");
 			const enabled = await toolHarness(database, await loadTestSession(database));
 			expect(pick(enabled.tools, "web_search").description).toContain("本会话最多 30 次");
+			expect(pick(enabled.tools, "web_search").executionMode).toBe("parallel");
 		} finally {
 			await database.close();
 		}

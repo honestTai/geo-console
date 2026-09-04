@@ -1,9 +1,8 @@
 import { IconCheck, IconPlus, IconTrash } from "@tabler/icons-react";
-import { Input, Switch, Table, type TableProps, Tag, Tooltip } from "antd";
-import { useMemo, useState } from "react";
+import { Grid, Input, Switch, Table, type TableProps, Tag, Tooltip } from "antd";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, usePermission } from "../access";
 import {
-	type EvidenceIndexEntry,
 	proposalSourceLabels,
 	type ScopeProposal,
 	type ScopeProposalCompetitor,
@@ -55,6 +54,18 @@ export function ScopeProposalCard({
 	onReject(reason: string): Promise<void>;
 }) {
 	const canWriteKnowledge = usePermission("knowledge.manage");
+	const screens = Grid.useBreakpoint();
+	const cardRef = useRef<HTMLDivElement>(null);
+	const [cardWidth, setCardWidth] = useState(0);
+	useEffect(() => {
+		const element = cardRef.current;
+		if (!element) return;
+		const observer = new ResizeObserver(([entry]) => setCardWidth(entry?.contentRect.width ?? 0));
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, []);
+	const compactTable = cardWidth ? cardWidth < 720 : !screens.md;
+	const fullTable = cardWidth ? cardWidth >= 960 : Boolean(screens.xl);
 	const [questions, setQuestions] = useState<QuestionRow[]>(proposal.questions);
 	const [competitors, setCompetitors] = useState<CompetitorRow[]>(proposal.competitors);
 	const [syncLibrary, setSyncLibrary] = useState(Boolean(proposal.industry) && canWriteKnowledge);
@@ -74,20 +85,65 @@ export function ScopeProposalCard({
 		{
 			title: "问题",
 			dataIndex: "question",
-			render: (_: unknown, row) => (
-				<Input.TextArea
-					autoSize={{ minRows: 1, maxRows: 3 }}
-					value={row.question}
-					disabled={answered || disabled}
-					status={row.selected && row.question.trim().length < 4 ? "error" : undefined}
-					onChange={(event) => patchQuestion(row.key, { question: event.target.value })}
-				/>
-			),
+			render: (_: unknown, row) => {
+				const editor = (
+					<Input.TextArea
+						autoSize={{ minRows: 1, maxRows: 3 }}
+						value={row.question}
+						disabled={answered || disabled}
+						status={row.selected && row.question.trim().length < 4 ? "error" : undefined}
+						onChange={(event) => patchQuestion(row.key, { question: event.target.value })}
+					/>
+				);
+				if (!compactTable) return editor;
+				return (
+					<div className="sp-compact-editor">
+						{editor}
+						<div className="sp-compact-fields">
+							<div>
+								<span>意图</span>
+								<Input
+									aria-label="意图"
+									value={row.intent}
+									disabled={answered || disabled}
+									status={row.selected && !row.intent.trim() ? "error" : undefined}
+									onChange={(event) => patchQuestion(row.key, { intent: event.target.value })}
+								/>
+							</div>
+							<div>
+								<span>主题</span>
+								<Input
+									aria-label="主题"
+									value={row.topic ?? ""}
+									disabled={answered || disabled}
+									onChange={(event) => patchQuestion(row.key, { topic: event.target.value || null })}
+								/>
+							</div>
+							<div>
+								<span>购买者角色</span>
+								<Input
+									aria-label="购买者角色"
+									value={row.persona ?? ""}
+									disabled={answered || disabled}
+									onChange={(event) => patchQuestion(row.key, { persona: event.target.value || null })}
+								/>
+							</div>
+						</div>
+						<span className="sp-source">
+							<Tag>{proposalSourceLabels[row.source] ?? row.source}</Tag>
+							{row.evidenceIds.length > 0 && (
+								<EvidenceRef ids={row.evidenceIds} index={evidenceIndex} onOpen={onOpenEvidence} compact max={2} />
+							)}
+						</span>
+					</div>
+				);
+			},
 		},
 		{
 			title: "意图",
 			dataIndex: "intent",
 			width: 120,
+			hidden: compactTable,
 			render: (_: unknown, row) => (
 				<Input
 					value={row.intent}
@@ -101,6 +157,7 @@ export function ScopeProposalCard({
 			title: "主题",
 			dataIndex: "topic",
 			width: 120,
+			hidden: !fullTable,
 			render: (_: unknown, row) => (
 				<Input
 					value={row.topic ?? ""}
@@ -113,6 +170,7 @@ export function ScopeProposalCard({
 			title: "购买者角色",
 			dataIndex: "persona",
 			width: 130,
+			hidden: !fullTable,
 			render: (_: unknown, row) => (
 				<Input
 					value={row.persona ?? ""}
@@ -125,6 +183,7 @@ export function ScopeProposalCard({
 			title: "来源与依据",
 			key: "source",
 			width: 190,
+			hidden: compactTable,
 			render: (_: unknown, row) => (
 				<span className="sp-source">
 					<Tag>{proposalSourceLabels[row.source] ?? row.source}</Tag>
@@ -153,18 +212,48 @@ export function ScopeProposalCard({
 		{
 			title: "竞品名称",
 			dataIndex: "name",
-			render: (_: unknown, row) => (
-				<Input
-					value={row.name}
-					disabled={answered || disabled}
-					onChange={(event) => patchCompetitor(row.key, { name: event.target.value })}
-				/>
-			),
+			render: (_: unknown, row) => {
+				const editor = (
+					<Input
+						value={row.name}
+						disabled={answered || disabled}
+						onChange={(event) => patchCompetitor(row.key, { name: event.target.value })}
+					/>
+				);
+				if (!compactTable) return editor;
+				return (
+					<div className="sp-compact-editor">
+						{editor}
+						<div className="sp-compact-fields sp-competitor-fields">
+							<div>
+								<span>域名</span>
+								<Input
+									aria-label="域名"
+									value={row.domain}
+									disabled={answered || disabled}
+									onChange={(event) => patchCompetitor(row.key, { domain: event.target.value })}
+								/>
+							</div>
+							<div>
+								<span>别名</span>
+								<Input
+									aria-label="别名"
+									value={row.aliases.join("，")}
+									placeholder="逗号分隔"
+									disabled={answered || disabled}
+									onChange={(event) => patchCompetitor(row.key, { aliases: splitEditableValues(event.target.value) })}
+								/>
+							</div>
+						</div>
+					</div>
+				);
+			},
 		},
 		{
 			title: "域名",
 			dataIndex: "domain",
 			width: 200,
+			hidden: compactTable,
 			render: (_: unknown, row) => (
 				<Input
 					value={row.domain}
@@ -177,6 +266,7 @@ export function ScopeProposalCard({
 			title: "别名",
 			dataIndex: "aliases",
 			width: 180,
+			hidden: compactTable,
 			render: (_: unknown, row) => (
 				<Input
 					value={row.aliases.join("，")}
@@ -225,7 +315,7 @@ export function ScopeProposalCard({
 	}
 
 	return (
-		<div className="sp-card">
+		<div className="sp-card" ref={cardRef}>
 			<div className="sp-intro">
 				<FormattedAnswer value={proposal.intro} />
 			</div>
@@ -236,7 +326,7 @@ export function ScopeProposalCard({
 				pagination={false}
 				columns={questionColumns}
 				dataSource={questions}
-				scroll={{ x: 760 }}
+				scroll={compactTable ? undefined : { x: fullTable ? 920 : 680 }}
 				rowSelection={{
 					selectedRowKeys: questions.filter((row) => row.selected).map((row) => row.key),
 					onChange: (keys) => setQuestions((rows) => rows.map((row) => ({ ...row, selected: keys.includes(row.key) }))),
@@ -281,7 +371,7 @@ export function ScopeProposalCard({
 						pagination={false}
 						columns={competitorColumns}
 						dataSource={competitors}
-						scroll={{ x: 560 }}
+						scroll={compactTable ? undefined : { x: 560 }}
 						rowSelection={{
 							selectedRowKeys: competitors.filter((row) => row.selected).map((row) => row.key),
 							onChange: (keys) =>

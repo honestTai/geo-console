@@ -109,6 +109,7 @@ describe("联网搜索响应解析", () => {
 		expect(notTriggered.answerText).toBe("我无法联网。");
 		expect(calls[0]?.tools).toEqual([{ type: "web_search" }]);
 		expect(calls[0]?.tool_choice).toEqual({ type: "web_search" });
+		expect(calls[0]?.max_output_tokens).toBe(1200);
 		expect(calls[0]?.store).toBe(false);
 		const failed = await performWebSearch({ ...base, fetch: fakeFetch(401, { error: { message: "bad key" } }) });
 		expect(failed.status).toBe("failed");
@@ -140,6 +141,19 @@ describe("联网搜索响应解析", () => {
 		expect(calls).toHaveLength(3);
 		expect(calls[2]?.tool_choice).toBe("auto");
 	});
+
+	it("与 tool_choice 无关的 4xx 不重复请求", async () => {
+		const calls: Array<Record<string, unknown>> = [];
+		const outcome = await performWebSearch({
+			baseUrl: "https://hrouter.test/v1",
+			apiKey: "key",
+			model: "gpt-5.4",
+			query: "问题",
+			fetch: fakeFetch(400, { error: { message: "max_output_tokens is invalid" } }, calls),
+		});
+		expect(outcome.status).toBe("failed");
+		expect(calls).toHaveLength(1);
+	});
 });
 
 describe("web_search Agent 工具", () => {
@@ -150,6 +164,7 @@ describe("web_search Agent 工具", () => {
 			const tool = createWebSearchTool(database, { organizationId: "default", projectId: "project" }, allowed, {
 				fetch: fakeFetch(200, searchedBody),
 			});
+			expect(tool.executionMode).toBe("parallel");
 			const result = await tool.execute("call", { query: "工业除尘设备买家会问什么？" } as never);
 			const details = result.details as { evidenceId: string; sources: Array<{ url: string }>; remaining: number };
 			expect(details.sources).toHaveLength(1);
@@ -256,6 +271,26 @@ describe("web_search Agent 工具", () => {
 				},
 			);
 			await expect(sessionTool.execute("call", { query: "问题四" } as never)).rejects.toThrow("本会话上限（3 次）");
+			expect(calls).toHaveLength(2);
+		} finally {
+			await database.close();
+		}
+	});
+
+	it("并行调用会在网络请求前同步占用回合配额", async () => {
+		const database = await seedProject();
+		try {
+			const calls: Array<Record<string, unknown>> = [];
+			const tool = createWebSearchTool(database, { organizationId: "default", projectId: "project" }, new Set(), {
+				fetch: fakeFetch(200, searchedBody, calls),
+				budget: { perTurn: 2, perSession: null },
+			});
+			const results = await Promise.allSettled([
+				tool.execute("one", { query: "问题一" } as never),
+				tool.execute("two", { query: "问题二" } as never),
+				tool.execute("three", { query: "问题三" } as never),
+			]);
+			expect(results.map((result) => result.status)).toEqual(["fulfilled", "fulfilled", "rejected"]);
 			expect(calls).toHaveLength(2);
 		} finally {
 			await database.close();

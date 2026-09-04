@@ -42,6 +42,32 @@
 	color: var(--ink-3);
 }
 
+.sp-compact-editor {
+	display: grid;
+	gap: var(--space-2);
+}
+
+.sp-compact-fields {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: var(--space-2);
+}
+
+.sp-compact-fields > div {
+	display: grid;
+	gap: var(--space-1);
+	min-width: 0;
+}
+
+.sp-compact-fields > div > span {
+	font-size: 11.5px;
+	color: var(--ink-4);
+}
+
+.sp-competitor-fields {
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .sp-section {
 	margin: var(--space-2) 0 0;
 	font-size: 12.5px;
@@ -71,4 +97,32 @@
 	gap: 6px;
 	font-size: 12.5px;
 	color: var(--ink-3);
+}
+
+@media (max-width: 600px) {
+	.sp-card {
+		padding: var(--space-3);
+	}
+
+	.sp-compact-fields,
+	.sp-competitor-fields {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.sp-compact-fields > div:last-child {
+		grid-column: 1 / -1;
+	}
+
+	.sp-competitor-fields {
+		grid-template-columns: 1fr;
+	}
+
+	.sp-actions {
+		display: grid;
+		grid-template-columns: 1fr;
+	}
+
+	.sp-actions .ant-btn {
+		width: 100%;
+	}
 }
