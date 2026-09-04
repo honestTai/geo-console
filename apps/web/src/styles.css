@@ -2562,6 +2562,10 @@ input[type="radio"] {
 
 /* 业务归因：KPI 卡与导入数据表（对齐演示 ds-kpis / kpi / attribution-demo-table） */
 
+.attribution-notice.ant-alert {
+	margin-bottom: var(--space-5);
+}
+
 .attribution-kpis {
 	display: grid;
 	grid-template-columns: repeat(3, minmax(0, 1fr));
