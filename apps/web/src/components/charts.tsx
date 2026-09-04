@@ -99,6 +99,7 @@ export function TrendChart({ trends }: { trends: TrendResponse }) {
 				<MentionBarChart
 					title="各批次品牌提及率"
 					items={trends.comparable.map((item) => ({
+						key: item.id,
 						label: `${batchKindLabel(item.kind as BatchSummary["kind"])} · ${shortDate(item.createdAt)}`,
 						value: overallMetric(item, "brandMentionRate"),
 					}))}
@@ -243,7 +244,7 @@ export function MentionBarChart({
 	note,
 }: {
 	title?: string;
-	items: Array<{ label: string; value: number | null }>;
+	items: Array<{ key?: string; label: string; value: number | null }>;
 	note?: string;
 }) {
 	if (!items.length) return null;
@@ -252,7 +253,7 @@ export function MentionBarChart({
 			<div className="chart-bars">
 				{items.map((item) => (
 					<BarRow
-						key={item.label}
+						key={item.key ?? item.label}
 						label={item.label}
 						value={item.value == null ? "不可用" : percentage(item.value)}
 						valueClass={item.value == null ? "unavailable" : undefined}
