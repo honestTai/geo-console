@@ -60,6 +60,7 @@ apps/web/src/
 - `EvidenceRef` 的 `onOpen(id, kind)` 带证据种类；`navigation.openEvidence(id, batchId, kind)` 对 `web_search` 切到证据中心“联网搜索”分区并只显示该条记录，回答证据仍按批次定位。联网搜索引用显示为 `[联网] 检索问题`，不占报告编号。
 - 工作台候选问题走 `components/ScopeProposalCard.tsx`（`proposal` 事件 → 可勾选、可编辑的 antd `Table`：问题/意图/主题/角色 + 来源标签与证据引用，竞品小表，知识库同步开关只对 `knowledge.manage` 显示），确认调用 `POST …/answer` 带 `questions/competitors/syncLibrary`，不采用时必须填原因。不要再用 `ask_user` 的 options 罗列问题。
 - 会话设置除模型/思考强度/自动批准外还有“联网搜索”开关；模型下拉按 `/api/settings/hrouter/web-search-status` 标注“联网未验证/联网测试失败”，并提供“测试此模型”（`workbench.run`）。
+- 工作台对话流里的 `web_search` 工具不走通用的 `.wb-tool` 一行胶囊，而是 `SearchCard`：连续几次搜索（中间没有别的气泡）合成一张卡，逐条显示检索问题（`tool_start.args.query`）、Agent 声明的目的（`args.purpose`）、模型实际发出的检索词、来源超链接（`cleanSourceUrl` + `sourceHost`，默认 5 条可展开）和可跳转证据中心的“证据 xxxxxxxx”芯片；失败/联网不可用按失败样式显示原因。服务端 `tool_end.payload.details` 对 `web_search` 用 `toolEventDetails` 按字段保留 `evidenceId/query/searchQueries/sources/remaining/unavailable/reason`（不含归纳全文），其他工具超过 1500 字仍整体截成 `{truncated,preview}`。
 - 项目级数据（批次、任务、诊断）不是打开客户时的一次性快照：需要跨视图定位时走 `ui/navigation.tsx`（`openEvidence`/`openBatch`/`openWorkbench`）并在目标视图消费焦点；后台任务会创建数据的页面要自行安排列表刷新，不能只轮询当前选中项。
 - `access.tsx useAgentRunPolling(runs, reload, activeStatuses?)` 默认只在 `queued/running` 轮询；由协调器在后台物化的用途（优化文章）传 `["queued","running","awaiting_approval"]`，否则页面会停在“正在生成”。建档页在任一竞品 `verification.status==='pending'`（`isCompetitorVerificationPending`，10 分钟内）时每 3 秒刷新项目。
 - 前台等待有上限的操作（报告 PDF/Word 两分钟）超时后不能报成失败：改成 info 提示并把 `workflowState` 置为 `documents_queued` 让快照轮询接手；真正失败只以服务端 `status='failed'` 为准。

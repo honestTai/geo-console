@@ -1343,7 +1343,7 @@ export async function executeSessionTurn(
 			await emit("tool_end", {
 				tool: event.toolName,
 				isError: event.isError,
-				details: event.isError ? summarizeError(event.result) : compactDetails(details),
+				details: event.isError ? summarizeError(event.result) : toolEventDetails(event.toolName, details),
 			});
 		}
 	});
@@ -1477,6 +1477,24 @@ function compactDetails(details: unknown): unknown {
 	const text = JSON.stringify(details);
 	if (text.length <= 1500) return details;
 	return { truncated: true, preview: text.slice(0, 1500) };
+}
+
+/**
+ * 工具结果进事件流前的裁剪。联网搜索要在会话流里展示检索过程与来源超链接，按字段保留检索问题、实际检索词
+ * 与来源（工具已限 20 条），去掉只给模型看的归纳全文与提示语（全文在证据记录里）；其他工具超长时只留预览。
+ */
+export function toolEventDetails(tool: string, details: unknown): unknown {
+	if (tool !== "web_search" || !details || typeof details !== "object") return compactDetails(details);
+	const record = details as Record<string, unknown>;
+	return {
+		evidenceId: typeof record.evidenceId === "string" ? record.evidenceId : null,
+		query: typeof record.query === "string" ? record.query : null,
+		searchQueries: Array.isArray(record.searchQueries) ? record.searchQueries : [],
+		sources: Array.isArray(record.sources) ? record.sources : [],
+		remaining: typeof record.remaining === "number" ? record.remaining : null,
+		unavailable: record.unavailable === true,
+		reason: typeof record.reason === "string" ? record.reason : null,
+	};
 }
 
 // ---------------------------------------------------------------------------

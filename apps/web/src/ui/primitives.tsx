@@ -18,6 +18,19 @@ export const shortDate = (value: string | null | undefined) =>
 			)
 		: "-";
 
+/** 去掉平台附带的追踪片段（如 #ws_call_id=…），只显示可访问地址。 */
+export const cleanSourceUrl = (url: string): string =>
+	url.replace(/#(?:ws_call_id|call_id|ref|utm_[a-z]+)=[^#]*$/i, "").replace(/#$/, "");
+
+/** 来源网址的站点名（去掉 www.），解析失败时原样返回。 */
+export function sourceHost(url: string): string {
+	try {
+		return new URL(url).hostname.replace(/^www\./, "");
+	} catch {
+		return url;
+	}
+}
+
 export function downloadText(fileName: string, content: string, type: string): void {
 	const href = URL.createObjectURL(new Blob([content], { type }));
 	const anchor = document.createElement("a");

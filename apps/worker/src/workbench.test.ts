@@ -1,6 +1,13 @@
+import { randomBytes } from "node:crypto";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { type AgentSessionWaiting, migrateDatabase, openMemoryDatabase, type ScopeProposal } from "@geo/core";
-import { describe, expect, it, vi } from "vitest";
+import {
+	type AgentSessionWaiting,
+	migrateDatabase,
+	openMemoryDatabase,
+	type ScopeProposal,
+	writeEncryptedCredential,
+} from "@geo/core";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { runOneAgentJob } from "./agent-jobs";
 import {
 	answerQuestion,
@@ -10,8 +17,18 @@ import {
 	orderQuickCommands,
 	resumeWaitingSessions,
 	sendMessage,
+	toolEventDetails,
 	type WorkbenchSession,
 } from "./workbench";
+
+const previousMasterKey = process.env.GEO_MASTER_KEY;
+beforeAll(() => {
+	process.env.GEO_MASTER_KEY = randomBytes(32).toString("base64");
+});
+afterAll(() => {
+	if (previousMasterKey === undefined) delete process.env.GEO_MASTER_KEY;
+	else process.env.GEO_MASTER_KEY = previousMasterKey;
+});
 
 async function seedSession(
 	status = "idle",
@@ -371,6 +388,71 @@ describe("AI 工作台会话", () => {
 			await database.query("UPDATE agent_sessions SET web_search_enabled=true WHERE id='session'");
 			const enabled = await toolHarness(database, await loadTestSession(database));
 			expect(pick(enabled.tools, "web_search").description).toContain("本会话最多 30 次");
+		} finally {
+			await database.close();
+		}
+	});
+
+	it("联网搜索的工具事件保留检索问题、实际检索词与来源链接，只裁掉归纳全文", async () => {
+		const database = await seedSession();
+		try {
+			await writeEncryptedCredential(database, "hrouter_api_key", "hrouter-key-1234567890", "default");
+			await database.query(
+				`INSERT INTO settings (key,value) VALUES ('organization:default:hrouter_config','{"baseUrl":"https://hrouter.test/v1","model":"gpt-5.4","thinkingLevel":"low"}'::jsonb)`,
+			);
+			const session = await loadTestSession(database);
+			const fetchImpl = (async () =>
+				new Response(
+					JSON.stringify({
+						output: [
+							{ type: "web_search_call", status: "completed", action: { type: "search", query: "工业除尘 选型 问题" } },
+							{
+								type: "message",
+								role: "assistant",
+								content: [
+									{
+										type: "output_text",
+										text: "买家会问处理风量与售后。".repeat(200),
+										annotations: [
+											{ type: "url_citation", url: "https://example.com/guide", title: "选型指南" },
+											{ type: "url_citation", url: "https://example.com/faq", title: null },
+										],
+									},
+								],
+							},
+						],
+						usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+					}),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				)) as typeof fetch;
+			const tools = await createWorkbenchTools(
+				database,
+				session,
+				{ waiting: null, finished: null, plan: [], currentBatchId: null },
+				async () => undefined,
+				async () => undefined,
+				{ fetch: fetchImpl },
+			);
+			const result = await pick(tools, "web_search").execute("call", { query: "买家怎么问除尘设备" } as never);
+			const details = toolEventDetails("web_search", result.details) as Record<string, unknown>;
+			expect(details).toEqual({
+				evidenceId: expect.any(String),
+				query: "买家怎么问除尘设备",
+				searchQueries: ["工业除尘 选型 问题"],
+				sources: [
+					{ url: "https://example.com/guide", title: "选型指南" },
+					{ url: "https://example.com/faq", title: null },
+				],
+				remaining: 7,
+				unavailable: false,
+				reason: null,
+			});
+			expect(JSON.stringify(details)).not.toContain("处理风量");
+			// 其他工具的超长结果仍按预览截断，避免事件流被读证据/读项目的原文撑大。
+			expect(toolEventDetails("read_evidence", { answer: "证据".repeat(2000) })).toMatchObject({ truncated: true });
+			expect(
+				toolEventDetails("web_search", { unavailable: true, reason: "联网搜索失败", guidance: "改用本地证据" }),
+			).toEqual(expect.objectContaining({ unavailable: true, reason: "联网搜索失败", sources: [] }));
 		} finally {
 			await database.close();
 		}
