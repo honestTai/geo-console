@@ -46,7 +46,7 @@ Tauri 2 桌面客户端加载同一个工作台 URL，是所有角色的正式�
 | Provider 配置与密钥 | `apps/worker/src/providers.ts`、`packages/core/src/secrets.ts` | Settings、Capture Worker |
 | Agent 工具与审批 | `apps/worker/src/agent.ts`、`agent-jobs.ts` | Agent Worker、Web |
 | Agent 联网搜索证据 | `apps/worker/src/web-search.ts`（HRouter `web_search` 请求/解析/落库、`WEB_SEARCH_LIMITS` 配额与退化、按模型测试记录、竞品联网核实 `verifyCompetitors`）、`web_search_evidence` 与 `web_search_controls` migration | 工作台会话、`prompt_research/customer_profile` 草稿、建档分析、Settings、证据中心“联网搜索”分区 |
-| AI 工作台会话与协调 | `apps/worker/src/workbench.ts`（工具、`propose_questions` 候选与服务端确认写入、回合、协调器、计划步骤状态、快捷指令排序）、`agent_sessions/agent_session_events` migration | Agent Worker、Web Workbench |
+| AI 工作台会话与协调 | `apps/worker/src/workbench.ts`（工具、`propose_questions` 候选与服务端确认写入、回合、协调器、计划步骤状态、快捷指令排序、工具事件裁剪 `toolEventDetails`）、`agent_sessions/agent_session_events` migration | Agent Worker、Web Workbench（联网搜索合成 SearchCard 展示检索词与来源链接） |
 | 候选问题确认卡 | `apps/web/src/components/ScopeProposalCard.tsx`（可勾选/可编辑表格、竞品确认、知识库同步开关） | Workbench |
 | Agent 草稿展示与审批卡 | `apps/web/src/components/AgentDraft.tsx`（按用途分节渲染、`AgentDraftCard`）、`hooks/useEvidenceIndex.ts`（批次报告索引 + 项目联网搜索索引） | Diagnosis、Remediation、Report、Onboarding |
 | 优化文章 | `apps/worker/src/articles.ts`、`optimization_articles` 表、`agent.ts optimization_article` purpose | Web Articles、工作台 |

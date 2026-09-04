@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Button } from "../access";
 import { type AgentRun, agentStatusLabels, type EvidenceIndexEntry } from "../types";
 import { FormattedAnswer } from "../ui/markdown";
-import { type EvidenceOpener, EvidenceRef, IdChip } from "../ui/primitives";
+import { cleanSourceUrl, type EvidenceOpener, EvidenceRef, IdChip } from "../ui/primitives";
 import "./AgentDraft.css";
 
 export const agentToolLabels: Record<string, string> = {
@@ -55,10 +55,6 @@ export function agentRunDuration(run: AgentRun): string {
 	);
 	return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
 }
-
-/** 去掉平台附带的追踪片段（如 #ws_call_id=…），只显示可访问地址。 */
-export const cleanSourceUrl = (url: string): string =>
-	url.replace(/#(?:ws_call_id|call_id|ref|utm_[a-z]+)=[^#]*$/i, "").replace(/#$/, "");
 
 const priorityLabels: Record<string, string> = { high: "高优先级", medium: "中优先级", low: "低优先级" };
 const severityLabels: Record<string, string> = { high: "高", medium: "中", low: "低" };

@@ -3,11 +3,13 @@ import {
 	IconCheck,
 	IconCircleCheck,
 	IconCircleX,
+	IconExternalLink,
 	IconHourglassHigh,
 	IconLoader2,
 	IconPlus,
 	IconSparkles,
 	IconTool,
+	IconWorldSearch,
 } from "@tabler/icons-react";
 import { App, Checkbox, Input, Popconfirm, Radio, Select, Space, Steps, Switch, Tag, Tooltip } from "antd";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -28,7 +30,7 @@ import {
 } from "../types";
 import { FormattedAnswer } from "../ui/markdown";
 import { useWorkspaceNavigation } from "../ui/navigation";
-import { Empty, shortDate } from "../ui/primitives";
+import { cleanSourceUrl, Empty, shortDate, sourceHost } from "../ui/primitives";
 import { Page } from "./Page";
 import { type ScopeProposalAnswer, ScopeProposalCard } from "./ScopeProposalCard";
 import "./Workbench.css";
@@ -93,22 +95,6 @@ function describeToolEnd(tool: string, details: unknown): string | null {
 			return `现有 ${Array.isArray(value.current) ? value.current.length : 0} 个问题 · 建档候选 ${Array.isArray(value.pendingCandidates) ? value.pendingCandidates.length : 0} 个 · 知识库候选 ${Array.isArray(value.libraryCandidates) ? value.libraryCandidates.length : 0} 个`;
 		case "propose_questions":
 			return `等待你确认 ${value.questionCount ?? "?"} 个候选问题`;
-		case "web_search": {
-			if (value.unavailable) return "联网搜索不可用，已改用官网快照与知识库";
-			const sources = Array.isArray(value.sources) ? (value.sources as Array<{ url?: string }>) : [];
-			const domains = [
-				...new Set(
-					sources.flatMap((source) => {
-						try {
-							return source.url ? [new URL(source.url).hostname.replace(/^www\./, "")] : [];
-						} catch {
-							return [];
-						}
-					}),
-				),
-			].slice(0, 4);
-			return `「${String(value.query ?? "")}」· ${sources.length} 个来源${domains.length ? ` · ${domains.join("、")}` : ""}`;
-		}
 		default:
 			return null;
 	}
@@ -117,7 +103,18 @@ function describeToolEnd(tool: string, details: unknown): string | null {
 type Bubble =
 	| { kind: "user"; seq: number; text: string; at: string }
 	| { kind: "assistant"; seq: number; text: string; at: string; streaming: boolean }
-	| { kind: "tool"; seq: number; tool: string; status: "running" | "done" | "error"; detail: string | null; at: string }
+	| {
+			kind: "tool";
+			seq: number;
+			tool: string;
+			status: "running" | "done" | "error";
+			detail: string | null;
+			/** tool_start 带的调用参数；联网搜索在执行中就能显示正在检索的问题。 */
+			args: Record<string, unknown> | null;
+			/** tool_end 的结构化结果；只有联网搜索会按结构渲染，其余工具用 detail 一句话。 */
+			details: unknown;
+			at: string;
+	  }
 	| {
 			kind: "question";
 			seq: number;
@@ -205,7 +202,16 @@ function foldEvents(events: WorkbenchEvent[]): Bubble[] {
 				break;
 			}
 			case "tool_start":
-				bubbles.push({ kind: "tool", seq: event.seq, tool: String(payload.tool), status: "running", detail: null, at });
+				bubbles.push({
+					kind: "tool",
+					seq: event.seq,
+					tool: String(payload.tool),
+					status: "running",
+					detail: null,
+					args: payload.args && typeof payload.args === "object" ? (payload.args as Record<string, unknown>) : null,
+					details: null,
+					at,
+				});
 				break;
 			case "tool_end": {
 				const tool = String(payload.tool);
@@ -215,11 +221,22 @@ function foldEvents(events: WorkbenchEvent[]): Bubble[] {
 				const detail = payload.isError
 					? String(payload.details ?? "工具执行失败")
 					: describeToolEnd(tool, payload.details);
+				const details = payload.isError ? null : (payload.details ?? null);
 				if (open && open.kind === "tool") {
 					open.status = payload.isError ? "error" : "done";
 					open.detail = detail;
+					open.details = details;
 				} else
-					bubbles.push({ kind: "tool", seq: event.seq, tool, status: payload.isError ? "error" : "done", detail, at });
+					bubbles.push({
+						kind: "tool",
+						seq: event.seq,
+						tool,
+						status: payload.isError ? "error" : "done",
+						detail,
+						args: null,
+						details,
+						at,
+					});
 				break;
 			}
 			case "question":
@@ -427,20 +444,185 @@ function QuestionCard({
 }
 
 function ToolBubble({ bubble }: { bubble: Extract<Bubble, { kind: "tool" }> }) {
-	const icon =
-		bubble.status === "running" ? (
-			<IconLoader2 className="spin" size={15} />
-		) : bubble.status === "error" ? (
-			<IconCircleX size={15} />
-		) : (
-			<IconCircleCheck size={15} />
-		);
 	return (
 		<div className={`wb-tool ${bubble.status}`}>
-			<span className="wb-tool-icon">{icon}</span>
+			<span className="wb-tool-icon">{statusIcon(bubble.status)}</span>
 			<span className="wb-tool-name">{toolLabels[bubble.tool] ?? bubble.tool}</span>
 			{bubble.detail && <span className="wb-tool-detail">{bubble.detail}</span>}
 		</div>
+	);
+}
+
+type ToolBubbleData = Extract<Bubble, { kind: "tool" }>;
+type StreamRow = Bubble | { kind: "search"; seq: number; items: ToolBubbleData[] };
+
+/** 连续的几次联网搜索合成一张“检索过程”卡；中间隔着回复或别的工具就另起一张。 */
+function groupSearches(bubbles: Bubble[]): StreamRow[] {
+	const rows: StreamRow[] = [];
+	for (const bubble of bubbles) {
+		const last = rows.at(-1);
+		if (bubble.kind !== "tool" || bubble.tool !== "web_search") rows.push(bubble);
+		else if (last?.kind === "search") last.items.push(bubble);
+		else rows.push({ kind: "search", seq: bubble.seq, items: [bubble] });
+	}
+	return rows;
+}
+
+type SearchSource = { url: string; title: string | null };
+type SearchDetails = {
+	evidenceId: string | null;
+	query: string | null;
+	searchQueries: string[];
+	sources: SearchSource[];
+	unavailable: boolean;
+	reason: string | null;
+};
+
+/** tool_end 里的联网搜索结果；旧会话的事件可能已被整体截断，此时只能显示 tool_start 里的检索问题。 */
+function readSearchDetails(details: unknown): SearchDetails | null {
+	if (!details || typeof details !== "object") return null;
+	const value = details as Record<string, unknown>;
+	if (value.truncated) return null;
+	const sources = Array.isArray(value.sources) ? value.sources : [];
+	return {
+		evidenceId: typeof value.evidenceId === "string" ? value.evidenceId : null,
+		query: typeof value.query === "string" ? value.query : null,
+		searchQueries: Array.isArray(value.searchQueries)
+			? value.searchQueries.filter((item): item is string => typeof item === "string")
+			: [],
+		sources: sources.flatMap((source) => {
+			const record = source as { url?: unknown; title?: unknown } | null;
+			return typeof record?.url === "string"
+				? [{ url: record.url, title: typeof record.title === "string" && record.title ? record.title : null }]
+				: [];
+		}),
+		unavailable: value.unavailable === true,
+		reason: typeof value.reason === "string" ? value.reason : null,
+	};
+}
+
+const SOURCE_PREVIEW = 5;
+
+function statusIcon(status: ToolBubbleData["status"], size = 15) {
+	if (status === "running") return <IconLoader2 className="spin" size={size} />;
+	if (status === "error") return <IconCircleX size={size} />;
+	return <IconCircleCheck size={size} />;
+}
+
+/** 联网不可用是工具的非错误结果，但对用户来说这次搜索没成功，按失败样式显示。 */
+function searchItemStatus(item: ToolBubbleData): ToolBubbleData["status"] {
+	return readSearchDetails(item.details)?.unavailable ? "error" : item.status;
+}
+
+const RAW_UUID = /\b([0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+
+/** 来源超链接列表：默认只放前几条，其余折叠，避免几十个链接把对话流淹没。 */
+function SourceList({ sources }: { sources: SearchSource[] }) {
+	const [expanded, setExpanded] = useState(false);
+	if (!sources.length) return null;
+	const visible = expanded ? sources : sources.slice(0, SOURCE_PREVIEW);
+	return (
+		<>
+			<ol className="wb-search-sources">
+				{visible.map((source) => (
+					<li key={source.url}>
+						<a
+							className="wb-search-source"
+							href={cleanSourceUrl(source.url)}
+							target="_blank"
+							rel="noreferrer"
+							title={cleanSourceUrl(source.url)}
+						>
+							<IconExternalLink size={13} />
+							<span className="wb-search-source-title">{source.title ?? cleanSourceUrl(source.url)}</span>
+							<span className="wb-search-source-host">{sourceHost(source.url)}</span>
+						</a>
+					</li>
+				))}
+			</ol>
+			{sources.length > SOURCE_PREVIEW && (
+				<Button variant="link" size="small" className="wb-search-more" onClick={() => setExpanded(!expanded)}>
+					{expanded ? "收起来源" : `还有 ${sources.length - SOURCE_PREVIEW} 个来源`}
+				</Button>
+			)}
+		</>
+	);
+}
+
+/** 一次联网搜索：检索问题、可跳转的证据 ID、Agent 声明的目的、模型实际发出的检索词与来源超链接。 */
+function SearchItem({ item, onOpenEvidence }: { item: ToolBubbleData; onOpenEvidence(evidenceId: string): void }) {
+	const details = readSearchDetails(item.details);
+	const status = searchItemStatus(item);
+	const query = details?.query ?? (typeof item.args?.query === "string" ? item.args.query : "");
+	const purpose = typeof item.args?.purpose === "string" ? item.args.purpose : null;
+	const evidenceId = details?.evidenceId ?? null;
+	const sources = details?.sources ?? [];
+	// 检索词与提问完全相同时不再重复一行。
+	const terms = (details?.searchQueries ?? []).filter((term) => term !== query);
+	// 失败原因里带的记录 UUID 缩成前 8 位，与回复里的“[证据 xxxxxxxx]”对得上。
+	const failure = item.status === "error" ? item.detail : details?.unavailable ? details.reason : null;
+	return (
+		<li className={`wb-search-item ${status}`}>
+			<div className="wb-search-query">
+				<span className="wb-tool-icon">{statusIcon(status)}</span>
+				<strong>{query ? `「${query}」` : "联网搜索"}</strong>
+				{evidenceId && (
+					<Tooltip title="在证据中心查看这条联网搜索的归纳全文与来源">
+						<button type="button" className="wb-search-evidence" onClick={() => onOpenEvidence(evidenceId)}>
+							证据 {evidenceId.slice(0, 8)}
+						</button>
+					</Tooltip>
+				)}
+				{item.status === "running" && <span className="wb-search-state">搜索中…</span>}
+			</div>
+			{purpose && <p className="wb-search-purpose">{purpose}</p>}
+			{details?.unavailable && <p className="wb-search-note error">联网搜索不可用，已改用官网快照与知识库</p>}
+			{failure && <p className="wb-search-note error">{failure.replace(RAW_UUID, "$1")}</p>}
+			{terms.length > 0 && (
+				<div className="wb-search-terms">
+					<span className="wb-search-terms-label">实际检索词</span>
+					{terms.map((term) => (
+						<span className="wb-search-term" key={term}>
+							{term}
+						</span>
+					))}
+				</div>
+			)}
+			<SourceList sources={sources} />
+			{status === "done" && details && !sources.length && (
+				<p className="wb-search-note">搜索已完成，但模型没有标注来源网址；归纳文本可在证据中心查看。</p>
+			)}
+		</li>
+	);
+}
+
+/** 联网搜索卡：像 Codex 那样把每次检索、检索词与来源链接按顺序列出来，而不是只报一个来源数。 */
+function SearchCard({ items, onOpenEvidence }: { items: ToolBubbleData[]; onOpenEvidence(evidenceId: string): void }) {
+	const running = items.some((item) => item.status === "running");
+	const failed = !running && items.every((item) => searchItemStatus(item) === "error");
+	const sourceCount = new Set(items.flatMap((item) => readSearchDetails(item.details)?.sources.map((s) => s.url) ?? []))
+		.size;
+	const summary = [
+		items.length > 1 ? `${items.length} 次搜索` : null,
+		sourceCount ? `${sourceCount} 个来源` : running ? "搜索中…" : null,
+	]
+		.filter(Boolean)
+		.join(" · ");
+	return (
+		<section className={`wb-search ${running ? "running" : failed ? "error" : "done"}`}>
+			<header className="wb-search-head">
+				<span className="wb-tool-icon">
+					<IconWorldSearch size={15} />
+				</span>
+				<span className="wb-tool-name">联网搜索</span>
+				{summary && <span className="wb-tool-detail">{summary}</span>}
+			</header>
+			<ol className="wb-search-list">
+				{items.map((item) => (
+					<SearchItem item={item} onOpenEvidence={onOpenEvidence} key={item.seq} />
+				))}
+			</ol>
+		</section>
 	);
 }
 
@@ -572,6 +754,7 @@ export function Workbench({
 		if (currentBatchId) void refresh().catch(() => undefined);
 	}, [currentBatchId, refresh]);
 	const bubbles = useMemo(() => foldEvents(events), [events]);
+	const rows = useMemo(() => groupSearches(bubbles), [bubbles]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: 事件数量变化时滚到底部。
 	useEffect(() => {
 		scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -921,7 +1104,7 @@ export function Workbench({
 				<div className="wb-body">
 					<div className="wb-stream" ref={scrollRef}>
 						{/* biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Bubble kinds render inline to keep event ordering visible. */}
-						{bubbles.map((bubble, index) => {
+						{rows.map((bubble, index) => {
 							const key = `${bubble.seq}-${index}`;
 							if (bubble.kind === "user")
 								return (
@@ -939,6 +1122,14 @@ export function Workbench({
 											<FormattedAnswer value={humanizeEvidenceRefs(bubble.text || "…")} />
 										</div>
 									</div>
+								);
+							if (bubble.kind === "search")
+								return (
+									<SearchCard
+										items={bubble.items}
+										onOpenEvidence={(id) => navigation.openEvidence(id, session.current_batch_id, "web_search")}
+										key={key}
+									/>
 								);
 							if (bubble.kind === "tool") return <ToolBubble bubble={bubble} key={key} />;
 							if (bubble.kind === "question")
