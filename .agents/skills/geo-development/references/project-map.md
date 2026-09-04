@@ -42,7 +42,7 @@ Tauri 2 桌面客户端加载同一个工作台 URL，是所有角色的正式�
 | 结构化运行日志 | `packages/logging`、`apps/log-service`、`service_logs` migration | API、Capture/Agent/Report Worker、Web 日志中心 |
 | 行业问题知识库 | `apps/worker/src/knowledge-base.ts`、`packages/core/src/schema.ts` | onboarding、Web 知识库 |
 | 配置导入导出（平台设置/知识库/监测范围） | `apps/worker/src/config-transfer.ts`、`apps/web/src/ui/transfer.tsx`、`apps/web/src/ui/scope-bundle.ts` | Settings、知识库、ScopeEditor |
-| 项目、批次、诊断、整改、漂移 | `apps/worker/src/service.ts` | API、Web |
+| 项目、批次、诊断、整改、漂移 | `apps/worker/src/service.ts` | API、Web（整改中心任务/Agent 草稿分面板切换） |
 | 官网抓取与审计 | `apps/worker/src/crawler.ts` | onboarding、audit、diagnosis、verification |
 | Provider 配置与密钥 | `apps/worker/src/providers.ts`、`packages/core/src/secrets.ts` | Settings、Capture Worker |
 | Agent 工具与审批 | `apps/worker/src/agent.ts`、`agent-jobs.ts` | Agent Worker、Web |

@@ -1,5 +1,5 @@
 import { IconCheck, IconFileText, IconPlus, IconTrash } from "@tabler/icons-react";
-import { Alert, Card, DatePicker, Input, Popconfirm, Select, Space, Tag } from "antd";
+import { Alert, Card, DatePicker, Input, Popconfirm, Segmented, Select, Space, Tag } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useState } from "react";
 import { Button, useAgentRunPolling, usePermission } from "../access";
@@ -16,7 +16,7 @@ import {
 	taskStatusLabels,
 } from "../types";
 import { useWorkspaceNavigation } from "../ui/navigation";
-import { Empty, Pagination, SectionTitle, shortDate } from "../ui/primitives";
+import { Empty, Pagination, shortDate } from "../ui/primitives";
 import { AgentDraftCard } from "./AgentDraft";
 import { Page } from "./Page";
 import "./Remediation.css";
@@ -53,6 +53,12 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 	// 草稿引用的证据按其批次翻译；待审批草稿通常都来自当前选中的完成批次
 	const draftBatchId = activeRuns.find((run) => run.batch_id)?.batch_id ?? selectedBatch ?? null;
 	const evidenceIndex = useEvidenceIndex(draftBatchId, project.id);
+	// 草稿与任务改成互斥面板，避免长页面上下堆叠；有待审批草稿时默认停在草稿面板提醒先处理。
+	const [panel, setPanel] = useState<"drafts" | "tasks">("tasks");
+	const [panelTouched, setPanelTouched] = useState(false);
+	useEffect(() => {
+		if (!panelTouched && activeRuns.length > 0) setPanel("drafts");
+	}, [panelTouched, activeRuns.length]);
 	async function call(id: string, action: () => Promise<unknown>) {
 		setBusy(id);
 		setError(null);
@@ -114,43 +120,60 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 			}
 		>
 			{error && <Alert type="error" showIcon title={error} />}
-			{activeRuns.length > 0 && (
+			<Segmented
+				className="remediation-panel-switch"
+				value={panel}
+				onChange={(value) => {
+					setPanelTouched(true);
+					setPanel(value as "drafts" | "tasks");
+				}}
+				options={[
+					{ value: "tasks", label: `整改任务 ${project.tasks.length || ""}` },
+					{ value: "drafts", label: `Agent 草稿 ${activeRuns.length || ""}` },
+				]}
+			/>
+			{panel === "drafts" &&
+				(activeRuns.length === 0 ? (
+					<Empty title="没有待处理的 Agent 草稿" detail="点右上角「HRouter Agent 规划草稿」生成整改规划或内容简报。" />
+				) : (
+					<>
+						<div className="agent-draft-list">
+							{activeRuns.map((run) => (
+								<AgentDraftCard
+									key={run.id}
+									run={run}
+									evidenceIndex={evidenceIndex}
+									onOpenEvidence={(id, kind) => navigation.openEvidence(id, run.batch_id, kind)}
+									tasks={project.tasks}
+									busy={busy === run.id}
+									onReject={() => call(run.id, () => post(`/api/agent-runs/${run.id}/reject`))}
+									onApprove={() => call(run.id, () => post(`/api/agent-runs/${run.id}/approve`))}
+								/>
+							))}
+						</div>
+						<Pagination {...agentRunsPage} onPage={(page) => void agentRunsPage.reload(page)} />
+					</>
+				))}
+			{panel === "tasks" && (
 				<>
-					<SectionTitle title="Agent 草稿" count={activeRuns.length} description="批准后才会写入任务或内容简报。" />
-					<div className="agent-draft-list">
-						{activeRuns.map((run) => (
-							<AgentDraftCard
-								key={run.id}
-								run={run}
-								evidenceIndex={evidenceIndex}
-								onOpenEvidence={(id, kind) => navigation.openEvidence(id, run.batch_id, kind)}
-								tasks={project.tasks}
-								busy={busy === run.id}
-								onReject={() => call(run.id, () => post(`/api/agent-runs/${run.id}/reject`))}
-								onApprove={() => call(run.id, () => post(`/api/agent-runs/${run.id}/approve`))}
-							/>
-						))}
-					</div>
-					<Pagination {...agentRunsPage} onPage={(page) => void agentRunsPage.reload(page)} />
+					{project.tasks.length === 0 ? (
+						<Empty title="还没有整改任务" detail="先完成诊断，再把有证据的结论转换为可跟踪任务。" />
+					) : (
+						<div className="remediation-list">
+							{visibleTasks.map((task) => (
+								<TaskItem key={task.id} task={task} busy={busy === task.id} act={(action) => call(task.id, action)} />
+							))}
+						</div>
+					)}
+					<Pagination
+						page={taskPage}
+						pageSize={DEFAULT_PAGE_SIZE}
+						total={project.tasks.length}
+						totalPages={Math.max(1, Math.ceil(project.tasks.length / DEFAULT_PAGE_SIZE))}
+						onPage={setTaskPage}
+					/>
 				</>
 			)}
-			<SectionTitle title="整改任务" count={project.tasks.length || undefined} />
-			{project.tasks.length === 0 ? (
-				<Empty title="还没有整改任务" detail="先完成诊断，再把有证据的结论转换为可跟踪任务。" />
-			) : (
-				<div className="remediation-list">
-					{visibleTasks.map((task) => (
-						<TaskItem key={task.id} task={task} busy={busy === task.id} act={(action) => call(task.id, action)} />
-					))}
-				</div>
-			)}
-			<Pagination
-				page={taskPage}
-				pageSize={DEFAULT_PAGE_SIZE}
-				total={project.tasks.length}
-				totalPages={Math.max(1, Math.ceil(project.tasks.length / DEFAULT_PAGE_SIZE))}
-				onPage={setTaskPage}
-			/>
 		</Page>
 	);
 }
