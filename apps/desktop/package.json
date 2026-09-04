@@ -8,6 +8,7 @@
 		"dev": "tauri dev",
 		"build": "cargo check --manifest-path src-tauri/Cargo.toml",
 		"bundle": "tauri build",
+		"prepare-frontend": "node scripts/prepare-frontend.mjs",
 		"check-types": "tsc --noEmit",
 		"test": "vitest run"
 	},
