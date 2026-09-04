@@ -26,6 +26,19 @@
 	font-weight: 650;
 }
 
+.page-crumb-link {
+	border: 0;
+	background: transparent;
+	padding: 0;
+	font: inherit;
+	color: var(--ink-3);
+	cursor: pointer;
+}
+
+.page-crumb-link:hover {
+	color: var(--brand-strong);
+}
+
 .page-title.ant-typography {
 	margin: 0 0 6px;
 	font-size: 22px;

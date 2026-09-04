@@ -71,7 +71,6 @@ export function AppShell({
 	const [collapsed, setCollapsed] = useState(false);
 	const [drawerOpen, setDrawerOpen] = useState(false);
 	const menuItems = useMemo(() => buildMenuItems(navigation, collapsed && !narrow), [navigation, collapsed, narrow]);
-	const currentView = navigation.find((item) => item.id === view);
 	const menu = (
 		<ConfigProvider
 			theme={{
@@ -171,7 +170,6 @@ export function AppShell({
 							)}
 							{!project && subtitle && <span className="topbar-subtitle">{subtitle}</span>}
 						</div>
-						{currentView && <span className="topbar-view">{currentView.label}</span>}
 					</div>
 					<div className="topbar-right">
 						<Tooltip title="打开操作手册与帮助中心">

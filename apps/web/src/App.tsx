@@ -127,24 +127,6 @@ export function App() {
 	const [evidenceFocus, setEvidenceFocus] = useState<EvidenceFocus>(null);
 	const [batchFocus, setBatchFocus] = useState<string | null>(null);
 	const [workbenchDraft, setWorkbenchDraft] = useState<string | null>(null);
-	const workspaceNavigation = useMemo<WorkspaceNavigation>(
-		() => ({
-			openView: setView,
-			openEvidence: (evidenceId, batchId = null, kind = "capture") => {
-				setEvidenceFocus({ evidenceId, batchId, kind });
-				setView("evidence");
-			},
-			openBatch: (batchId) => {
-				setBatchFocus(batchId);
-				setView("monitor");
-			},
-			openWorkbench: (message) => {
-				setWorkbenchDraft(message ?? null);
-				setView("workbench");
-			},
-		}),
-		[],
-	);
 	const availableViews = useMemo(
 		() =>
 			navigation
@@ -162,6 +144,31 @@ export function App() {
 				})
 				.filter((item): item is ShellNavigationItem => item !== null),
 		[navigation],
+	);
+	const workspaceNavigation = useMemo<WorkspaceNavigation>(
+		() => ({
+			openView: setView,
+			openProjectList: () => {
+				setProjectId(null);
+				setProject(null);
+			},
+			panelViews: availableViews
+				.filter((item) => !managementViews.includes(item.id))
+				.map((item) => ({ id: item.id, label: item.label })),
+			openEvidence: (evidenceId, batchId = null, kind = "capture") => {
+				setEvidenceFocus({ evidenceId, batchId, kind });
+				setView("evidence");
+			},
+			openBatch: (batchId) => {
+				setBatchFocus(batchId);
+				setView("monitor");
+			},
+			openWorkbench: (message) => {
+				setWorkbenchDraft(message ?? null);
+				setView("workbench");
+			},
+		}),
+		[availableViews],
 	);
 
 	const loadProjects = useCallback(async () => {
