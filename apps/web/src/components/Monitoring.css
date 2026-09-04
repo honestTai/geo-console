@@ -18,6 +18,10 @@
 	margin: 12px 0;
 }
 
+.monitor-panel-switch {
+	margin-bottom: var(--space-5);
+}
+
 .monitor-alert-section {
 	margin: 14px 0;
 }

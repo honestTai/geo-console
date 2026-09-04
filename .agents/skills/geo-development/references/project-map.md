@@ -75,7 +75,7 @@ Tauri 2 桌面客户端加载同一个工作台 URL，是所有角色的正式�
 
 ## Web 工作台
 
-`App.tsx` 的组件注册表只负责把服务端 `navigation_key` 映射到真实组件（含 `workbench`、`articles`），并通过 `ui/navigation.tsx` 提供跨视图跳转（证据定位、批次定位 `openBatch`、工作台预填指令）；标签、顺序和可见性来自 `/api/rbac/navigation`。切换业务视图会重新拉取项目，AI 监测页停留期间定期刷新批次列表，工作台拿到 `current_batch_id` 时立即刷新——后台创建的批次不依赖整页刷新。`useAgentRunPolling` 可指定触发轮询的 run 状态（文章页把 `awaiting_approval` 也算进去），建档页在竞品核实 `pending` 期间轮询项目，报告页 PDF 前台等待超时后转入快照轮询。工作台包含业务页面、机构管理、超管机构状态和分层 RBAC 编辑器。运营列表统一分页，运行日志使用不累积全部结果的游标翻页。证据回答使用安全结构化 Markdown；报告使用单一可续跑工作流展示叙述、质检、冻结和文档状态。
+`App.tsx` 的组件注册表只负责把服务端 `navigation_key` 映射到真实组件（含 `workbench`、`articles`），并通过 `ui/navigation.tsx` 提供跨视图跳转（证据定位、批次定位 `openBatch`、工作台预填指令）；标签、顺序和可见性来自 `/api/rbac/navigation`。切换业务视图会重新拉取项目，AI 监测页停留期间定期刷新批次列表，工作台拿到 `current_batch_id` 时立即刷新——后台创建的批次不依赖整页刷新。AI 监测页内“批次记录/同配置趋势/周期监测/调用成本”用 Segmented 分面板互斥展示（Monitoring.tsx，监测任务活动条与漂移告警保持常驻）。`useAgentRunPolling` 可指定触发轮询的 run 状态（文章页把 `awaiting_approval` 也算进去），建档页在竞品核实 `pending` 期间轮询项目，报告页 PDF 前台等待超时后转入快照轮询。工作台包含业务页面、机构管理、超管机构状态和分层 RBAC 编辑器。运营列表统一分页，运行日志使用不累积全部结果的游标翻页。证据回答使用安全结构化 Markdown；报告使用单一可续跑工作流展示叙述、质检、冻结和文档状态。
 
 图表、KPI 与平台卡只消费真实 API 响应；无批次时使用空状态，不能把视觉验收 fixture 放入 `apps/web/public` 或正式构建。UI 不再是单文件应用壳：`App.tsx` 只做装配，`components/` 一视图一文件，共享类型/权限/分页/反馈分别收敛在 `types.ts`、`access.tsx`、`ui/primitives.tsx`、`hooks/`;UI 控件统一走 antd 6，拆分与选用规则见 `.agents/skills/geo-development/references/frontend.md`。视觉纪律:品牌绿只用于主按钮/链接/选中态/logo,其余静态装饰一律中性灰,内容区次级分组小节平铺,不用嵌套 Tabs/Collapse。新增共享业务规则时不要继续堆入组件，应放回拥有该规则的 package/worker service。
 

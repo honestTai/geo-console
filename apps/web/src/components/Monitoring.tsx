@@ -13,6 +13,7 @@ import {
 	Form,
 	Popover,
 	Progress,
+	Segmented,
 	Select,
 	Switch,
 	Table,
@@ -82,6 +83,182 @@ export function captureLogMessage(capture: Capture): string {
 const costOperationLabels: Record<string, string> = {
 	hrouter_gpt: "GPT 分析",
 };
+
+/** 周期监测面板：启用开关 + 周期/重复次数/平台表单。 */
+function SchedulePanel({
+	schedule,
+	enabled,
+	onToggle,
+	frequencyDays,
+	onFrequencyChange,
+	repeats,
+	onRepeatsChange,
+	platforms,
+	onPlatformsChange,
+	busy,
+	onSave,
+}: {
+	schedule: MonitoringSchedule | null;
+	enabled: boolean;
+	onToggle(enabled: boolean): void;
+	frequencyDays: number;
+	onFrequencyChange(days: number): void;
+	repeats: number;
+	onRepeatsChange(repeats: number): void;
+	platforms: ProviderId[];
+	onPlatformsChange(platforms: ProviderId[]): void;
+	busy: boolean;
+	onSave(): void;
+}) {
+	return (
+		<>
+			<SectionTitle
+				title={
+					<>
+						<IconChartLine size={16} /> 周期监测
+					</>
+				}
+				description="云端 Worker 到期后冻结范围和平台配置，按时间窗口调用已启用 API。"
+				extra={
+					<span className="schedule-summary">
+						<Tag>{enabled ? "已启用" : "未启用"}</Tag>
+						下一次运行 {date(schedule?.next_run_at)}
+					</span>
+				}
+			/>
+			<div className="schedule-section">
+				<ScheduleFailureAlert schedule={schedule} />
+				<p className="schedule-hint">
+					<Switch
+						checked={enabled}
+						checkedChildren="启用"
+						unCheckedChildren="停用"
+						onChange={onToggle}
+					/>
+					{enabled ? "已启用自动监测" : "启用后按周期自动创建复测批次"}
+				</p>
+				<Form layout="inline" className="schedule-form">
+					<Form.Item label="运行周期">
+						<Select
+							className="schedule-select"
+							value={frequencyDays}
+							onChange={onFrequencyChange}
+							options={[
+								{ value: 1, label: "每天" },
+								{ value: 7, label: "每周" },
+								{ value: 14, label: "每两周" },
+								{ value: 30, label: "每月" },
+							]}
+						/>
+					</Form.Item>
+					<Form.Item label="重复次数">
+						<Select
+							className="schedule-select"
+							value={repeats}
+							onChange={onRepeatsChange}
+							options={[1, 2, 3, 5].map((value) => ({ value, label: `${value} 次` }))}
+						/>
+					</Form.Item>
+					<Form.Item label="监测平台">
+						<PlatformCheckboxes value={platforms} onChange={onPlatformsChange} />
+					</Form.Item>
+					<Form.Item>
+						<Button permission="monitor.schedule" variant="secondary" busy={busy} disabled={!platforms.length} onClick={onSave}>
+							保存计划
+						</Button>
+					</Form.Item>
+				</Form>
+			</div>
+		</>
+	);
+}
+
+/** 待处理漂移告警区块：无告警时不占位。 */
+function DriftAlertSection({
+	alerts,
+	page,
+	onPage,
+	onAcknowledge,
+}: {
+	alerts: DriftAlert[];
+	page: Paginated<DriftAlert>;
+	onPage(page: number): void;
+	onAcknowledge(alert: DriftAlert): void;
+}) {
+	if (alerts.length === 0) return null;
+	const columns: TableProps<DriftAlert>["columns"] = [
+		{ title: "平台", dataIndex: "provider_id", render: (value: string) => providerLabel(value) },
+		{ title: "指标", dataIndex: "metric" },
+		{
+			title: "变化",
+			render: (_, alert) => `${percentage(alert.previous_value)} → ${percentage(alert.current_value)}`,
+		},
+		{ title: "关联证据", render: (_, alert) => `${alert.evidence_ids.length} 条` },
+		{ title: "时间", dataIndex: "created_at", render: (value: string) => date(value) },
+		{
+			title: "操作",
+			render: (_, alert) => (
+				<Button permission="monitor.run" variant="ghost" onClick={() => onAcknowledge(alert)}>
+					确认
+				</Button>
+			),
+		},
+	];
+	return (
+		<div className="monitor-alert-section">
+			<SectionTitle
+				title={
+					<>
+						<IconAlertTriangle size={16} /> 待处理漂移告警
+					</>
+				}
+				count={alerts.length}
+			/>
+			<Table<DriftAlert> rowKey="id" size="small" columns={columns} dataSource={alerts} pagination={false} />
+			<Pagination {...page} onPage={onPage} />
+		</div>
+	);
+}
+
+/** 调用成本面板：按平台与用途的请求/Token 汇总卡。 */
+function CostsPanel({ costs }: { costs: CostGroup[] }) {
+	return (
+		<>
+			<SectionTitle title="调用成本" description="按平台与用途汇总的请求次数与 Token；供应商未返回费用时不估算。" />
+			{costs.length === 0 ? (
+				<Empty title="还没有调用记录" detail="运行监测或 Agent 任务后，这里按平台与用途汇总请求次数与 Token。" />
+			) : (
+				<div className="cost-strip">
+					{costs.map((group) => (
+						<div key={`${group.providerId}-${group.operation}`}>
+							<span>
+								{costOperationLabels[group.providerId] ?? providerLabel(group.providerId)}
+								{group.operation && group.operation !== "capture" ? ` · ${group.operation.replace("agent:", "")}` : ""}
+							</span>
+							<b>
+								{group.requests} 次请求 · {group.totalTokens.toLocaleString("zh-CN")} Token
+							</b>
+							<small>
+								{group.costKnownRequests === group.requests
+									? `已知费用 $${(group.knownCostMicros / 1_000_000).toFixed(4)}`
+									: "供应商未返回完整费用"}
+							</small>
+						</div>
+					))}
+				</div>
+			)}
+		</>
+	);
+}
+
+/** 同配置趋势面板：未选批次或没有可比批次时给空态。 */
+function TrendsPanel({ trends }: { trends: TrendResponse | null }) {
+	if (!trends)
+		return (
+			<Empty title="还没有同配置趋势" detail="先在批次记录里选择一个批次；只纳入冻结配置哈希一致的批次，配置变化不会混入趋势。" />
+		);
+	return <TrendChart trends={trends} />;
+}
 
 /** 周期监测“已启用”但到期未能创建批次时的提示：不能让计划静默空转几周。 */
 function ScheduleFailureAlert({ schedule }: { schedule: MonitoringSchedule | null }) {
@@ -203,6 +380,8 @@ export function Monitoring({
 	const visibleBatches = project.batches.slice((batchPage - 1) * BATCH_PAGE_SIZE, batchPage * BATCH_PAGE_SIZE);
 	const [batch, setBatch] = useState<Batch | null>(null);
 	const [trends, setTrends] = useState<TrendResponse | null>(null);
+	// 调用成本/周期监测/批次记录/同配置趋势分面板互斥展示，避免长页堆叠。
+	const [panel, setPanel] = useState<"batches" | "trends" | "schedule" | "costs">("batches");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [alertsPage, setAlertsPage] = useState<Paginated<DriftAlert>>({
@@ -321,24 +500,6 @@ export function Monitoring({
 		}
 	}
 	const pendingAlerts = alerts.filter((alert) => !alert.acknowledged_at);
-	const alertColumns: TableProps<DriftAlert>["columns"] = [
-		{ title: "平台", dataIndex: "provider_id", render: (value: string) => providerLabel(value) },
-		{ title: "指标", dataIndex: "metric" },
-		{
-			title: "变化",
-			render: (_, alert) => `${percentage(alert.previous_value)} → ${percentage(alert.current_value)}`,
-		},
-		{ title: "关联证据", render: (_, alert) => `${alert.evidence_ids.length} 条` },
-		{ title: "时间", dataIndex: "created_at", render: (value: string) => date(value) },
-		{
-			title: "操作",
-			render: (_, alert) => (
-				<Button permission="monitor.run" variant="ghost" onClick={() => acknowledgeAlert(alert)}>
-					确认
-				</Button>
-			),
-		},
-	];
 	return (
 		<Page
 			breadcrumb={project.name}
@@ -417,124 +578,51 @@ export function Monitoring({
 				}
 			/>
 			{error && <Alert className="monitor-error" type="error" showIcon title={error} />}
-			{pendingAlerts.length > 0 && (
-				<div className="monitor-alert-section">
+			<DriftAlertSection
+				alerts={pendingAlerts}
+				page={alertsPage}
+				onPage={(page) => setAlertsPage((current) => ({ ...current, page }))}
+				onAcknowledge={acknowledgeAlert}
+			/>
+			<Segmented
+				className="monitor-panel-switch"
+				value={panel}
+				onChange={(value) => setPanel(value as typeof panel)}
+				options={[
+					{ value: "batches", label: `批次记录 ${project.batches.length || ""}` },
+					{ value: "trends", label: "同配置趋势" },
+					{ value: "schedule", label: "周期监测" },
+					{ value: "costs", label: `调用成本 ${costs.length || ""}` },
+				]}
+			/>
+			{panel === "costs" && <CostsPanel costs={costs} />}
+			{panel === "schedule" && (
+				<SchedulePanel
+					schedule={project.monitoringSchedule}
+					enabled={scheduleEnabled}
+					onToggle={setScheduleEnabled}
+					frequencyDays={frequencyDays}
+					onFrequencyChange={setFrequencyDays}
+					repeats={scheduleRepeats}
+					onRepeatsChange={setScheduleRepeats}
+					platforms={schedulePlatforms}
+					onPlatformsChange={setSchedulePlatforms}
+					busy={busy}
+					onSave={saveSchedule}
+				/>
+			)}
+			{panel === "batches" && (
+				<>
 					<SectionTitle
-						title={
-							<>
-								<IconAlertTriangle size={16} /> 待处理漂移告警
-							</>
-						}
-						count={pendingAlerts.length}
+						title="批次记录"
+						count={project.batches.length || undefined}
+						description="选择批次查看指标与趋势；复测只能以正式基线为锚点。"
 					/>
-					<Table<DriftAlert>
-						rowKey="id"
-						size="small"
-						columns={alertColumns}
-						dataSource={pendingAlerts}
-						pagination={false}
-					/>
-					<Pagination {...alertsPage} onPage={(page) => setAlertsPage((current) => ({ ...current, page }))} />
-				</div>
-			)}
-			{costs.length > 0 && (
-				<>
-					<SectionTitle title="调用成本" description="按平台与用途汇总的请求次数与 Token；供应商未返回费用时不估算。" />
-					<div className="cost-strip">
-						{costs.map((group) => (
-							<div key={`${group.providerId}-${group.operation}`}>
-								<span>
-									{costOperationLabels[group.providerId] ?? providerLabel(group.providerId)}
-									{group.operation && group.operation !== "capture"
-										? ` · ${group.operation.replace("agent:", "")}`
-										: ""}
-								</span>
-								<b>
-									{group.requests} 次请求 · {group.totalTokens.toLocaleString("zh-CN")} Token
-								</b>
-								<small>
-									{group.costKnownRequests === group.requests
-										? `已知费用 $${(group.knownCostMicros / 1_000_000).toFixed(4)}`
-										: "供应商未返回完整费用"}
-								</small>
-							</div>
-						))}
-					</div>
-				</>
-			)}
-			<SectionTitle
-				title={
-					<>
-						<IconChartLine size={16} /> 周期监测
-					</>
-				}
-				description="云端 Worker 到期后冻结范围和平台配置，按时间窗口调用已启用 API。"
-				extra={
-					<span className="schedule-summary">
-						<Tag>{scheduleEnabled ? "已启用" : "未启用"}</Tag>
-						下一次运行 {date(project.monitoringSchedule?.next_run_at)}
-					</span>
-				}
-			/>
-			<div className="schedule-section">
-				<ScheduleFailureAlert schedule={project.monitoringSchedule} />
-				<p className="schedule-hint">
-					<Switch
-						checked={scheduleEnabled}
-						checkedChildren="启用"
-						unCheckedChildren="停用"
-						onChange={setScheduleEnabled}
-					/>
-					{scheduleEnabled ? "已启用自动监测" : "启用后按周期自动创建复测批次"}
-				</p>
-				<Form layout="inline" className="schedule-form">
-					<Form.Item label="运行周期">
-						<Select
-							className="schedule-select"
-							value={frequencyDays}
-							onChange={setFrequencyDays}
-							options={[
-								{ value: 1, label: "每天" },
-								{ value: 7, label: "每周" },
-								{ value: 14, label: "每两周" },
-								{ value: 30, label: "每月" },
-							]}
-						/>
-					</Form.Item>
-					<Form.Item label="重复次数">
-						<Select
-							className="schedule-select"
-							value={scheduleRepeats}
-							onChange={setScheduleRepeats}
-							options={[1, 2, 3, 5].map((value) => ({ value, label: `${value} 次` }))}
-						/>
-					</Form.Item>
-					<Form.Item label="监测平台">
-						<PlatformCheckboxes value={schedulePlatforms} onChange={setSchedulePlatforms} />
-					</Form.Item>
-					<Form.Item>
-						<Button
-							permission="monitor.schedule"
-							variant="secondary"
-							busy={busy}
-							disabled={!schedulePlatforms.length}
-							onClick={saveSchedule}
-						>
-							保存计划
-						</Button>
-					</Form.Item>
-				</Form>
-			</div>
-			<SectionTitle
-				title="批次记录"
-				count={project.batches.length || undefined}
-				description="选择批次查看指标与趋势；复测只能以正式基线为锚点。"
-			/>
-			{project.batches.length === 0 ? (
-				<Empty title="还没有采集批次" detail="先在平台设置中配置并启用至少一个联网 API，再运行售前快审或正式基线。" />
-			) : (
-				<>
-					<div className="batch-strip">
+					{project.batches.length === 0 ? (
+						<Empty title="还没有采集批次" detail="先在平台设置中配置并启用至少一个联网 API，再运行售前快审或正式基线。" />
+					) : (
+						<>
+							<div className="batch-strip">
 						{visibleBatches.map((item) => (
 							<button
 								type="button"
@@ -560,9 +648,11 @@ export function Monitoring({
 						onPage={setBatchPage}
 					/>
 					{batch && <BatchMetrics batch={batch} />}
-					{trends && <TrendChart trends={trends} />}
+						</>
+					)}
 				</>
 			)}
+			{panel === "trends" && <TrendsPanel trends={trends} />}
 		</Page>
 	);
 }
