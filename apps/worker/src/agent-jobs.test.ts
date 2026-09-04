@@ -63,4 +63,30 @@ describe("Agent 任务队列", () => {
 			await database.close();
 		}
 	});
+
+	it("交互会话优先于更早排队的后台草稿", async () => {
+		const database = await seedAgentJob();
+		try {
+			await database.query(
+				`INSERT INTO agent_sessions (id,organization_id,project_id,title,status)
+				 VALUES ('session','default','project','新问题','running')`,
+			);
+			await database.query(
+				`INSERT INTO jobs (id,type,payload,status,max_attempts,available_at,created_at)
+				 VALUES ('turn','agent_session_turn','{"sessionId":"session","trigger":"user","message":"你好"}'::jsonb,'pending',2,now(),now())`,
+			);
+			const draft = vi.fn(async () => undefined);
+			const sessionTurn = vi.fn(async () => undefined);
+			expect(await runOneAgentJob(database, "worker", { draft, sessionTurn })).toBe(true);
+			expect(sessionTurn).toHaveBeenCalledWith(database, "session", "user", "你好");
+			expect(draft).not.toHaveBeenCalled();
+			const jobs = await database.query<{ id: string; status: string }>("SELECT id,status FROM jobs ORDER BY id");
+			expect(jobs.rows).toEqual([
+				{ id: "job", status: "pending" },
+				{ id: "turn", status: "complete" },
+			]);
+		} finally {
+			await database.close();
+		}
+	});
 });

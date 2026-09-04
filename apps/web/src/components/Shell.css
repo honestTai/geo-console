@@ -29,11 +29,11 @@
 	padding: 2px 8px var(--space-3);
 }
 
-.app-sider .app-sider-brand strong {
+.app-sider-brand strong {
 	color: #ffffff;
 }
 
-.app-sider .app-sider-brand small {
+.app-sider-brand small {
 	color: rgba(255, 255, 255, 0.55);
 }
 
@@ -170,6 +170,10 @@
 	max-width: var(--content-max);
 	width: 100%;
 	margin: 0 auto;
+}
+
+.workspace.workspace-wide {
+	max-width: 1600px;
 }
 
 .app-shell-alert {

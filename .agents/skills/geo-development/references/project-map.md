@@ -18,11 +18,12 @@ Browser -> Caddy -> static landing (/)
                                                   -> local/S3 artifacts
 API/Workers -> Log Service -> structured service_logs
 Capture Worker -> frozen provider adapter -> raw response + QueryCapture v2
-Agent Worker   -> HRouter Agent -> pending structured draft -> human approval
+Agent Worker   -> background HRouter Agent / browser fallback -> pending structured draft -> human approval
 Report Worker  -> immutable snapshot -> Playwright PDF -> artifact store
+Tauri WebView  -> local Pi Agent -> controlled Responses relay + business-tool RPC -> API
 ```
 
-Tauri 2 桌面客户端加载同一个工作台 URL，是所有角色的正式客户端；浏览器保留同步调试。页面导航和 API 策略从数据库资源目录动态解析，桌面壳只负责窗口、用户代理和签名更新。
+Tauri 2 桌面客户端加载同一个工作台构建，是所有角色的正式客户端；浏览器保留同步调试。交互式工作台 Agent 在 WebView 内运行 `pi-agent-core`，每个桌面会话独立执行；模型流通过 Tauri Channel 访问服务端受控 Responses 代理，工具通过服务端 RPC 复用现有业务 service。页面导航、API 策略、会话、证据和审批仍以服务器为事实源，HRouter Key、数据库和文件不进入客户端。
 
 本机 `corepack pnpm geo start` 启动独立 Log Service、包含三个队列执行器的组合 API 进程和 Vite Web，避免多进程 PGlite 目录争用；Log Service 使用独立本机 PGlite。服务器 PostgreSQL Compose 将 Log/API/三个 Worker/Web/Caddy 分开，只有 Caddy 暴露 80/443。
 
@@ -46,8 +47,8 @@ Tauri 2 桌面客户端加载同一个工作台 URL，是所有角色的正式�
 | 官网抓取与审计 | `apps/worker/src/crawler.ts` | onboarding、audit、diagnosis、verification |
 | Provider 配置与密钥 | `apps/worker/src/providers.ts`、`packages/core/src/secrets.ts` | Settings、Capture Worker |
 | Agent 工具与审批 | `apps/worker/src/agent.ts`、`agent-jobs.ts` | Agent Worker、Web |
-| Agent 联网搜索证据 | `apps/worker/src/web-search.ts`（HRouter `web_search` 请求/解析/落库、`WEB_SEARCH_LIMITS` 配额与退化、按模型测试记录、竞品联网核实 `verifyCompetitors`）、`web_search_evidence` 与 `web_search_controls` migration | 工作台会话、`prompt_research/customer_profile` 草稿、建档分析、Settings、证据中心“联网搜索”分区 |
-| AI 工作台会话与协调 | `apps/worker/src/workbench.ts`（工具、`propose_questions` 候选与服务端确认写入、回合、协调器、计划步骤状态、快捷指令排序、工具事件裁剪 `toolEventDetails`）、`agent_sessions/agent_session_events` migration | Agent Worker、Web Workbench（联网搜索合成 SearchCard 展示检索词与来源链接） |
+| Agent 联网搜索证据 | `apps/worker/src/web-search.ts`（HRouter `web_search` 请求/解析/落库、独立检索并行执行、`WEB_SEARCH_LIMITS` 配额与退化、按模型测试记录、竞品联网核实 `verifyCompetitors`）、`web_search_evidence` 与 `web_search_controls` migration | 工作台会话、`prompt_research/customer_profile` 草稿、建档分析、Settings、证据中心“联网搜索”分区 |
+| AI 工作台会话与协调 | `apps/worker/src/workbench.ts`（工具、`propose_questions` 候选与服务端确认写入、服务端兼容回合、长轮询事件快照、协调器、计划步骤状态、快捷指令排序、工具调用 ID 与事件裁剪 `toolEventDetails`）、`desktop-agent.ts`（桌面回合租约、受控 Responses 代理、工具 RPC 与幂等结果）、`agent-jobs.ts`（浏览器兼容回合优先、双 I/O 槽位）、相关 migration | Tauri 本地 Agent、Agent Worker、Web Workbench（本地文本流 + 服务端事件恢复；联网搜索合成 SearchCard 展示检索词与来源链接） |
 | 候选问题确认卡 | `apps/web/src/components/ScopeProposalCard.tsx`（可勾选/可编辑表格、竞品确认、知识库同步开关） | Workbench |
 | Agent 草稿展示与审批卡 | `apps/web/src/components/AgentDraft.tsx`（按用途分节渲染、`AgentDraftCard`）、`hooks/useEvidenceIndex.ts`（批次报告索引 + 项目联网搜索索引） | Diagnosis、Remediation、Report、Onboarding |
 | 优化文章 | `apps/worker/src/articles.ts`、`optimization_articles` 表、`agent.ts optimization_article` purpose | Web Articles、工作台 |
@@ -56,7 +57,7 @@ Tauri 2 桌面客户端加载同一个工作台 URL，是所有角色的正式�
 | 归因 CSV | `apps/worker/src/attribution.ts` | Attribution view |
 | 对象存储 | `apps/worker/src/object-store.ts` | captures、snapshots、PDF |
 | 工作台 UI | `apps/web/src/`(App.tsx 外壳 + components/ 视图 + ui/primitives + hooks)、`styles.css` | browser |
-| 桌面客户端与签名更新 | `apps/desktop/src-tauri`、`apps/web` 更新入口 | macOS/Windows/Linux 用户 |
+| 桌面 Agent、原生流与签名更新 | `apps/web/src/desktop-agent.ts`、`apps/desktop/src-tauri`、`apps/web` 更新入口 | macOS/Windows/Linux 用户 |
 | 静态官网与帮助中心 | `landing/`、`landing/help/`、`scripts/capture-help-screenshots.mjs` | browser root/help paths; no API/DB access |
 | 本机 CLI | `scripts/geo.ts` | setup/start/doctor/backup |
 | 本机组合 Worker | `apps/worker/src/local-workers.ts` | 仅 `GEO_LOCAL_COMBINED=true`；生产禁用 |
@@ -75,7 +76,7 @@ Tauri 2 桌面客户端加载同一个工作台 URL，是所有角色的正式�
 
 ## Web 工作台
 
-`App.tsx` 的组件注册表只负责把服务端 `navigation_key` 映射到真实组件（含 `workbench`、`articles`），并通过 `ui/navigation.tsx` 提供跨视图跳转（证据定位、批次定位 `openBatch`、工作台预填指令）；标签、顺序和可见性来自 `/api/rbac/navigation`。切换业务视图会重新拉取项目，AI 监测页停留期间定期刷新批次列表，工作台拿到 `current_batch_id` 时立即刷新——后台创建的批次不依赖整页刷新。AI 监测页内“批次记录/同配置趋势/周期监测/调用成本”用 Segmented 分面板互斥展示（Monitoring.tsx，监测任务活动条与漂移告警保持常驻）。`useAgentRunPolling` 可指定触发轮询的 run 状态（文章页把 `awaiting_approval` 也算进去），建档页在竞品核实 `pending` 期间轮询项目，报告页 PDF 前台等待超时后转入快照轮询。工作台包含业务页面、机构管理、超管机构状态和分层 RBAC 编辑器。运营列表统一分页，运行日志使用不累积全部结果的游标翻页。证据回答使用安全结构化 Markdown；报告使用单一可续跑工作流展示叙述、质检、冻结和文档状态。
+`App.tsx` 的组件注册表只负责把服务端 `navigation_key` 映射到真实组件（含 `workbench`、`articles`），并通过 `ui/navigation.tsx` 提供跨视图跳转（证据定位、批次定位 `openBatch`、工作台预填指令）；标签、顺序和可见性来自 `/api/rbac/navigation`。切换业务视图会重新拉取项目，AI 监测页停留期间定期刷新批次列表，工作台拿到 `current_batch_id` 时立即刷新——后台创建的批次不依赖整页刷新。工作台 events 路由在原权限路径上支持最长 25 秒的长轮询并同时返回会话快照；浏览器兼容会话通过它接收模型与工具增量，桌面会话则立即显示本地 Agent 文本流，并用该路由恢复服务端工具事件、最终消息和会话状态。桌面运行时按会话动态加载并在工作台空闲时预载，单客户端可同时保留多个活动会话，不经过 Agent Worker 的双槽队列。AI 监测页内“批次记录/同配置趋势/周期监测/调用成本”用 Segmented 分面板互斥展示（Monitoring.tsx，监测任务活动条与漂移告警保持常驻）。`useAgentRunPolling` 可指定触发轮询的 run 状态（文章页把 `awaiting_approval` 也算进去），建档页在竞品核实 `pending` 期间轮询项目，报告页 PDF 前台等待超时后转入快照轮询。工作台包含业务页面、机构管理、超管机构状态和分层 RBAC 编辑器。运营列表统一分页，运行日志使用不累积全部结果的游标翻页。证据回答使用安全结构化 Markdown；报告使用单一可续跑工作流展示叙述、质检、冻结和文档状态。
 
 图表、KPI 与平台卡只消费真实 API 响应；无批次时使用空状态，不能把视觉验收 fixture 放入 `apps/web/public` 或正式构建。UI 不再是单文件应用壳：`App.tsx` 只做装配，`components/` 一视图一文件，共享类型/权限/分页/反馈分别收敛在 `types.ts`、`access.tsx`、`ui/primitives.tsx`、`hooks/`;UI 控件统一走 antd 6，拆分与选用规则见 `.agents/skills/geo-development/references/frontend.md`。视觉纪律:品牌绿只用于主按钮/链接/选中态/logo,其余静态装饰一律中性灰,内容区次级分组小节平铺,不用嵌套 Tabs/Collapse。新增共享业务规则时不要继续堆入组件，应放回拥有该规则的 package/worker service。
 

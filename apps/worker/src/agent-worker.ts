@@ -2,19 +2,26 @@ import { randomUUID } from "node:crypto";
 import { migrateDatabase, openDatabase } from "@geo/core";
 import { StructuredLogger, safeErrorMessage } from "@geo/logging";
 import { flushAgentLogs } from "./agent";
-import { coordinateWorkbench, executeAgentDraft, recoverOrphanedAgentRuns, runOneAgentJob } from "./agent-jobs";
+import {
+	AGENT_JOB_CONCURRENCY,
+	AGENT_JOB_POLL_MS,
+	coordinateWorkbench,
+	executeAgentDraft,
+	recoverOrphanedAgentRuns,
+	runOneAgentJob,
+} from "./agent-jobs";
 
 const database = await openDatabase();
 await migrateDatabase(database);
 await recoverOrphanedAgentRuns(database);
 const owner = process.env.GEO_AGENT_EXECUTOR_ID?.trim() || `agent:${process.pid}:${randomUUID()}`;
 const logger = new StructuredLogger("agent-worker");
-let active = false;
+let activeJobs = 0;
 let lastCoordination = 0;
 
 async function tick(): Promise<void> {
-	if (active) return;
-	active = true;
+	if (activeJobs >= AGENT_JOB_CONCURRENCY) return;
+	activeJobs += 1;
 	try {
 		if (Date.now() - lastCoordination >= 5_000) {
 			lastCoordination = Date.now();
@@ -24,12 +31,12 @@ async function tick(): Promise<void> {
 	} catch (error) {
 		logger.error("worker.tick_failed", safeErrorMessage(error), { traceId: owner });
 	} finally {
-		active = false;
+		activeJobs -= 1;
 	}
 }
 
-const timer = setInterval(() => void tick(), 1_000);
-void tick();
+const timer = setInterval(() => void tick(), AGENT_JOB_POLL_MS);
+for (let index = 0; index < AGENT_JOB_CONCURRENCY; index += 1) void tick();
 logger.info("service.started", "GEO Agent Worker 已启动", { traceId: owner });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const)

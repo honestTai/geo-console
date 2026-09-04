@@ -36,6 +36,8 @@ import { type ScopeProposalAnswer, ScopeProposalCard } from "./ScopeProposalCard
 import "./Workbench.css";
 
 type SessionList = Paginated<WorkbenchSession> & { quickCommands: WorkbenchQuickCommand[] };
+type SessionUpdates = { items: WorkbenchEvent[]; lastSeq: number; session: WorkbenchSession };
+const isDesktopAgentClient = () => navigator.userAgent.includes("ZZGeoDesktop/");
 
 const toolLabels: Record<string, string> = {
 	read_project_context: "读取客户项目",
@@ -106,6 +108,7 @@ type Bubble =
 	| {
 			kind: "tool";
 			seq: number;
+			toolCallId: string | null;
 			tool: string;
 			status: "running" | "done" | "error";
 			detail: string | null;
@@ -205,6 +208,7 @@ function foldEvents(events: WorkbenchEvent[]): Bubble[] {
 				bubbles.push({
 					kind: "tool",
 					seq: event.seq,
+					toolCallId: typeof payload.toolCallId === "string" ? payload.toolCallId : null,
 					tool: String(payload.tool),
 					status: "running",
 					detail: null,
@@ -213,11 +217,30 @@ function foldEvents(events: WorkbenchEvent[]): Bubble[] {
 					at,
 				});
 				break;
-			case "tool_end": {
-				const tool = String(payload.tool);
+			case "tool_update": {
+				const toolCallId = typeof payload.toolCallId === "string" ? payload.toolCallId : null;
 				const open = [...bubbles]
 					.reverse()
-					.find((item) => item.kind === "tool" && item.tool === tool && item.status === "running");
+					.find(
+						(item) =>
+							item.kind === "tool" &&
+							item.status === "running" &&
+							(toolCallId ? item.toolCallId === toolCallId : item.tool === String(payload.tool)),
+					);
+				if (open?.kind === "tool") open.details = payload.details ?? null;
+				break;
+			}
+			case "tool_end": {
+				const tool = String(payload.tool);
+				const toolCallId = typeof payload.toolCallId === "string" ? payload.toolCallId : null;
+				const open = [...bubbles]
+					.reverse()
+					.find(
+						(item) =>
+							item.kind === "tool" &&
+							item.status === "running" &&
+							(toolCallId ? item.toolCallId === toolCallId : item.tool === tool),
+					);
 				const detail = payload.isError
 					? String(payload.details ?? "工具执行失败")
 					: describeToolEnd(tool, payload.details);
@@ -230,6 +253,7 @@ function foldEvents(events: WorkbenchEvent[]): Bubble[] {
 					bubbles.push({
 						kind: "tool",
 						seq: event.seq,
+						toolCallId,
 						tool,
 						status: payload.isError ? "error" : "done",
 						detail,
@@ -476,6 +500,7 @@ type SearchDetails = {
 	sources: SearchSource[];
 	unavailable: boolean;
 	reason: string | null;
+	phase: string | null;
 };
 
 /** tool_end 里的联网搜索结果；旧会话的事件可能已被整体截断，此时只能显示 tool_start 里的检索问题。 */
@@ -498,6 +523,7 @@ function readSearchDetails(details: unknown): SearchDetails | null {
 		}),
 		unavailable: value.unavailable === true,
 		reason: typeof value.reason === "string" ? value.reason : null,
+		phase: typeof value.phase === "string" ? value.phase : null,
 	};
 }
 
@@ -573,7 +599,9 @@ function SearchItem({ item, onOpenEvidence }: { item: ToolBubbleData; onOpenEvid
 						</button>
 					</Tooltip>
 				)}
-				{item.status === "running" && <span className="wb-search-state">搜索中…</span>}
+				{item.status === "running" && (
+					<span className="wb-search-state">{details?.phase === "recording" ? "保存证据中…" : "搜索中…"}</span>
+				)}
 			</div>
 			{purpose && <p className="wb-search-purpose">{purpose}</p>}
 			{details?.unavailable && <p className="wb-search-note error">联网搜索不可用，已改用官网快照与知识库</p>}
@@ -646,6 +674,7 @@ export function Workbench({
 	const [activeId, setActiveId] = useState<string | null>(null);
 	const [session, setSession] = useState<WorkbenchSession | null>(null);
 	const [events, setEvents] = useState<WorkbenchEvent[]>([]);
+	const [localEvents, setLocalEvents] = useState<WorkbenchEvent[]>([]);
 	const [draft, setDraft] = useState(initialMessage ?? "");
 	const [busy, setBusy] = useState(false);
 	const [models, setModels] = useState<string[]>([]);
@@ -663,6 +692,9 @@ export function Workbench({
 		webSearchEnabled: true,
 	});
 	const lastSeq = useRef(0);
+	const activeSessionId = useRef<string | null>(activeId);
+	const lastDesktopAttempt = useRef<string | null>(null);
+	activeSessionId.current = activeId;
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const loadSessions = useCallback(async () => {
 		const result = await api<SessionList>(`/api/projects/${project.id}/workbench/sessions?pageSize=50`);
@@ -670,18 +702,18 @@ export function Workbench({
 		setQuickCommands(result.quickCommands ?? []);
 		return result.items;
 	}, [project.id]);
-	const loadSession = useCallback(async (id: string, reset: boolean) => {
-		const [detail, page] = await Promise.all([
-			api<WorkbenchSession>(`/api/workbench/sessions/${id}`),
-			api<{ items: WorkbenchEvent[]; lastSeq: number }>(
-				`/api/workbench/sessions/${id}/events?after=${reset ? 0 : lastSeq.current}`,
-			),
-		]);
-		setSession(detail);
+	const loadSession = useCallback(async (id: string, reset: boolean, waitMs = 0, signal?: AbortSignal) => {
+		const page = await api<SessionUpdates>(
+			`/api/workbench/sessions/${id}/events?after=${reset ? 0 : lastSeq.current}&wait=${waitMs}`,
+			{ signal },
+		);
+		if (activeSessionId.current !== id) return page;
+		setSession(page.session);
 		if (page.items.length) {
 			lastSeq.current = page.lastSeq;
 			setEvents((current) => (reset ? page.items : [...current, ...page.items]));
 		} else if (reset) setEvents([]);
+		return page;
 	}, []);
 	useEffect(() => {
 		void loadSessions()
@@ -705,6 +737,10 @@ export function Workbench({
 			.catch(() => setModels([]));
 		void loadWebSearchStatus();
 	}, [loadWebSearchStatus]);
+	useEffect(() => {
+		// 桌面端空闲时预加载本地 Agent，避免首个新会话再等待运行时解析。
+		if (isDesktopAgentClient()) void import("../desktop-agent");
+	}, []);
 	async function testWebSearchModel(model: string | null) {
 		const target = model ?? webSearchStatus?.defaultModel ?? null;
 		setTestingModel(target ?? "default");
@@ -726,22 +762,86 @@ export function Workbench({
 		if (!activeId) {
 			setSession(null);
 			setEvents([]);
+			setLocalEvents([]);
 			return;
 		}
 		lastSeq.current = 0;
-		void loadSession(activeId, true).catch((reason) =>
-			message.error(reason instanceof Error ? reason.message : "会话加载失败"),
-		);
+		setSession((current) => (current?.id === activeId ? current : null));
+		setEvents([]);
+		setLocalEvents([]);
+		void (async () => {
+			try {
+				let page = await loadSession(activeId, true);
+				while (
+					page.items.length >= 500 &&
+					!["running", "waiting_job"].includes(page.session.status) &&
+					activeSessionId.current === activeId
+				)
+					page = await loadSession(activeId, false);
+			} catch (reason) {
+				message.error(reason instanceof Error ? reason.message : "会话加载失败");
+			}
+		})();
 	}, [activeId, loadSession, message]);
 	const polling = session ? ["running", "waiting_job"].includes(session.status) : false;
 	useEffect(() => {
 		if (!activeId || !polling) return;
-		const interval = session?.status === "running" ? 1500 : 5000;
-		const timer = window.setInterval(() => {
-			void loadSession(activeId, false).catch(() => undefined);
-		}, interval);
-		return () => window.clearInterval(timer);
-	}, [activeId, polling, session?.status, loadSession]);
+		const controller = new AbortController();
+		void (async () => {
+			while (!controller.signal.aborted) {
+				try {
+					const updated = await loadSession(activeId, false, 20_000, controller.signal);
+					if (!["running", "waiting_job"].includes(updated.session.status) && updated.items.length < 500) break;
+				} catch {
+					if (controller.signal.aborted) break;
+					await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+				}
+			}
+		})();
+		return () => controller.abort();
+	}, [activeId, polling, loadSession]);
+	useEffect(() => {
+		if (
+			!isDesktopAgentClient() ||
+			!activeId ||
+			!session ||
+			session.execution_target !== "desktop" ||
+			session.status !== "running"
+		)
+			return;
+		const attemptKey = `${activeId}:${session.desktop_pending_trigger ?? ""}:${session.desktop_turn_start_index ?? -1}`;
+		if (lastDesktopAttempt.current === attemptKey) return;
+		lastDesktopAttempt.current = attemptKey;
+		void import("../desktop-agent").then(({ startDesktopAgent }) =>
+			startDesktopAgent(activeId, {
+				onEvent: (event) => {
+					if (activeSessionId.current !== activeId) return;
+					setLocalEvents((current) => {
+						const id = event.payload.clientEventId;
+						if (current.some((item) => item.payload.clientEventId === id)) return current;
+						const retained =
+							event.type === "assistant_message"
+								? current.filter(
+										(item) =>
+											item.type !== "assistant_delta" || Number(item.payload.turn) !== Number(event.payload.turn),
+									)
+								: current;
+						return [...retained, event];
+					});
+				},
+				onSession: (updated) => {
+					if (activeSessionId.current !== activeId) return;
+					setSession(updated);
+					void loadSession(activeId, false).catch(() => undefined);
+				},
+				onError: (error) => {
+					if (activeSessionId.current !== activeId) return;
+					message.error(error.message);
+					void loadSession(activeId, false).catch(() => undefined);
+				},
+			}),
+		);
+	}, [activeId, session, loadSession, message]);
 	useEffect(() => {
 		if (session && ["done", "failed", "waiting_user", "idle"].includes(session.status)) {
 			void loadSessions().catch(() => undefined);
@@ -753,7 +853,11 @@ export function Workbench({
 	useEffect(() => {
 		if (currentBatchId) void refresh().catch(() => undefined);
 	}, [currentBatchId, refresh]);
-	const bubbles = useMemo(() => foldEvents(events), [events]);
+	const visibleEvents = useMemo(() => {
+		const persistedIds = new Set(events.map((event) => event.payload.clientEventId).filter(Boolean));
+		return [...events, ...localEvents.filter((event) => !persistedIds.has(event.payload.clientEventId))];
+	}, [events, localEvents]);
+	const bubbles = useMemo(() => foldEvents(visibleEvents), [visibleEvents]);
 	const rows = useMemo(() => groupSearches(bubbles), [bubbles]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: 事件数量变化时滚到底部。
 	useEffect(() => {
@@ -771,11 +875,12 @@ export function Workbench({
 				thinkingLevel: newSession.thinkingLevel,
 				model: newSession.model,
 				webSearchEnabled: newSession.webSearchEnabled,
+				executionTarget: isDesktopAgentClient() ? "desktop" : "server",
 			});
 			setDraft("");
 			onConsumeInitial();
-			await loadSessions();
 			setActiveId(created.id);
+			void loadSessions().catch(() => undefined);
 		} catch (reason) {
 			message.error(reason instanceof Error ? reason.message : "创建会话失败");
 		} finally {
@@ -1035,8 +1140,9 @@ export function Workbench({
 						<h3>{session.title}</h3>
 						<Tag className={`wb-status ${session.status}`}>{sessionStatusLabel[session.status]}</Tag>
 						{session.error_message && <span className="wb-error">{session.error_message}</span>}
+						{session.execution_target === "desktop" && <Tag>桌面执行</Tag>}
 					</div>
-					<Space size={12} wrap>
+					<Space className="wb-head-settings" size={12} wrap>
 						<Tooltip title="草稿生成后不再等待人工点批准；每次自动批准都会写入审计日志">
 							<span className="wb-setting">
 								<Switch
@@ -1091,7 +1197,10 @@ export function Workbench({
 								title="终止会话？"
 								description="正在进行的后台批次不会被取消，但 Agent 不会再继续后续步骤。"
 								onConfirm={() =>
-									post(`/api/workbench/sessions/${session.id}/cancel`).then(() => loadSession(session.id, false))
+									import("../desktop-agent")
+										.then(({ abortDesktopAgent }) => abortDesktopAgent(session.id))
+										.then(() => post(`/api/workbench/sessions/${session.id}/cancel`))
+										.then(() => loadSession(session.id, false))
 								}
 							>
 								<Button variant="danger" size="small" permission="workbench.run">

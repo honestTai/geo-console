@@ -129,12 +129,7 @@ function SchedulePanel({
 			<div className="schedule-section">
 				<ScheduleFailureAlert schedule={schedule} />
 				<p className="schedule-hint">
-					<Switch
-						checked={enabled}
-						checkedChildren="启用"
-						unCheckedChildren="停用"
-						onChange={onToggle}
-					/>
+					<Switch checked={enabled} checkedChildren="启用" unCheckedChildren="停用" onChange={onToggle} />
 					{enabled ? "已启用自动监测" : "启用后按周期自动创建复测批次"}
 				</p>
 				<Form layout="inline" className="schedule-form">
@@ -163,7 +158,13 @@ function SchedulePanel({
 						<PlatformCheckboxes value={platforms} onChange={onPlatformsChange} />
 					</Form.Item>
 					<Form.Item>
-						<Button permission="monitor.schedule" variant="secondary" busy={busy} disabled={!platforms.length} onClick={onSave}>
+						<Button
+							permission="monitor.schedule"
+							variant="secondary"
+							busy={busy}
+							disabled={!platforms.length}
+							onClick={onSave}
+						>
 							保存计划
 						</Button>
 					</Form.Item>
@@ -255,7 +256,10 @@ function CostsPanel({ costs }: { costs: CostGroup[] }) {
 function TrendsPanel({ trends }: { trends: TrendResponse | null }) {
 	if (!trends)
 		return (
-			<Empty title="还没有同配置趋势" detail="先在批次记录里选择一个批次；只纳入冻结配置哈希一致的批次，配置变化不会混入趋势。" />
+			<Empty
+				title="还没有同配置趋势"
+				detail="先在批次记录里选择一个批次；只纳入冻结配置哈希一致的批次，配置变化不会混入趋势。"
+			/>
 		);
 	return <TrendChart trends={trends} />;
 }
@@ -619,35 +623,38 @@ export function Monitoring({
 						description="选择批次查看指标与趋势；复测只能以正式基线为锚点。"
 					/>
 					{project.batches.length === 0 ? (
-						<Empty title="还没有采集批次" detail="先在平台设置中配置并启用至少一个联网 API，再运行售前快审或正式基线。" />
+						<Empty
+							title="还没有采集批次"
+							detail="先在平台设置中配置并启用至少一个联网 API，再运行售前快审或正式基线。"
+						/>
 					) : (
 						<>
 							<div className="batch-strip">
-						{visibleBatches.map((item) => (
-							<button
-								type="button"
-								className={selected === item.id ? "active" : ""}
-								key={item.id}
-								onClick={() => {
-									setBatch(null);
-									setTrends(null);
-									setSelected(item.id);
-								}}
-							>
-								<span>{batchKindLabel(item.kind)}</span>
-								<strong>{shortDate(item.created_at)}</strong>
-								<small className={`status ${item.status}`}>{batchStatusLabel(item.status)}</small>
-							</button>
-						))}
-					</div>
-					<Pagination
-						page={batchPage}
-						pageSize={BATCH_PAGE_SIZE}
-						total={project.batches.length}
-						totalPages={Math.max(1, Math.ceil(project.batches.length / BATCH_PAGE_SIZE))}
-						onPage={setBatchPage}
-					/>
-					{batch && <BatchMetrics batch={batch} />}
+								{visibleBatches.map((item) => (
+									<button
+										type="button"
+										className={selected === item.id ? "active" : ""}
+										key={item.id}
+										onClick={() => {
+											setBatch(null);
+											setTrends(null);
+											setSelected(item.id);
+										}}
+									>
+										<span>{batchKindLabel(item.kind)}</span>
+										<strong>{shortDate(item.created_at)}</strong>
+										<small className={`status ${item.status}`}>{batchStatusLabel(item.status)}</small>
+									</button>
+								))}
+							</div>
+							<Pagination
+								page={batchPage}
+								pageSize={BATCH_PAGE_SIZE}
+								total={project.batches.length}
+								totalPages={Math.max(1, Math.ceil(project.batches.length / BATCH_PAGE_SIZE))}
+								onPage={setBatchPage}
+							/>
+							{batch && <BatchMetrics batch={batch} />}
 						</>
 					)}
 				</>

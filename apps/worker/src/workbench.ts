@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { Agent, type AgentMessage, type AgentTool } from "@earendil-works/pi-agent-core";
 import { contentText, Type } from "@earendil-works/pi-ai";
 import {
@@ -9,6 +10,7 @@ import {
 	type AgentThinkingLevel,
 	agentThinkingLevels,
 	type Database,
+	type DesktopAgentTrigger,
 	readEncryptedCredential,
 	type ScopeProposal,
 	type ScopeProposalCompetitor,
@@ -34,6 +36,7 @@ import { getHRouterConfig } from "./hrouter";
 import { listLibraryQuestions } from "./knowledge-base";
 import { type Paginated, type PaginationInput, paginated } from "./pagination";
 import { providerDefinitions } from "./providers";
+import { AccessDeniedError } from "./rbac";
 import type { EvidenceIndexEntry } from "./report";
 import { advanceReportWorkflow, getReportPdfStatus } from "./report-snapshots";
 import { auditProject, confirmProject, createBatch, createTasksFromFindings, diagnoseBatch, getBatch } from "./service";
@@ -41,9 +44,9 @@ import { parseJsonColumn } from "./utils";
 import { createWebSearchTool, WEB_SEARCH_LIMITS } from "./web-search";
 
 export const workbenchLogger = new StructuredLogger("workbench");
-const SESSION_PROMPT_VERSION = "geo-workbench.v3";
+const SESSION_PROMPT_VERSION = "geo-workbench.desktop.v1";
 
-type SessionRow = {
+export type SessionRow = {
 	id: string;
 	organization_id: string;
 	project_id: string;
@@ -53,6 +56,14 @@ type SessionRow = {
 	model: string | null;
 	thinking_level: AgentThinkingLevel | null;
 	web_search_enabled: boolean;
+	execution_target: "server" | "desktop";
+	desktop_pending_trigger: DesktopAgentTrigger | null;
+	desktop_pending_message: string | null;
+	desktop_turn_start_index: number | null;
+	desktop_run_id: string | null;
+	desktop_client_id: string | null;
+	desktop_lease_expires_at: string | null;
+	event_seq: number;
 	transcript: unknown;
 	plan: unknown;
 	waiting: unknown;
@@ -77,6 +88,7 @@ const createSessionSchema = z.object({
 	thinkingLevel: thinkingLevelSchema.optional().nullable(),
 	model: modelSchema.optional().nullable(),
 	webSearchEnabled: z.boolean().optional(),
+	executionTarget: z.enum(["server", "desktop"]).optional(),
 	message: z.string().trim().min(1).max(4000).optional(),
 });
 
@@ -116,7 +128,7 @@ const answerSchema = z.object({
 	syncLibrary: z.boolean().optional(),
 });
 
-export type AnswerActor = { userId: string | null; canWriteKnowledge: boolean };
+export type AnswerActor = { userId: string | null; canWriteKnowledge: boolean; desktopClient?: boolean };
 
 export const WORKBENCH_QUICK_COMMANDS = [
 	{
@@ -153,27 +165,55 @@ function parseSession(row: SessionRow) {
 
 export type WorkbenchSession = ReturnType<typeof parseSession>;
 
-async function loadSession(database: Database, sessionId: string): Promise<WorkbenchSession> {
+export async function loadSession(database: Database, sessionId: string): Promise<WorkbenchSession> {
 	const row = (await database.query<SessionRow>("SELECT * FROM agent_sessions WHERE id=$1", [sessionId])).rows[0];
 	if (!row) throw new Error("AI 工作台会话不存在");
 	return parseSession(row);
 }
 
-async function appendEvent(
+export async function appendEvent(
 	database: Database,
 	sessionId: string,
 	type: string,
 	payload: Record<string, unknown>,
+	clientEventId: string | null = null,
 ): Promise<number> {
-	const row = (
-		await database.query<{ seq: number }>(
-			`INSERT INTO agent_session_events (id,session_id,seq,type,payload)
-			 SELECT $1,$2,COALESCE(max(seq),0)+1,$3,$4::jsonb FROM agent_session_events WHERE session_id=$2
-			 RETURNING seq`,
-			[randomUUID(), sessionId, type, JSON.stringify(payload)],
-		)
-	).rows[0];
-	return row?.seq ?? 0;
+	return database.transaction(async (transaction) => {
+		if (clientEventId) {
+			const existing = (
+				await transaction.query<{ seq: number }>(
+					"SELECT seq FROM agent_session_events WHERE session_id=$1 AND client_event_id=$2",
+					[sessionId, clientEventId],
+				)
+			).rows[0];
+			if (existing) return existing.seq;
+		}
+		const session = (
+			await transaction.query<{ event_seq: number }>(
+				"UPDATE agent_sessions SET event_seq=event_seq+1 WHERE id=$1 RETURNING event_seq",
+				[sessionId],
+			)
+		).rows[0];
+		if (!session) throw new Error("AI 工作台会话不存在");
+		const inserted = (
+			await transaction.query<{ seq: number }>(
+				`INSERT INTO agent_session_events (id,session_id,seq,type,payload,client_event_id)
+				 VALUES ($1,$2,$3,$4,$5::jsonb,$6)
+				 ON CONFLICT (session_id,client_event_id) WHERE client_event_id IS NOT NULL DO NOTHING
+				 RETURNING seq`,
+				[randomUUID(), sessionId, session.event_seq, type, JSON.stringify(payload), clientEventId],
+			)
+		).rows[0];
+		if (inserted) return inserted.seq;
+		return Number(
+			(
+				await transaction.query<{ seq: number }>(
+					"SELECT seq FROM agent_session_events WHERE session_id=$1 AND client_event_id=$2",
+					[sessionId, clientEventId],
+				)
+			).rows[0]?.seq ?? session.event_seq,
+		);
+	});
 }
 
 async function enqueueTurn(database: Database, payload: AgentSessionTurnPayload): Promise<void> {
@@ -184,13 +224,31 @@ async function enqueueTurn(database: Database, payload: AgentSessionTurnPayload)
 	);
 }
 
+async function scheduleSessionTurn(
+	database: Database,
+	session: Pick<WorkbenchSession, "id" | "execution_target">,
+	payload: AgentSessionTurnPayload,
+): Promise<void> {
+	if (session.execution_target === "server") return enqueueTurn(database, payload);
+	await database.query(
+		`UPDATE agent_sessions SET desktop_pending_trigger=$2,desktop_pending_message=$3,
+		 desktop_turn_start_index=jsonb_array_length(transcript),desktop_run_id=NULL,desktop_client_id=NULL,
+		 desktop_lease_expires_at=NULL,updated_at=now() WHERE id=$1`,
+		[session.id, payload.trigger, payload.message],
+	);
+}
+
 export async function createSession(
 	database: Database,
 	projectId: string,
 	input: unknown,
 	createdBy: string | null,
+	options: { desktopClient?: boolean } = {},
 ): Promise<{ id: string }> {
 	const data = createSessionSchema.parse(input);
+	const executionTarget = data.executionTarget ?? "server";
+	if (executionTarget === "desktop" && !options.desktopClient)
+		throw new AccessDeniedError("桌面 Agent 会话只能由 ZZ Geo 桌面客户端创建");
 	const project = (
 		await database.query<{ organization_id: string; status: string; name: string }>(
 			"SELECT organization_id,status,name FROM projects WHERE id=$1",
@@ -204,8 +262,9 @@ export async function createSession(
 	const id = randomUUID();
 	const title = data.title ?? (data.message ? data.message.slice(0, 40) : `${project.name} · 新会话`);
 	await database.query(
-		`INSERT INTO agent_sessions (id,organization_id,project_id,title,status,auto_approve,model,thinking_level,web_search_enabled,created_by)
-		 VALUES ($1,$2,$3,$4,'idle',$5,$6,$7,$8,$9)`,
+		`INSERT INTO agent_sessions
+		 (id,organization_id,project_id,title,status,auto_approve,model,thinking_level,web_search_enabled,execution_target,created_by)
+		 VALUES ($1,$2,$3,$4,'idle',$5,$6,$7,$8,$9,$10)`,
 		[
 			id,
 			project.organization_id,
@@ -215,6 +274,7 @@ export async function createSession(
 			model,
 			data.thinkingLevel ?? null,
 			data.webSearchEnabled ?? true,
+			executionTarget,
 			createdBy,
 		],
 	);
@@ -223,8 +283,9 @@ export async function createSession(
 		autoApprove: data.autoApprove ?? true,
 		model,
 		webSearchEnabled: data.webSearchEnabled ?? true,
+		executionTarget,
 	});
-	if (data.message) await sendMessage(database, id, { message: data.message });
+	if (data.message) await sendMessage(database, id, { message: data.message }, options);
 	return { id };
 }
 
@@ -242,7 +303,7 @@ export async function listSessions(
 	);
 	const rows = (
 		await database.query<Record<string, unknown>>(
-			`SELECT id,title,status,auto_approve,model,thinking_level,web_search_enabled,plan,waiting,current_batch_id,error_message,
+			`SELECT id,title,status,auto_approve,model,thinking_level,web_search_enabled,execution_target,plan,waiting,current_batch_id,error_message,
 			 created_at,updated_at,last_turn_at FROM agent_sessions WHERE project_id=$1
 			 ORDER BY updated_at DESC LIMIT $2 OFFSET $3`,
 			[projectId, input.pageSize, input.offset],
@@ -283,6 +344,35 @@ export async function listSessionEvents(
 	return { items, lastSeq: items.at(-1)?.seq ?? afterSeq };
 }
 
+const SESSION_EVENT_WAIT_MAX_MS = 25_000;
+const SESSION_EVENT_POLL_MS = 120;
+
+/**
+ * 长轮询工作台事件并附带同一时刻的会话快照。已有 JSON events 路由保持不变，浏览器收到更新后立即续订；
+ * 这种传输方式也能穿过当前会缓冲响应体的 Tauri 自定义协议代理。
+ */
+export async function waitForSessionUpdates(
+	database: Database,
+	sessionId: string,
+	afterSeq: number,
+	waitMs: number,
+	signal?: AbortSignal,
+): Promise<{ items: Array<Record<string, unknown>>; lastSeq: number; session: Record<string, unknown> } | null> {
+	const boundedWaitMs = Math.max(0, Math.min(SESSION_EVENT_WAIT_MAX_MS, waitMs));
+	const deadline = Date.now() + boundedWaitMs;
+	while (!signal?.aborted) {
+		const page = await listSessionEvents(database, sessionId, afterSeq);
+		if (page.items.length || Date.now() >= deadline) return { ...page, session: await getSession(database, sessionId) };
+		try {
+			await delay(Math.min(SESSION_EVENT_POLL_MS, Math.max(1, deadline - Date.now())), undefined, { signal });
+		} catch (error) {
+			if (signal?.aborted) return null;
+			throw error;
+		}
+	}
+	return null;
+}
+
 export async function updateSessionSettings(database: Database, sessionId: string, input: unknown): Promise<void> {
 	const data = settingsSchema.parse(input);
 	const result = await database.query(
@@ -308,16 +398,23 @@ export async function updateSessionSettings(database: Database, sessionId: strin
 	await appendEvent(database, sessionId, "settings_changed", data);
 }
 
-export async function sendMessage(database: Database, sessionId: string, input: unknown): Promise<{ queued: true }> {
+export async function sendMessage(
+	database: Database,
+	sessionId: string,
+	input: unknown,
+	options: { desktopClient?: boolean } = {},
+): Promise<{ queued: true }> {
 	const { message } = messageSchema.parse(input);
 	const session = await loadSession(database, sessionId);
 	if (session.status === "running") throw new Error("Agent 正在执行，请等待本回合结束后再发送");
 	if (session.status === "waiting_user") throw new Error("Agent 正在等待你回答上一个问题，请先回答");
+	if (session.execution_target === "desktop" && !options.desktopClient)
+		throw new Error("该会话在桌面端运行，请使用 ZZ Geo 桌面客户端继续");
 	await database.query("UPDATE agent_sessions SET status='running',error_message=NULL,updated_at=now() WHERE id=$1", [
 		sessionId,
 	]);
 	await appendEvent(database, sessionId, "user_message", { text: message });
-	await enqueueTurn(database, { sessionId, trigger: "user", message });
+	await scheduleSessionTurn(database, session, { sessionId, trigger: "user", message });
 	return { queued: true };
 }
 
@@ -396,6 +493,8 @@ export async function answerQuestion(
 	const data = answerSchema.parse(input);
 	const session = await loadSession(database, sessionId);
 	if (session.status !== "waiting_user" || session.waiting?.kind !== "user") throw new Error("当前没有待回答的问题");
+	if (session.execution_target === "desktop" && !actor.desktopClient)
+		throw new Error("该会话在桌面端运行，请使用 ZZ Geo 桌面客户端回答");
 	const proposal = session.waiting.proposal ?? null;
 	if (proposal && data.questions?.length) {
 		const applied = await applyScopeProposal(
@@ -415,7 +514,7 @@ export async function answerQuestion(
 			competitorCount: applied.competitorCount,
 			libraryAdded: applied.libraryAdded,
 		});
-		await enqueueTurn(database, {
+		await scheduleSessionTurn(database, session, {
 			sessionId,
 			trigger: "answer",
 			message: JSON.stringify({
@@ -437,7 +536,7 @@ export async function answerQuestion(
 			selected: [],
 			applied: false,
 		});
-		await enqueueTurn(database, {
+		await scheduleSessionTurn(database, session, {
 			sessionId,
 			trigger: "answer",
 			message: JSON.stringify({
@@ -456,13 +555,15 @@ export async function answerQuestion(
 	const answer = parts.join("\n");
 	await database.query("UPDATE agent_sessions SET status='running',updated_at=now() WHERE id=$1", [sessionId]);
 	await appendEvent(database, sessionId, "user_answer", { text: answer, selected: data.selected ?? [] });
-	await enqueueTurn(database, { sessionId, trigger: "answer", message: answer });
+	await scheduleSessionTurn(database, session, { sessionId, trigger: "answer", message: answer });
 	return { queued: true };
 }
 
 export async function cancelSession(database: Database, sessionId: string): Promise<void> {
 	const result = await database.query(
-		`UPDATE agent_sessions SET status='failed',waiting=NULL,error_message='用户已终止会话',updated_at=now()
+		`UPDATE agent_sessions SET status='failed',waiting=NULL,error_message='用户已终止会话',
+		 desktop_pending_trigger=NULL,desktop_pending_message=NULL,desktop_turn_start_index=NULL,
+		 desktop_run_id=NULL,desktop_client_id=NULL,desktop_lease_expires_at=NULL,updated_at=now()
 		 WHERE id=$1 AND status IN ('running','waiting_user','waiting_job','idle')`,
 		[sessionId],
 	);
@@ -620,14 +721,13 @@ async function describeProposalEvidence(
 	];
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The workbench tool set intentionally lives in one auditable function so every write path is visible together.
 export async function createWorkbenchTools(
 	database: Database,
 	session: WorkbenchSession,
 	control: TurnControl,
 	persistControl: () => Promise<void>,
 	emit: (type: string, payload: Record<string, unknown>) => Promise<void>,
-	dependencies: { fetch?: typeof globalThis.fetch; sessionSearches?: number } = {},
+	dependencies: { fetch?: typeof globalThis.fetch; sessionSearches?: number; turnSearches?: number } = {},
 ): Promise<AgentTool[]> {
 	const projectId = session.project_id;
 	const organizationId = session.organization_id;
@@ -724,6 +824,7 @@ export async function createWorkbenchTools(
 							fetch: dependencies.fetch,
 							budget: {
 								perTurn: WEB_SEARCH_LIMITS.workbenchTurn,
+								turnUsed: dependencies.turnSearches ?? 0,
 								perSession: WEB_SEARCH_LIMITS.workbenchSession,
 								sessionUsed: sessionSearches,
 							},
@@ -1228,7 +1329,7 @@ export async function createWorkbenchTools(
 	];
 }
 
-const WORKBENCH_SYSTEM_PROMPT = `你是 ZZ Geo 的 AI 工作台 Agent，负责替用户把 GEO 监测流程一口气跑完。你通过工具操作系统，所有工具只作用于当前客户项目。
+export const WORKBENCH_SYSTEM_PROMPT = `你是 ZZ Geo 的 AI 工作台 Agent，负责替用户把 GEO 监测流程一口气跑完。你通过工具操作系统，所有工具只作用于当前客户项目。
 
 监测问题的唯一写入方式是 propose_questions：把最终列表（含要保留的已有问题）交给用户在表格里勾选、修改后确认，系统会在用户确认后自动写入范围；你不能、也不需要自己写入。不要用 ask_user 罗列问题让用户选。
 
@@ -1244,7 +1345,7 @@ const WORKBENCH_SYSTEM_PROMPT = `你是 ZZ Geo 的 AI 工作台 Agent，负责�
 
 出题流程（用户说"帮我出监测问题/不知道该问什么"，或跑基线时现有问题不足 5 个）：
 1. read_project_context 与 suggest_questions，了解客户业务、地区、已有问题、建档候选与知识库候选。
-2. 若本会话开放 web_search：做 3-6 次有针对性的联网研究，每次一个具体问题，覆盖：该行业买家在选型/采购时会问 AI 的问题、常见对比与价格/资质/售后疑虑、客户所在地区或场景的问法、竞品被推荐的语境。搜索结果只能作为证据，不得直接照抄网页里的问题。工具返回 unavailable=true 或提示达到上限时立即停止搜索，改用官网快照与知识库候选。
+2. 若本会话开放 web_search：把研究拆成 2-4 个互相独立的具体问题，覆盖该行业买家在选型/采购时会问 AI 的问题、常见对比与价格/资质/售后疑虑、客户所在地区或场景的问法、竞品被推荐的语境；在同一次回复中同时发起这些 web_search 调用，让系统并行检索。不要等待一次结果后再发下一次，也不要为同一问题反复换词。搜索结果只能作为证据，不得直接照抄网页里的问题。工具返回 unavailable=true 或提示达到上限时立即停止搜索，改用官网快照与知识库候选。
 3. 汇总出 10-30 个候选问题：用买家真实口吻写中文提问，不出现客户品牌名（除非是品牌口碑题），每题标注 intent（如 选型对比/价格/资质/售后/口碑/本地服务）、topic、persona、tags 与 source，并按意图排列。已有问题与候选重复的要合并；每题尽量带上支撑它的证据 ID。
 4. 用 propose_questions 提交：intro 里说明研究依据与分组逻辑（引用证据 ID）；未建档项目把候选竞品放进 competitors。
 5. 收到 applied=true 表示范围已写入，向用户简要总结并 finish（或按用户指令继续跑基线）；applied=false 表示用户未采用，按其反馈调整后再次 propose_questions。
@@ -1253,7 +1354,7 @@ const WORKBENCH_SYSTEM_PROMPT = `你是 ZZ Geo 的 AI 工作台 Agent，负责�
 其他指令（只生成报告、只审计、只生成文章等）按需选取上述子集。每完成一步用一两句中文向用户汇报进展。不要重复读取已经读过的证据。${AGENT_SAFETY_PROMPT}`;
 
 /** 会话级联网状态与配额写进系统提示，模型不用试错就知道能不能搜、能搜几次。 */
-function webSearchPromptNote(session: WorkbenchSession, sessionUsed: number): string {
+export function webSearchPromptNote(session: WorkbenchSession, sessionUsed: number): string {
 	if (!session.web_search_enabled)
 		return "\n\n本会话已关闭联网搜索：没有 web_search 工具，出题直接用官网快照与知识库候选，并向用户说明未经联网研究。";
 	const remaining = Math.max(0, WEB_SEARCH_LIMITS.workbenchSession - sessionUsed);
@@ -1268,6 +1369,7 @@ export async function executeSessionTurn(
 	message: string | null,
 ): Promise<void> {
 	const session = await loadSession(database, sessionId);
+	if (session.execution_target === "desktop") return;
 	if (["done", "failed"].includes(session.status) && trigger !== "user") return;
 	const config = await getHRouterConfig(database, session.organization_id);
 	const apiKey = await readEncryptedCredential(database, "hrouter_api_key", session.organization_id);
@@ -1307,7 +1409,8 @@ export async function executeSessionTurn(
 		},
 		streamFn: hrouterStreamFn,
 		getApiKey: (provider) => (provider === "hrouter" ? apiKey : undefined),
-		toolExecution: "sequential",
+		sessionId: session.id,
+		toolExecution: "parallel",
 		beforeToolCall: async ({ toolCall }) =>
 			allowedToolNames.has(toolCall.name)
 				? undefined
@@ -1336,11 +1439,18 @@ export async function executeSessionTurn(
 			streamedText = "";
 		}
 		if (event.type === "tool_execution_start") {
-			await emit("tool_start", { tool: event.toolName, args: event.args ?? null });
+			await emit("tool_start", { toolCallId: event.toolCallId, tool: event.toolName, args: event.args ?? null });
 		}
+		if (event.type === "tool_execution_update")
+			await emit("tool_update", {
+				toolCallId: event.toolCallId,
+				tool: event.toolName,
+				details: toolEventDetails(event.toolName, event.partialResult?.details),
+			});
 		if (event.type === "tool_execution_end") {
 			const details = (event.result as { details?: unknown } | null)?.details;
 			await emit("tool_end", {
+				toolCallId: event.toolCallId,
 				tool: event.toolName,
 				isError: event.isError,
 				details: event.isError ? summarizeError(event.result) : toolEventDetails(event.toolName, details),
@@ -1494,6 +1604,7 @@ export function toolEventDetails(tool: string, details: unknown): unknown {
 		remaining: typeof record.remaining === "number" ? record.remaining : null,
 		unavailable: record.unavailable === true,
 		reason: typeof record.reason === "string" ? record.reason : null,
+		...(typeof record.phase === "string" ? { phase: record.phase } : {}),
 	};
 }
 
@@ -1504,6 +1615,7 @@ export function toolEventDetails(tool: string, details: unknown): unknown {
 type WaitingSession = {
 	id: string;
 	project_id: string;
+	execution_target: "server" | "desktop";
 	auto_approve: boolean;
 	created_by: string | null;
 	waiting: unknown;
@@ -1592,7 +1704,7 @@ export async function resumeWaitingSessions(database: Database): Promise<number>
 	// 2. 唤醒等待后台对象的会话。
 	const waitingSessions = (
 		await database.query<WaitingSession>(
-			"SELECT id,project_id,auto_approve,created_by,waiting,plan FROM agent_sessions WHERE status='waiting_job' AND waiting IS NOT NULL",
+			"SELECT id,project_id,execution_target,auto_approve,created_by,waiting,plan FROM agent_sessions WHERE status='waiting_job' AND waiting IS NOT NULL",
 		)
 	).rows;
 	for (const session of waitingSessions) {
@@ -1670,10 +1782,12 @@ export async function resumeWaitingSessions(database: Database): Promise<number>
 		}
 		if (!summary || !outcome) continue;
 		const nextPlan = stepKey === "report" ? plan : planPatch(plan, stepKey, outcome);
-		await database.query("UPDATE agent_sessions SET status='running',plan=$2::jsonb,updated_at=now() WHERE id=$1", [
-			session.id,
-			JSON.stringify(nextPlan),
-		]);
+		const claimed = await database.query(
+			`UPDATE agent_sessions SET status='running',plan=$2::jsonb,updated_at=now()
+			 WHERE id=$1 AND status='waiting_job' AND waiting IS NOT NULL`,
+			[session.id, JSON.stringify(nextPlan)],
+		);
+		if (claimed.affectedRows !== 1) continue;
 		if (nextPlan !== plan)
 			await appendEvent(database, session.id, "step", {
 				key: stepKey,
@@ -1681,7 +1795,7 @@ export async function resumeWaitingSessions(database: Database): Promise<number>
 				detail: outcome.detail ?? null,
 			});
 		await appendEvent(database, session.id, "resumed", { kind: waiting.kind, id: waiting.id, summary });
-		await enqueueTurn(database, { sessionId: session.id, trigger: "resume", message: summary });
+		await scheduleSessionTurn(database, session, { sessionId: session.id, trigger: "resume", message: summary });
 		resumed += 1;
 	}
 	// 3. 文章草稿是后台物化的，会话通常在它们完成前就已结束：全部落地后再收尾“优化文章”步骤。
@@ -1721,7 +1835,7 @@ export async function resumeWaitingSessions(database: Database): Promise<number>
 export async function recoverOrphanedSessions(database: Database): Promise<number> {
 	const result = await database.query(
 		`UPDATE agent_sessions s SET status='failed',error_message='Agent 执行进程已中断；请重新发送消息继续',updated_at=now()
-		 WHERE s.status='running' AND s.updated_at<now()-interval '20 minutes'
+		 WHERE s.execution_target='server' AND s.status='running' AND s.updated_at<now()-interval '20 minutes'
 		 AND NOT EXISTS (
 			 SELECT 1 FROM jobs j WHERE j.type='agent_session_turn' AND j.payload->>'sessionId'=s.id AND j.status IN ('pending','leased')
 		 )`,

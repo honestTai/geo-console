@@ -2,7 +2,13 @@ import { randomUUID } from "node:crypto";
 import type { Database } from "@geo/core";
 import { StructuredLogger, safeErrorMessage } from "@geo/logging";
 import { executeAgentDraft, flushAgentLogs } from "./agent";
-import { coordinateWorkbench, recoverOrphanedAgentRuns, runOneAgentJob } from "./agent-jobs";
+import {
+	AGENT_JOB_CONCURRENCY,
+	AGENT_JOB_POLL_MS,
+	coordinateWorkbench,
+	recoverOrphanedAgentRuns,
+	runOneAgentJob,
+} from "./agent-jobs";
 import { flushCaptureLogs, startCloudRunner } from "./cloud-runner";
 import { flushReportLogs, queueScheduledReportSnapshots, runOneReportJob } from "./report-snapshots";
 
@@ -12,13 +18,13 @@ export async function startLocalWorkers(database: Database): Promise<() => Promi
 	const stopCapture = startCloudRunner(database);
 	const agentOwner = `local-agent:${process.pid}:${randomUUID()}`;
 	const reportOwner = `local-report:${process.pid}:${randomUUID()}`;
-	let agentActive = false;
+	let activeAgentJobs = 0;
 	let reportActive = false;
 	let lastReportScan = 0;
 	let lastCoordination = 0;
 	const agentTick = async () => {
-		if (agentActive) return;
-		agentActive = true;
+		if (activeAgentJobs >= AGENT_JOB_CONCURRENCY) return;
+		activeAgentJobs += 1;
 		try {
 			if (Date.now() - lastCoordination >= 5_000) {
 				lastCoordination = Date.now();
@@ -28,7 +34,7 @@ export async function startLocalWorkers(database: Database): Promise<() => Promi
 		} catch (error) {
 			logger.error("agent.tick_failed", safeErrorMessage(error), { traceId: agentOwner });
 		} finally {
-			agentActive = false;
+			activeAgentJobs -= 1;
 		}
 	};
 	const reportTick = async () => {
@@ -46,9 +52,9 @@ export async function startLocalWorkers(database: Database): Promise<() => Promi
 			reportActive = false;
 		}
 	};
-	const agentTimer = setInterval(() => void agentTick(), 1_000);
+	const agentTimer = setInterval(() => void agentTick(), AGENT_JOB_POLL_MS);
 	const reportTimer = setInterval(() => void reportTick(), 1_000);
-	void agentTick();
+	for (let index = 0; index < AGENT_JOB_CONCURRENCY; index += 1) void agentTick();
 	void reportTick();
 	logger.info("service.started", "本机组合 Worker 已启动", {
 		metadata: { capture: true, agent: true, report: true },

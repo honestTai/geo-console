@@ -332,6 +332,8 @@ export type AgentSessionTurnPayload = {
 };
 
 export type AgentSessionStatus = "idle" | "running" | "waiting_user" | "waiting_job" | "done" | "failed";
+export type AgentExecutionTarget = "server" | "desktop";
+export type DesktopAgentTrigger = AgentSessionTurnPayload["trigger"];
 
 /** 工作台 `propose_questions` 交给成员确认的候选问题；成员可改字、删行、加行后再确认。 */
 export type ScopeProposalQuestion = {
@@ -888,6 +890,14 @@ export const agentSessions = pgTable(
 		model: text("model"),
 		thinkingLevel: text("thinking_level").$type<AgentThinkingLevel>(),
 		webSearchEnabled: boolean("web_search_enabled").notNull().default(true),
+		executionTarget: text("execution_target").$type<AgentExecutionTarget>().notNull().default("server"),
+		desktopPendingTrigger: text("desktop_pending_trigger").$type<DesktopAgentTrigger>(),
+		desktopPendingMessage: text("desktop_pending_message"),
+		desktopTurnStartIndex: integer("desktop_turn_start_index"),
+		desktopRunId: text("desktop_run_id"),
+		desktopClientId: text("desktop_client_id"),
+		desktopLeaseExpiresAt: timestamp("desktop_lease_expires_at", { withTimezone: true }),
+		eventSeq: integer("event_seq").notNull().default(0),
 		transcript: jsonb("transcript").$type<unknown[]>().notNull().default([]),
 		plan: jsonb("plan").$type<AgentSessionPlanStep[]>().notNull().default([]),
 		waiting: jsonb("waiting").$type<AgentSessionWaiting | null>(),
@@ -915,9 +925,38 @@ export const agentSessionEvents = pgTable(
 		seq: integer("seq").notNull(),
 		type: text("type").notNull(),
 		payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+		clientEventId: text("client_event_id"),
 		createdAt,
 	},
-	(table) => [uniqueIndex("agent_session_events_seq_unique").on(table.sessionId, table.seq)],
+	(table) => [
+		uniqueIndex("agent_session_events_seq_unique").on(table.sessionId, table.seq),
+		uniqueIndex("agent_session_events_client_unique").on(table.sessionId, table.clientEventId),
+	],
+);
+
+export const desktopAgentToolCalls = pgTable(
+	"desktop_agent_tool_calls",
+	{
+		id: id("id"),
+		sessionId: text("session_id")
+			.notNull()
+			.references(() => agentSessions.id, { onDelete: "cascade" }),
+		toolCallId: text("tool_call_id").notNull(),
+		toolName: text("tool_name").notNull(),
+		args: jsonb("args").$type<Record<string, unknown>>().notNull(),
+		argsHash: text("args_hash").notNull(),
+		status: text("status").$type<"running" | "complete" | "failed">().notNull().default("running"),
+		result: jsonb("result").$type<Record<string, unknown> | null>(),
+		errorMessage: text("error_message"),
+		leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+		createdAt,
+		updatedAt,
+		completedAt: timestamp("completed_at", { withTimezone: true }),
+	},
+	(table) => [
+		uniqueIndex("desktop_agent_tool_calls_session_call_unique").on(table.sessionId, table.toolCallId),
+		index("desktop_agent_tool_calls_session_idx").on(table.sessionId, table.createdAt),
+	],
 );
 
 export type WebSearchStatus = "complete" | "search_not_triggered" | "no_answer" | "failed";

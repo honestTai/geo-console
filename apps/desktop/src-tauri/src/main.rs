@@ -2,17 +2,45 @@ use reqwest::header::{
     HeaderMap as ReqwestHeaderMap, HeaderName as ReqwestHeaderName,
     HeaderValue as ReqwestHeaderValue,
 };
+use serde::Serialize;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use tauri::{
     http::{header, Request, Response, StatusCode},
+    ipc::Channel,
     webview::NewWindowResponse,
-    WebviewUrl, WebviewWindowBuilder,
+    State, WebviewUrl, WebviewWindowBuilder,
 };
 use url::Url;
 
 const DEFAULT_SERVER_ORIGIN: &str = "https://www.honesttai.com";
 const DESKTOP_USER_AGENT: &str = "ZZGeoDesktop/0.2.0";
 static CHILD_WINDOW_ID: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Clone)]
+struct CloudClient {
+    client: reqwest::Client,
+    origin: Url,
+    requests: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<()>>>>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+enum AgentStreamEvent {
+    Head {
+        status: u16,
+        content_type: String,
+        request_id: Option<String>,
+    },
+    Chunk {
+        data: Vec<u8>,
+    },
+    End,
+    Error {
+        message: String,
+    },
+}
 
 fn server_origin() -> Url {
     let configured = std::env::var("GEO_DESKTOP_SERVER_ORIGIN")
@@ -237,24 +265,180 @@ async fn proxy_request(
     response
 }
 
+fn is_safe_runtime_id(value: &str) -> bool {
+    (8..=128).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
+}
+
+fn remove_agent_request(state: &CloudClient, request_id: &str) {
+    if let Ok(mut requests) = state.requests.lock() {
+        requests.remove(request_id);
+    }
+}
+
+#[tauri::command]
+async fn stream_agent_response(
+    state: State<'_, CloudClient>,
+    session_id: String,
+    run_id: String,
+    client_id: String,
+    request_id: String,
+    body: String,
+    on_event: Channel<AgentStreamEvent>,
+) -> Result<(), String> {
+    if !is_safe_runtime_id(&session_id)
+        || !is_safe_runtime_id(&run_id)
+        || !is_safe_runtime_id(&client_id)
+        || !is_safe_runtime_id(&request_id)
+    {
+        return Err("Invalid desktop Agent identifier".to_string());
+    }
+    if body.len() > 2_000_000 {
+        return Err("Desktop Agent request is too large".to_string());
+    }
+    let request: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|_| "Desktop Agent request is not valid JSON".to_string())?;
+    let mut target = state.origin.clone();
+    target.set_path(&format!(
+        "/api/workbench/sessions/{session_id}/desktop/responses"
+    ));
+    target.set_query(None);
+    let request = state
+        .client
+        .post(target)
+        .header("content-type", "application/json")
+        .header("x-geo-client", "desktop")
+        .json(&serde_json::json!({
+            "runId": run_id,
+            "clientId": client_id,
+            "request": request,
+        }));
+    let (cancel, mut cancelled) = tokio::sync::oneshot::channel();
+    if let Ok(mut requests) = state.requests.lock() {
+        if let Some(previous) = requests.insert(request_id.clone(), cancel) {
+            let _ = previous.send(());
+        }
+    } else {
+        return Err("Desktop Agent request registry is unavailable".to_string());
+    }
+    let upstream = match tokio::select! {
+        _ = &mut cancelled => {
+            let _ = on_event.send(AgentStreamEvent::End);
+            return Ok(());
+        }
+        response = request.send() => response
+    } {
+        Ok(response) => response,
+        Err(error) => {
+            remove_agent_request(&state, &request_id);
+            let message = format!("无法连接 Agent 请求代理：{error}");
+            let _ = on_event.send(AgentStreamEvent::Error {
+                message: message.clone(),
+            });
+            return Err(message);
+        }
+    };
+    let status = upstream.status().as_u16();
+    let content_type = upstream
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("text/event-stream; charset=utf-8")
+        .to_string();
+    let upstream_request_id = upstream
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
+    if let Err(error) = on_event.send(AgentStreamEvent::Head {
+        status,
+        content_type,
+        request_id: upstream_request_id,
+    }) {
+        remove_agent_request(&state, &request_id);
+        return Err(error.to_string());
+    }
+    let mut upstream = upstream;
+    loop {
+        let chunk = tokio::select! {
+            _ = &mut cancelled => {
+                let _ = on_event.send(AgentStreamEvent::End);
+                remove_agent_request(&state, &request_id);
+                return Ok(());
+            }
+            chunk = upstream.chunk() => chunk
+        };
+        match chunk {
+            Ok(Some(chunk)) => {
+                if let Err(error) = on_event.send(AgentStreamEvent::Chunk {
+                    data: chunk.to_vec(),
+                }) {
+                    remove_agent_request(&state, &request_id);
+                    return Err(error.to_string());
+                }
+            }
+            Ok(None) => break,
+            Err(error) => {
+                remove_agent_request(&state, &request_id);
+                let message = format!("Agent 响应流中断：{error}");
+                let _ = on_event.send(AgentStreamEvent::Error {
+                    message: message.clone(),
+                });
+                return Err(message);
+            }
+        }
+    }
+    remove_agent_request(&state, &request_id);
+    on_event
+        .send(AgentStreamEvent::End)
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn cancel_agent_response(state: State<'_, CloudClient>, request_id: String) -> Result<(), String> {
+    if !is_safe_runtime_id(&request_id) {
+        return Err("Invalid desktop Agent request identifier".to_string());
+    }
+    let sender = state
+        .requests
+        .lock()
+        .map_err(|_| "Desktop Agent request registry is unavailable".to_string())?
+        .remove(&request_id);
+    if let Some(sender) = sender {
+        let _ = sender.send(());
+    }
+    Ok(())
+}
+
 fn main() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let origin = server_origin();
-    let protocol_origin = origin.clone();
     let client = reqwest::Client::builder()
         .cookie_store(true)
         .user_agent(DESKTOP_USER_AGENT)
         .build()
         .expect("failed to initialize the desktop cloud client");
+    let cloud = CloudClient {
+        client,
+        origin,
+        requests: Arc::new(Mutex::new(HashMap::new())),
+    };
+    let protocol_cloud = cloud.clone();
+    let setup_origin = cloud.origin.clone();
 
     tauri::Builder::default()
+		.manage(cloud)
+		.invoke_handler(tauri::generate_handler![stream_agent_response, cancel_agent_response])
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .register_asynchronous_uri_scheme_protocol("geo", move |context, request, responder| {
             let path = request.uri().path().to_string();
             if is_cloud_path(&path) {
-                let client = client.clone();
-                let origin = protocol_origin.clone();
+                let client = protocol_cloud.client.clone();
+                let origin = protocol_cloud.origin.clone();
                 tauri::async_runtime::spawn(async move {
                     responder.respond(proxy_request(client, origin, request).await);
                 });
@@ -273,9 +457,9 @@ fn main() {
             } else {
                 WebviewUrl::CustomProtocol(embedded_url())
             };
-            let server_origin =
-                serde_json::to_string(origin.as_str()).expect("serializable server origin");
-            let child_origin = origin.clone();
+            let server_origin = serde_json::to_string(setup_origin.as_str())
+                .expect("serializable server origin");
+            let child_origin = setup_origin.clone();
             let child_app = app.handle().clone();
             WebviewWindowBuilder::new(app, "main", start_url)
                 .title("ZZ Geo")
@@ -411,5 +595,14 @@ mod tests {
         assert!(
             embedded_artifact_url(&Url::parse("https://example.com/file.pdf").unwrap()).is_none()
         );
+    }
+
+    #[test]
+    fn only_accepts_bounded_runtime_identifiers() {
+        assert!(is_safe_runtime_id("session-1234"));
+        assert!(is_safe_runtime_id("client:desktop_1"));
+        assert!(!is_safe_runtime_id("short"));
+        assert!(!is_safe_runtime_id("../../session"));
+        assert!(!is_safe_runtime_id("session/other"));
     }
 }

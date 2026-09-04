@@ -29,6 +29,16 @@ import {
 	selectOrganization,
 } from "./auth";
 import { exportKnowledge, exportSettings, importKnowledge, importSettings } from "./config-transfer";
+import {
+	claimDesktopTurn,
+	completeDesktopTurn,
+	DesktopAgentConflictError,
+	executeDesktopTool,
+	heartbeatDesktopTurn,
+	recordDesktopEvent,
+	recordDesktopMessage,
+	relayDesktopAgentResponse,
+} from "./desktop-agent";
 import { getHRouterConfig, listHRouterModels, saveHRouterConfig } from "./hrouter";
 import { archiveLibraryQuestion, createLibraryQuestion, listLibraryQuestions } from "./knowledge-base";
 import { startLocalWorkers } from "./local-workers";
@@ -111,6 +121,7 @@ import {
 	orderQuickCommands,
 	sendMessage,
 	updateSessionSettings,
+	waitForSessionUpdates,
 } from "./workbench";
 
 const host = process.env.GEO_WORKER_HOST?.trim() || "127.0.0.1";
@@ -132,6 +143,17 @@ function routeMatch(pathname: string, expression: RegExp): string[] | null {
 /** 路由策略之外的附加功能开关（如“同步写入知识库”）仍按有效权限判断，超管始终放行。 */
 const hasPermission = (identity: Identity, permission: string): boolean =>
 	identity.isSuperAdmin || identity.permissions.includes(permission);
+const isDesktopRequest = (request: IncomingMessage): boolean =>
+	request.headers["x-geo-client"] === "desktop" &&
+	/(?:^|\s)ZZGeoDesktop\/\d+\.\d+\.\d+(?:[+.-][0-9A-Za-z.-]+)?(?:\s|$)/.test(request.headers["user-agent"] ?? "");
+const isDesktopRuntimePlumbing = (path: string): boolean =>
+	/^\/api\/workbench\/sessions\/[^/]+\/desktop\/(claim|heartbeat|events|messages|complete|responses)$/.test(path);
+const isQuietDesktopRuntimePath = (path: string): boolean =>
+	/^\/api\/workbench\/sessions\/[^/]+\/desktop\/(heartbeat|events|messages)$/.test(path);
+
+function assertDesktopRequest(request: IncomingMessage): void {
+	if (!isDesktopRequest(request)) throw new AccessDeniedError("该接口只允许 ZZ Geo 桌面客户端访问");
+}
 
 async function serveArtifact(response: ServerResponse, artifactPath: string): Promise<void> {
 	try {
@@ -514,7 +536,41 @@ async function handleWorkbenchRoutes(
 		return true;
 	}
 	if (sessions && request.method === "POST") {
-		json(response, 201, await createSession(database, sessions[0], await readJson(request), actorUserId));
+		json(
+			response,
+			201,
+			await createSession(database, sessions[0], await readJson(request), actorUserId, {
+				desktopClient: isDesktopRequest(request),
+			}),
+		);
+		return true;
+	}
+	const desktop = routeMatch(
+		path,
+		/^\/api\/workbench\/sessions\/([^/]+)\/desktop\/(claim|heartbeat|events|messages|tools|complete|responses)$/,
+	);
+	if (desktop && request.method === "POST") {
+		assertDesktopRequest(request);
+		const [sessionId, action] = desktop;
+		const actor = { userId: actorUserId, isSuperAdmin: identity.isSuperAdmin };
+		const body = (await readJson(request)) as Record<string, unknown>;
+		if (action === "claim") json(response, 200, await claimDesktopTurn(database, sessionId, body, actor));
+		else if (action === "heartbeat") json(response, 200, await heartbeatDesktopTurn(database, sessionId, body, actor));
+		else if (action === "events") json(response, 200, await recordDesktopEvent(database, sessionId, body, actor));
+		else if (action === "messages") json(response, 200, await recordDesktopMessage(database, sessionId, body, actor));
+		else if (action === "tools") {
+			const controller = new AbortController();
+			request.once("aborted", () => controller.abort());
+			json(response, 200, await executeDesktopTool(database, sessionId, body, actor, controller.signal));
+		} else if (action === "complete") json(response, 200, await completeDesktopTurn(database, sessionId, body, actor));
+		else {
+			const run = { runId: body.runId, clientId: body.clientId };
+			const controller = new AbortController();
+			const abort = () => controller.abort();
+			request.once("aborted", abort);
+			response.once("close", abort);
+			await relayDesktopAgentResponse(database, sessionId, run, body.request, actor, response, controller.signal);
+		}
 		return true;
 	}
 	const session = routeMatch(path, /^\/api\/workbench\/sessions\/([^/]+)$/);
@@ -526,12 +582,35 @@ async function handleWorkbenchRoutes(
 	if (events && request.method === "GET") {
 		const url = new URL(request.url ?? path, `http://${request.headers.host ?? "127.0.0.1"}`);
 		const after = Number(url.searchParams.get("after") ?? 0);
-		json(response, 200, await listSessionEvents(database, events[0], Number.isFinite(after) ? after : 0));
+		const wait = Number(url.searchParams.get("wait") ?? 0);
+		if (!Number.isFinite(wait) || wait <= 0) {
+			json(response, 200, {
+				...(await listSessionEvents(database, events[0], Number.isFinite(after) ? after : 0)),
+				session: await getSession(database, events[0]),
+			});
+			return true;
+		}
+		const controller = new AbortController();
+		const abort = () => controller.abort();
+		response.once("close", abort);
+		const updates = await waitForSessionUpdates(
+			database,
+			events[0],
+			Number.isFinite(after) ? after : 0,
+			wait,
+			controller.signal,
+		);
+		response.off("close", abort);
+		if (updates && !response.destroyed) json(response, 200, updates);
 		return true;
 	}
 	const messages = routeMatch(path, /^\/api\/workbench\/sessions\/([^/]+)\/messages$/);
 	if (messages && request.method === "POST") {
-		json(response, 202, await sendMessage(database, messages[0], await readJson(request)));
+		json(
+			response,
+			202,
+			await sendMessage(database, messages[0], await readJson(request), { desktopClient: isDesktopRequest(request) }),
+		);
 		return true;
 	}
 	const answer = routeMatch(path, /^\/api\/workbench\/sessions\/([^/]+)\/answer$/);
@@ -545,6 +624,7 @@ async function handleWorkbenchRoutes(
 			await answerQuestion(database, answer[0], body, {
 				userId: actorUserId,
 				canWriteKnowledge: hasPermission(identity, "knowledge.manage"),
+				desktopClient: isDesktopRequest(request),
 			}),
 		);
 		return true;
@@ -749,7 +829,13 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 	const path = requestUrl.pathname;
 	response.setHeader("x-request-id", traceId);
 	response.once("finish", () => {
-		if (path === "/api/health" || path.startsWith("/api/service-logs")) return;
+		if (
+			path === "/api/health" ||
+			path.startsWith("/api/service-logs") ||
+			/^\/api\/workbench\/sessions\/[^/]+\/events$/.test(path) ||
+			isQuietDesktopRuntimePath(path)
+		)
+			return;
 		apiLogger.info("http.request", `${request.method ?? "GET"} ${path}`, {
 			organizationId: requestOrganizationId,
 			traceId,
@@ -945,7 +1031,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 		(await handleHRouterRoutes(request, response, path, identity.organizationId)) ||
 		(await handleKnowledgeRoutes(request, response, path, identity.organizationId, identity.id));
 	if (handled) {
-		await auditRequest(database, identity, request.method ?? "GET", path);
+		if (!isDesktopRuntimePlumbing(path)) await auditRequest(database, identity, request.method ?? "GET", path);
 		return;
 	}
 	json(response, 404, { error: "接口不存在" });
@@ -955,6 +1041,7 @@ function apiErrorStatus(error: unknown): number {
 	if (error instanceof z.ZodError) return 400;
 	if (error instanceof AuthenticationError) return 401;
 	if (error instanceof AccessDeniedError) return 403;
+	if (error instanceof DesktopAgentConflictError) return 409;
 	if (error instanceof LogServiceUnavailableError) return 503;
 	return 500;
 }

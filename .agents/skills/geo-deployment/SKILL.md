@@ -58,7 +58,8 @@ corepack pnpm geo start
 - 服务器使用固定 `geo-console-worker-base:node24-playwright1234`，它只承载 Node、Playwright Chromium、中文字体和系统库。基础镜像升级是独立维护动作；普通 release 不能在服务器安装或下载这些内容。
 - release payload 必须包含 `server-runtime.tar`、Web dist、landing、Compose/Caddy 和无网络重构 Dockerfile；不含 `.agents`/Demo 凭据、Git、desktop、宿主机 node_modules、Secret、`.env`、数据库、证据、备份或本地打包脚本。
 - `deploy/install.sh` 和 `geo-console prepare` 必须在停止旧服务前验证 `local-server-artifacts`/`reconstruct` 标记、目标平台、artifact SHA-256、基础镜像及 Dockerfile 没有 `RUN` 指令；随后才允许 `docker compose build api web`，且不得 `--pull`。
-- 桌面客户端使用独立 Tauri 签名链。私钥只能在发布机 owner-only 文件或受控 CI Secret 中，绝不能打入服务器 `.run`、Git 或 `latest.json`；客户端只保存公钥。
+- 桌面客户端使用独立 Tauri 签名链。私钥只能在发布机 owner-only 文件或受控 CI Secret 中，绝不能打入服务器 `.run`、Git 或 `latest.json`；客户端只保存公钥。桌面 WebView 内置交互 Agent 运行时，但不保存 HRouter Key、数据库或证据；模型流经 Tauri Channel 调受控 Responses 代理，业务工具仍由服务器执行。
+- 涉及桌面 Agent 协议时先发布并验证服务器 migration/API，再发布签名客户端。验证桌面会话不创建 `agent_session_turn`、Channel 能流式返回首字、工具结果可幂等恢复，且旧桌面/浏览器默认的服务端执行仍兼容。回滚服务器前先检查是否存在 `execution_target='desktop' AND status='running'` 的会话；旧代码不会消费其 `desktop_pending_*`，不能把它们当作可自动恢复的 Worker job。
 - 外层 release bundle 必须在本地与服务器分别校验 SHA-256，内层 server artifact 由 manifest SHA-256 在重构前再次校验。
 - 首次安装会创建 Secret、可选 2 GB Swap，按 PostgreSQL -> Log Service -> API -> Workers -> Web/Caddy 顺序启动，并创建首份数据库/本地 evidence 成对备份。
 - 升级会在旧版本在线时用本地产物重构新镜像，切换前自动备份 PostgreSQL 与本地 evidence，然后停止应用、切换 `current` 并重启新镜像；Log Service/API 启动时继续执行向前 migration。

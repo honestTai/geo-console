@@ -30,7 +30,7 @@ corepack pnpm geo start
 
 ## 桌面客户端
 
-`apps/desktop` 是面向全部用户的 Tauri 2 客户端。正式版加载 `https://geo.example.com/app/`，开发版加载本机 `/app/`；浏览器暂时保留同步功能用于调试。桌面壳不内置数据库、证据或 Provider Key，所有权限和数据仍来自服务器。
+`apps/desktop` 是面向全部用户的 Tauri 2 客户端。正式版内置与 `/app/` 同源构建的 Web 资产，开发版加载本机 `/app/`；浏览器暂时保留同步调试。正式桌面工作台在 WebView 内运行 `pi-agent-core`，模型请求通过 Tauri Channel 流式访问服务器的受控 Responses 代理，工具通过服务器业务 RPC 执行。桌面不内置数据库、证据文件或 Provider/HRouter Key，权限、会话、工具幂等结果和业务数据仍来自服务器。
 
 开发运行：
 
@@ -45,6 +45,8 @@ export TAURI_SIGNING_PRIVATE_KEY="$HOME/.tauri/zz-geo.key"
 export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
 corepack pnpm desktop:build
 ```
+
+桌面构建必须同时包含 `apps/web/src/desktop-agent.ts` 的独立运行时 chunk 和 Rust `stream_agent_response/cancel_agent_response` 命令。发布前至少验证首个文本增量可通过 Channel 到达、取消可中止上游请求、断线后不会重复执行已完成的工具，以及普通浏览器创建的会话仍走服务端兼容执行。
 
 macOS/Windows/Linux 更新产物及 `.sig` 由 Tauri 生成。发布时生成有效的 `latest.json`，上传到配置的 HTTPS 地址 `https://www.honesttai.com/desktop/latest.json`，并确保所有已声明平台条目都有 URL 和签名。丢失私钥会导致已安装客户端无法接受后续更新，必须离线备份。
 
@@ -119,6 +121,7 @@ sudo bash ./geo-console-<版本>.run \
 - 顺序启动 PostgreSQL、Log Service、API、Capture Worker、Agent Worker、Report Worker、Web 和 Caddy，避免首次迁移竞争。
 - 验证 HTTPS、服务健康和一次数据库/本地证据成对备份。
 - 验证根路径官网、`/help/` 在线手册及 PDF、`/app/` 同步调试入口以及桌面客户端登录与动态导航。
+- 验证 migration `0018_desktop_agent_runtime.sql` 已执行；桌面新会话显示“桌面执行”、不产生 `agent_session_turn` job，受控 Responses 流和一个只读业务工具可完整跑通，PDF/Word 仍由 Report Worker 生成。
 
 默认备份目录为 `/var/backups/geo-console`，可用 `--backup-dir /安全路径` 指定。该目录仍应定期同步到另一台机器或私有对象存储。
 

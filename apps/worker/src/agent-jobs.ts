@@ -4,6 +4,10 @@ import { agentRuntimeLogger, executeAgentDraft } from "./agent";
 import { parseJsonColumn } from "./utils";
 import { executeSessionTurn, recoverOrphanedSessions, resumeWaitingSessions, workbenchLogger } from "./workbench";
 
+/** Agent 多数时间等待模型/联网 I/O；两个槽位避免一次慢搜索阻塞新会话，同时适配 2 vCPU Demo 基线。 */
+export const AGENT_JOB_CONCURRENCY = 2;
+export const AGENT_JOB_POLL_MS = 250;
+
 type AgentJob = {
 	id: string;
 	type: "agent_draft" | "agent_session_turn";
@@ -62,7 +66,7 @@ export async function runOneAgentJob(
 			`WITH candidate AS (
 				SELECT id FROM jobs WHERE type IN ('agent_draft','agent_session_turn') AND attempts<max_attempts
 				 AND available_at<=now() AND (status='pending' OR (status='leased' AND lease_expires_at<now()))
-				 ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED
+					 ORDER BY (type='agent_session_turn') DESC,created_at LIMIT 1 FOR UPDATE SKIP LOCKED
 			) UPDATE jobs SET status='leased',lease_owner=$1,lease_expires_at=now()+interval '15 minutes',
 			 attempts=attempts+1,updated_at=now() WHERE id=(SELECT id FROM candidate)
 			 RETURNING id,type,payload,attempts,max_attempts`,
