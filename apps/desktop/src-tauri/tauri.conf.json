@@ -4,14 +4,15 @@
 	"version": "0.2.0",
 	"identifier": "com.zzgeo.desktop",
 	"build": {
-		"frontendDist": "../../web/dist",
+		"frontendDist": "../dist",
+		"devUrl": "http://127.0.0.1:3000/app/?desktop=1",
 		"beforeDevCommand": "corepack pnpm --workspace-root geo start",
-		"beforeBuildCommand": "corepack pnpm --filter @geo/web build"
+		"beforeBuildCommand": "corepack pnpm --filter @geo/web build && corepack pnpm prepare-frontend"
 	},
 	"app": {
 		"windows": [],
 		"security": {
-			"csp": "default-src 'self'; img-src 'self' data: https:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost https://www.honesttai.com http://127.0.0.1:3010"
+			"csp": "default-src 'self'; img-src 'self' data: https:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost"
 		}
 	},
 	"bundle": {
