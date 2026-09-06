@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Database } from "@geo/core";
 import { safeErrorMessage } from "@geo/logging";
+import { runOneAnswerAnalysisJob } from "./answer-analysis";
 import {
 	finalizeMeasurements,
 	measurementLogger,
@@ -15,6 +16,7 @@ export function startSemanticRuntime(database: Database): () => Promise<void> {
 	let stopped = false;
 	let coordinating = false;
 	const jobs = new Set<Promise<unknown>>();
+	const analyses = new Set<Promise<unknown>>();
 	const coordinate = async () => {
 		if (stopped || coordinating) return;
 		coordinating = true;
@@ -30,7 +32,15 @@ export function startSemanticRuntime(database: Database): () => Promise<void> {
 		}
 	};
 	const tick = () => {
-		if (stopped || jobs.size >= 2) return;
+		if (stopped) return;
+		// On-demand interpretation has its own bounded slot and cannot occupy the two metric slots.
+		if (analyses.size < 1) {
+			const analysis = runOneAnswerAnalysisJob(database, owner)
+				.catch((e) => measurementLogger.error("answer_analysis.tick_failed", safeErrorMessage(e)))
+				.finally(() => analyses.delete(analysis));
+			analyses.add(analysis);
+		}
+		if (jobs.size >= 2) return;
 		const job = runOneSemanticJob(database, owner)
 			.catch((e) => measurementLogger.error("semantic.tick_failed", safeErrorMessage(e)))
 			.finally(() => jobs.delete(job));
@@ -43,7 +53,7 @@ export function startSemanticRuntime(database: Database): () => Promise<void> {
 		stopped = true;
 		clearInterval(timer);
 		clearInterval(coordinator);
-		await Promise.allSettled([...jobs]);
+		await Promise.allSettled([...jobs, ...analyses]);
 		while (coordinating) await new Promise((resolve) => setTimeout(resolve, 50));
 		await measurementLogger.flush();
 	};

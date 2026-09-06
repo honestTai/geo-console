@@ -1,5 +1,5 @@
 import type { ExecutionActor } from "@geo/authorization";
-import type { FrozenMeasurementContract } from "@geo/evidence";
+import type { AnswerAnalysisContract, AnswerAnalysisResult, FrozenMeasurementContract } from "@geo/evidence";
 import { sql } from "drizzle-orm";
 import {
 	type AnyPgColumn,
@@ -401,6 +401,7 @@ export type JobPayload =
 	| AgentJobPayload
 	| AgentSessionTurnPayload
 	| { reportId: string }
+	| { analysisId: string }
 	| { runId: string; captureId: string };
 
 export const jobs = pgTable(
@@ -424,6 +425,9 @@ export const jobs = pgTable(
 		uniqueIndex("semantic_job_key")
 			.on(sql`(${table.payload}->>'runId')`, sql`(${table.payload}->>'captureId')`)
 			.where(sql`${table.type}='semantic_parse'`),
+		uniqueIndex("answer_analysis_job_key")
+			.on(sql`(${table.payload}->>'analysisId')`)
+			.where(sql`${table.type}='answer_analysis'`),
 	],
 );
 
@@ -1165,6 +1169,66 @@ export const projectCosts = pgTable(
 		occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
 	},
 	(table) => [index("project_costs_project_idx").on(table.projectId, table.occurredAt)],
+);
+
+export const answerAnalysisRuns = pgTable(
+	"answer_analysis_runs",
+	{
+		id: id("id"),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id),
+		batchId: text("batch_id")
+			.notNull()
+			.references(() => experimentBatches.id),
+		captureId: text("capture_id")
+			.notNull()
+			.references(() => queryCaptures.id),
+		contract: jsonb("contract").$type<AnswerAnalysisContract>().notNull(),
+		contractHash: text("contract_hash").notNull(),
+		inputHash: text("input_hash").notNull(),
+		executionActor: jsonb("execution_actor").$type<ExecutionActor>().notNull(),
+		status: text("status").notNull().default("queued"),
+		selectedAttemptId: text("selected_attempt_id").references((): AnyPgColumn => answerAnalysisAttempts.id),
+		errorMessage: text("error_message"),
+		createdAt,
+		updatedAt,
+		completedAt: timestamp("completed_at", { withTimezone: true }),
+	},
+	(table) => [
+		index("answer_analysis_capture_idx").on(table.captureId, table.createdAt.desc(), table.id.desc()),
+		uniqueIndex("answer_analysis_active_idx").on(table.captureId).where(sql`${table.status} IN ('queued','running')`),
+		check(
+			"answer_analysis_runs_status_check",
+			sql`${table.status} IN ('queued','running','ready','needs_review','failed')`,
+		),
+	],
+);
+
+export const answerAnalysisAttempts = pgTable(
+	"answer_analysis_attempts",
+	{
+		id: id("id"),
+		runId: text("run_id")
+			.notNull()
+			.references(() => answerAnalysisRuns.id),
+		attempt: integer("attempt").notNull(),
+		status: text("status").notNull(),
+		result: jsonb("result").$type<AnswerAnalysisResult>(),
+		validation: jsonb("validation").$type<string[]>().notNull(),
+		rawResponse: jsonb("raw_response").notNull(),
+		usage: jsonb("usage"),
+		costMicros: bigint("cost_micros", { mode: "number" }),
+		createdAt,
+	},
+	(table) => [
+		uniqueIndex("answer_analysis_attempts_run_id_attempt_key").on(table.runId, table.attempt),
+		check("answer_analysis_attempts_attempt_check", sql`${table.attempt}>0`),
+		check("answer_analysis_attempts_status_check", sql`${table.status} IN ('valid','needs_review','failed')`),
+	],
 );
 
 export const semanticParseRuns = pgTable(

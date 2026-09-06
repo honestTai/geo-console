@@ -1,5 +1,7 @@
 # GEO Console Project Map
 
+完整回答辅助解读：evidence `answer-analysis.ts` → worker `answer-analysis-model.ts` / `answer-analysis.ts` → Semantic Worker 独立槽 → Web `AnswerAnalysis` / `ui/answer-analysis` / `useAnswerAnalysis`（EvidenceDetail 装配）。Core migration 0023 保存独立运行/尝试及授权，GET 不调用模型，POST 固定异步身份。与 measurement/metrics 解耦，不改正式排名。`tools/answer-analysis-eval` 是可选 Python 离线标注评测；详情见 `docs/answer-analysis.md`。
+
 ## 工具链
 
 - Node.js `24.x`，根 `packageManager` 固定 pnpm 11；所有命令使用 `corepack pnpm`。

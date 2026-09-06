@@ -31,6 +31,7 @@ import {
 	shortDate,
 } from "../ui/primitives";
 import "./Evidence.css";
+import { AnswerAnalysis } from "./AnswerAnalysis";
 import { Measurement } from "./Measurement";
 import { Page } from "./Page";
 
@@ -298,7 +299,7 @@ export function Evidence({
 					</div>
 					<div className="evidence-detail-pane">
 						{activeCapture ? (
-							<EvidenceDetail capture={activeCapture} brands={brands} />
+							<EvidenceDetail capture={activeCapture} brands={brands} batchId={batch?.id} />
 						) : (
 							<Empty compact title="选择一条回答" detail="左侧点击任意回答查看原文、来源和原始响应。" />
 						)}
@@ -543,7 +544,15 @@ function RawEvidencePanel({ capture }: { capture: Capture }) {
 	);
 }
 
-export function EvidenceDetail({ capture, brands }: { capture: Capture; brands: BrandScope }) {
+export function EvidenceDetail({
+	capture,
+	brands,
+	batchId,
+}: {
+	capture: Capture;
+	brands: BrandScope;
+	batchId?: string;
+}) {
 	const mention = summarizeMentions(capture, brands);
 	const panels: EvidencePanel[] = [];
 	if (capture.answerText) panels.push(answerPanel(capture.answerText));
@@ -574,6 +583,9 @@ export function EvidenceDetail({ capture, brands }: { capture: Capture; brands: 
 					)}
 				</div>
 			</div>
+			{batchId && capture.status === "complete" && capture.captureMode === "llm_search_api" && capture.answerText && (
+				<AnswerAnalysis key={`${batchId}:${capture.captureId}`} batchId={batchId} capture={capture} />
+			)}
 			{capture.answerText ? (
 				<Collapse className="ed-collapse" defaultActiveKey={["answer"]} items={panels} />
 			) : (

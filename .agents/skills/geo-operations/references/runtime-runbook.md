@@ -1,5 +1,7 @@
 # GEO Console Runtime Runbook
 
+完整回答辅助解读复用 Semantic Worker 的独立 1 槽，正式测量保留 2 槽。`answer_analysis` job 最多 2 次技术尝试、5 分钟租约、30 秒续租/重试；通用清扫同步终结耗尽的 run。排查 `answer_analysis_runs.error_message`、jobs、`answer.analysis.execute` 与当前 actor 权限；保留原始 Capture/旧分析，失败在 UI 重新生成而非改证据。备份两张新增分析表，包含敏感原始模型响应。详见 `docs/answer-analysis.md`。
+
 ## 服务与定时行为
 
 | 组件 | 主要职责 | 关键周期/租约 |

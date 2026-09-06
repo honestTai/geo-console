@@ -1,5 +1,9 @@
 # 运行与故障处理
 
+## 完整回答语义分析队列
+
+`answer_analysis` 是按需辅助解读，复用 Semantic Worker 独立 1 槽（正式测量另外 2 槽），无需新进程。最多 2 次技术尝试、5 分钟租约、30 秒续租/重试；`sweepTerminalLeases` 同步收敛耗尽的 job/run。看 `answer_analysis_runs.status/error_message`、执行策略和 jobs；failed/needs_review 由用户核对原文/模型后重生成，保留旧尝试，不改 Capture 或正式指标。备份包含新增两表的原始模型响应，视为敏感证据；没有自动付费历史回填。见 `docs/answer-analysis.md`。
+
 ## 健康检查
 
 ```bash

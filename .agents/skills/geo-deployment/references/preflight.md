@@ -1,5 +1,7 @@
 # GEO Console Deployment Preflight
 
+发布完整回答辅助解读须同步 API/Web 和 migration 0023（新建/明确授权库），确认 Semantic Worker 可消费 `answer_analysis`。不新增生产 Python、端口或 Compose 服务；Python 仅为可选离线评测。备份包含 answer_analysis_runs/attempts；回滚前停止新建并排空在途任务，保留新增表，旧版不处理该 job。见 `docs/answer-analysis.md`。
+
 ## 目标与授权
 
 - 确认是 local、demo 还是另一个明确命名的服务器。

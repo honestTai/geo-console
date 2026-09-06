@@ -1,5 +1,7 @@
 # 本机与服务器部署
 
+完整回答辅助解读随 API/Web 一起发布 migration `0023_answer_analysis.sql`，复用 Semantic Worker，无新增服务、端口或生产 Python 依赖。备份须包含 `answer_analysis_runs/answer_analysis_attempts`；回滚前停止新建并等待在途分析结束，保留新增表，旧代码不消费 `answer_analysis` 队列。只在新建 PGlite 或明确授权部署库迁移。完整行为见 `docs/answer-analysis.md`。
+
 ## 本机开发
 
 建议 4 核、16 GB 内存、20 GB 可用磁盘。Node.js 24 与 pnpm 11 由根 `packageManager` 固定。
