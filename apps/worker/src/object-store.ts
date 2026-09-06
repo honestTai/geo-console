@@ -52,6 +52,15 @@ export function artifactContentType(key: string): string {
 	}
 }
 
+export function artifactSafetyHeaders(contentType: string): Record<string, string> {
+	const activeContent = /html|xml|svg|javascript/i.test(contentType);
+	return {
+		"content-disposition": activeContent ? "attachment" : "inline",
+		...(activeContent ? { "content-security-policy": "sandbox; default-src 'none'; frame-ancestors 'none'" } : {}),
+		"x-content-type-options": "nosniff",
+	};
+}
+
 export async function putArtifact(
 	key: string,
 	body: ArtifactBody,

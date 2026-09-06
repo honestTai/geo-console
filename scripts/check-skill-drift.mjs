@@ -116,6 +116,8 @@ const categories = [
 		id: "domain",
 		patterns: [
 			/^packages\/core\/(?:src\/schema\.ts|migrations\/)/,
+			/^packages\/authorization\/src\//,
+			/^apps\/worker\/src\/authorization\//,
 			/^packages\/(?:evidence|metrics)\/src\//,
 			/^apps\/worker\/src\/(?:service|cloud-runner|agent|agent-jobs|report|report-snapshots|crawler|auth|attribution|providers)\.ts$/,
 		],

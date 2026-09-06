@@ -3,7 +3,9 @@ set -Eeuo pipefail
 
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-readonly OUTPUT_DIR="${1:-$REPO_DIR/dist}"
+output_dir="${1:-$REPO_DIR/dist}"
+mkdir -p "$output_dir"
+readonly OUTPUT_DIR="$(cd "$output_dir" && pwd)"
 readonly SERVER_PLATFORM="${GEO_SERVER_PLATFORM:-linux/amd64}"
 readonly WORKER_BASE_IMAGE="${GEO_WORKER_BASE_IMAGE:-geo-console-worker-base:node24-playwright1234}"
 readonly REUSE_SERVER_BUNDLE="${GEO_REUSE_SERVER_BUNDLE:-}"
@@ -81,6 +83,7 @@ if [[ -n "$REUSE_SERVER_BUNDLE" ]]; then
 		package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json
 		apps/worker/package.json apps/worker/tsconfig.json apps/worker/src
 		apps/log-service/package.json apps/log-service/tsconfig.json apps/log-service/src
+		packages/authorization/package.json packages/authorization/tsconfig.json packages/authorization/src
 		packages/core/package.json packages/core/tsconfig.json packages/core/src packages/core/migrations
 		packages/evidence/package.json packages/evidence/tsconfig.json packages/evidence/src
 		packages/logging/package.json packages/logging/tsconfig.json packages/logging/src
@@ -179,9 +182,11 @@ cp "$stage_dir/payload/deploy/install.sh" "$bundle_path"
 cat "$payload_archive" >>"$bundle_path"
 chmod 700 "$bundle_path"
 
+bundle_sha256="$(sha256_file "$bundle_path")"
+[[ "$bundle_sha256" =~ ^[0-9a-f]{64}$ ]] || { printf 'Release checksum generation failed\n' >&2; exit 1; }
 (
 	cd "$OUTPUT_DIR"
-	printf '%s  %s\n' "$(sha256_file "$bundle_path")" "$bundle_name" >"$bundle_name.sha256"
+	printf '%s  %s\n' "$bundle_sha256" "$bundle_name" >"$bundle_name.sha256"
 )
 
 printf 'Release ID:      %s\n' "$release_id"

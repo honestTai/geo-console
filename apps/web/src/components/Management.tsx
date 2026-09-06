@@ -1,15 +1,17 @@
 import { Alert } from "antd";
 import { hasPermission } from "../access";
+import {
+	AuditLogs,
+	KnowledgeBase,
+	Members,
+	OrganizationManagement,
+	RbacManagement,
+	ServiceLogs,
+	Settings,
+} from "../lazy-views";
 import type { UserIdentity, View } from "../types";
 import { managementViews } from "../types";
-import { AuditLogs } from "./AuditLogs";
-import { KnowledgeBase } from "./KnowledgeBase";
 import { AccountControl } from "./Login";
-import { Members } from "./Members";
-import { OrganizationManagement } from "./OrganizationManagement";
-import { RbacManagement } from "./RbacManagement";
-import { ServiceLogs } from "./ServiceLogs";
-import { Settings } from "./Settings";
 import { AppShell, type ShellNavigationItem } from "./Shell";
 import "./Management.css";
 
@@ -61,7 +63,7 @@ export function ManagementWorkspace({
 			{view === "members" && <Members localBypass={user.localBypass} />}
 			{view === "auditLogs" && <AuditLogs />}
 			{view === "serviceLogs" && <ServiceLogs />}
-			{view === "rbac" && <RbacManagement user={user} />}
+			{view === "rbac" && <RbacManagement user={user} onOpenMembers={() => onSelectView("members")} />}
 			{view === "organizations" && user.isSuperAdmin && (
 				<OrganizationManagement user={user} onIdentityChange={onIdentityChange} />
 			)}

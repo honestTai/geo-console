@@ -56,6 +56,7 @@ class PostgresDatabase implements Database {
 	}
 
 	async transaction<T>(work: (database: Database) => Promise<T>): Promise<T> {
+		if (this.connection) return work(this);
 		const connection = await this.pool.connect();
 		try {
 			await connection.query("BEGIN");
@@ -104,10 +105,11 @@ export async function migrateDatabase(database: Database): Promise<void> {
 	const migrationDirectory = resolve(fileURLToPath(new URL("../migrations", import.meta.url)));
 	const migrations = (await readdir(migrationDirectory)).filter((name) => name.endsWith(".sql")).sort();
 	for (const name of migrations) {
-		const existing = await database.query("SELECT name FROM geo_migrations WHERE name = $1", [name]);
-		if (existing.rows.length > 0) continue;
 		const sql = await readFile(resolve(migrationDirectory, name), "utf8");
 		await database.transaction(async (transaction) => {
+			if (database instanceof PostgresDatabase) await transaction.query("LOCK TABLE geo_migrations IN EXCLUSIVE MODE");
+			const existing = await transaction.query("SELECT name FROM geo_migrations WHERE name=$1", [name]);
+			if (existing.rows.length) return;
 			await transaction.exec(sql);
 			await transaction.query("INSERT INTO geo_migrations (name) VALUES ($1)", [name]);
 		});

@@ -20,7 +20,7 @@ import {
 	Tabs,
 	Tag,
 } from "antd";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Button, useBatch, usePermission } from "../access";
 import { api, post } from "../api";
 import {
@@ -107,8 +107,10 @@ export function ReportExecutiveOverview({
 					<b>{percentage(overall.citationRate as number | undefined)}</b>
 				</div>
 				<div className="dm">
-					<span>平均提及位置</span>
-					<b>{typeof overall.averageMentionPosition === "number" ? overall.averageMentionPosition.toFixed(1) : "-"}</b>
+					<span>明确推荐名次中位数</span>
+					<b>
+						{typeof overall.medianRecommendationRank === "number" ? overall.medianRecommendationRank.toFixed(1) : "-"}
+					</b>
 				</div>
 				<div className="dm">
 					<span>有效样本</span>
@@ -249,10 +251,11 @@ function deltaRow(
 	key: (typeof DELTA_METRICS)[number][1],
 	before: PlatformMetrics | undefined,
 	after: PlatformMetrics | undefined,
+	paired?: NonNullable<Batch["pairedComparison"]>[number]["result"],
 ): BaselineDeltaRow {
-	const unavailable = platformUnavailable(before) || platformUnavailable(after);
-	const beforeValue = unavailable ? null : (before?.[key] ?? null);
-	const afterValue = unavailable ? null : (after?.[key] ?? null);
+	const unavailable = platformUnavailable(before) || platformUnavailable(after) || !paired || paired.status !== "ready";
+	const beforeValue = unavailable ? null : (paired?.previous ?? null);
+	const afterValue = unavailable ? null : (paired?.current ?? null);
 	const hasDelta = beforeValue !== null && afterValue !== null;
 	const difference = hasDelta ? afterValue - beforeValue : 0;
 	return {
@@ -261,7 +264,9 @@ function deltaRow(
 		metric: label,
 		before: unavailable ? "不可用" : percentage(beforeValue),
 		after: unavailable ? "不可用" : percentage(afterValue),
-		delta: hasDelta ? `${(difference * 100).toFixed(1)} 个百分点` : "-",
+		delta: hasDelta
+			? `${(difference * 100).toFixed(1)} 个百分点；95% 区间 ${paired?.interval?.map((v) => (v * 100).toFixed(1)).join(" – ") ?? "不足"}`
+			: "-",
 		positive: difference >= 0,
 		hasDelta,
 	};
@@ -271,7 +276,14 @@ function deltaRow(
 function buildDeltaRows(batch: Batch, baselineBatch: Batch): BaselineDeltaRow[] {
 	return batch.config.platforms.flatMap((platform) =>
 		DELTA_METRICS.map(([label, key]) =>
-			deltaRow(platform, label, key, baselineBatch.metrics.perPlatform[platform], batch.metrics.perPlatform[platform]),
+			deltaRow(
+				platform,
+				label,
+				key,
+				baselineBatch.metrics.perPlatform[platform],
+				batch.metrics.perPlatform[platform],
+				batch.pairedComparison?.find((p) => p.provider_id === platform && p.metric === key)?.result,
+			),
 		),
 	);
 }
@@ -315,7 +327,7 @@ const promptMatrixColumns: TableProps<PromptMatrixRow>["columns"] = [
 				</span>
 			)),
 	},
-	{ title: "来源", key: "sourceCount", dataIndex: "sourceCount", width: 70 },
+	{ title: "观察来源", key: "sourceCount", dataIndex: "sourceCount", width: 90 },
 	{
 		title: "样本",
 		key: "samples",
@@ -605,7 +617,7 @@ function EvidenceIndexTable({ entries, onOpen }: { entries: EvidenceIndexEntry[]
 						{entry.sourceUrls.length > 1 && <small>等 {entry.sourceUrls.length} 个</small>}
 					</span>
 				) : entry.kind === "capture" ? (
-					<span className="muted">未开放来源</span>
+					<span className="muted">未展示最终引用</span>
 				) : (
 					"-"
 				),
@@ -647,6 +659,7 @@ export function Report({ project }: { project: Project }) {
 	const [report, setReport] = useState<ReportPayload | null>(null);
 	const [reportLoading, setReportLoading] = useState(false);
 	const [reportError, setReportError] = useState<string | null>(null);
+	const [continuationWarning, setContinuationWarning] = useState<string | null>(null);
 	const [snapshotsPage, setSnapshotsPage] = useState<Paginated<ReportSnapshot>>({
 		items: [],
 		page: 1,
@@ -665,6 +678,7 @@ export function Report({ project }: { project: Project }) {
 	const agentRuns = agentRunsPage.items;
 	const [reportBusy, setReportBusy] = useState<string | null>(null);
 	const [workflowState, setWorkflowState] = useState<ReportWorkflowState | null>(null);
+	const reportSelection = useRef<string | null>(null);
 	const [documentNotice, setDocumentNotice] = useState<string | null>(null);
 	const [shareUrl, setShareUrl] = useState<string | null>(null);
 	const [sharesPage, setSharesPage] = useState<Paginated<ReportShare>>({
@@ -712,6 +726,36 @@ export function Report({ project }: { project: Project }) {
 	}, [loadSnapshots, loadAgentRuns]);
 	const hasActiveAgentRuns = agentRuns.some((run) => run.status === "queued" || run.status === "running");
 	useEffect(() => {
+		if (workflowState !== "analysis_pending" || !selected) return;
+		const controller = new AbortController();
+		let busy = false;
+		const poll = async () => {
+			if (busy) return;
+			busy = true;
+			try {
+				const result = await api<ReportWorkflowResult>(`/api/batches/${selected}/report-workflow`, {
+					method: "POST",
+					body: "{}",
+					signal: controller.signal,
+				});
+				if (!controller.signal.aborted) {
+					setWorkflowState(result.state);
+					await Promise.all([loadAgentRuns(), loadSnapshots()]);
+				}
+			} catch (e) {
+				if (!controller.signal.aborted) setReportError(e instanceof Error ? e.message : "报告流程状态获取失败");
+			} finally {
+				busy = false;
+			}
+		};
+		const timer = window.setInterval(() => void poll(), 5000);
+		return () => {
+			controller.abort();
+			clearInterval(timer);
+		};
+	}, [workflowState, selected, loadAgentRuns, loadSnapshots]);
+
+	useEffect(() => {
 		if (!hasActiveAgentRuns) return;
 		const timer = window.setInterval(() => void loadAgentRuns().catch(() => undefined), 2_000);
 		return () => window.clearInterval(timer);
@@ -743,12 +787,17 @@ export function Report({ project }: { project: Project }) {
 		if (!selected) return;
 		// 切换批次时保留上一份报告直到新数据到达，由 Page 的延迟 loading 覆盖，避免先清空再重绘的抖动。
 		let cancelled = false;
-		setWorkflowState(null);
+		if (reportSelection.current !== selected) {
+			setWorkflowState(null);
+			reportSelection.current = selected;
+		}
 		setReportError(null);
 		setDocumentNotice(null);
 		setReportLoading(true);
 		api<ReportPayload>(`/api/batches/${selected}/report`)
 			.then((value) => {
+				if (batch?.measurement?.snapshotId && value.metricSnapshotId !== batch.measurement.snapshotId)
+					throw new Error("指标版本已变化，请刷新报告");
 				if (!cancelled) setReport(value);
 			})
 			.catch((reason) => {
@@ -760,7 +809,7 @@ export function Report({ project }: { project: Project }) {
 		return () => {
 			cancelled = true;
 		};
-	}, [selected]);
+	}, [selected, batch?.measurement?.snapshotId]);
 	useEffect(() => {
 		if (!batch?.compare_to_batch_id) {
 			setBaselineBatch(null);
@@ -861,6 +910,7 @@ export function Report({ project }: { project: Project }) {
 				restart: Boolean(latestSnapshot?.pdf_artifact_key && latestSnapshot.word_artifact_key),
 			});
 			setWorkflowState(result.state);
+			if (result.state === "analysis_unavailable") setReportError("V2 语义证据不足，请在证据中心审核或重新解析");
 			await Promise.all([loadAgentRuns(), loadSnapshots()]);
 			setTab("narrative");
 		} catch (reason) {
@@ -871,17 +921,22 @@ export function Report({ project }: { project: Project }) {
 	}
 	const awaitingApproval = agentRuns.some((run) => run.status === "awaiting_approval");
 	const reportReady = Boolean(latestSnapshot?.pdf_artifact_key && latestSnapshot.word_artifact_key);
-	const workflowLabel = awaitingApproval
-		? "等待人工审批"
-		: hasActiveAgentRuns
-			? "HRouter Agent 处理中"
-			: reportReady
-				? "生成新报告版本"
-				: qualityBlocked
-					? "质检未通过 · 重新生成叙述"
-					: approvedNarrative && !approvedQuality
-						? "继续质量检查"
-						: "生成并校验报告";
+	const workflowLabel =
+		workflowState === "analysis_pending"
+			? "等待 V2 语义解析"
+			: workflowState === "analysis_unavailable"
+				? "V2 证据不足"
+				: awaitingApproval
+					? "等待人工审批"
+					: hasActiveAgentRuns
+						? "HRouter Agent 处理中"
+						: reportReady
+							? "生成新报告版本"
+							: qualityBlocked
+								? "质检未通过 · 重新生成叙述"
+								: approvedNarrative && !approvedQuality
+									? "继续质量检查"
+									: "生成并校验报告";
 	const deliveryMenuItems = [
 		canGenerate
 			? {
@@ -975,10 +1030,16 @@ export function Report({ project }: { project: Project }) {
 										key={run.id}
 										run={run}
 										onApprove={async () => {
-											const result = await post<{ workflow: ReportWorkflowResult | null }>(
-												`/api/agent-runs/${run.id}/approve`,
-											);
+											const result = await post<{
+												workflow: ReportWorkflowResult | null;
+												workflowError?: string | null;
+											}>(`/api/agent-runs/${run.id}/approve`);
 											setWorkflowState(result.workflow?.state ?? null);
+											setContinuationWarning(
+												result.workflowError
+													? `草稿已批准，但后续步骤尚未启动：${result.workflowError}。请由具备相应权限的成员继续。`
+													: null,
+											);
 											await Promise.all([loadAgentRuns(), loadSnapshots()]);
 										}}
 										onReject={async () => {
@@ -1033,7 +1094,10 @@ export function Report({ project }: { project: Project }) {
 					/>
 					<div className="split-report-section">
 						<div>
-							<SectionTitle title="引用信源榜" />
+							<SectionTitle
+								title="最终引用信源"
+								description="仅统计最终回答明确引用的来源；检索或浏览记录不计入引用次数。"
+							/>
 							{analysis.sourceDomains.length ? (
 								<div className="source-ranking">
 									{analysis.sourceDomains.slice(0, 10).map((source, index) => (
@@ -1050,7 +1114,9 @@ export function Report({ project }: { project: Project }) {
 									))}
 								</div>
 							) : (
-								<p className="muted">本批次回答没有展示可提取来源，系统没有补造引用。</p>
+								<p className="muted">
+									本批次没有可核验的最终引用。检索与浏览来源可在证据中心查看，系统不会把它们当成引用。
+								</p>
 							)}
 						</div>
 						<div>
@@ -1295,6 +1361,15 @@ export function Report({ project }: { project: Project }) {
 			<div className="report-workflow">
 				<Steps size="small" items={[...workflowSteps]} />
 			</div>
+			{continuationWarning && (
+				<Alert
+					type="warning"
+					showIcon
+					title={continuationWarning}
+					closable
+					onClose={() => setContinuationWarning(null)}
+				/>
+			)}
 			{reportError && <Alert type="error" showIcon title={reportError} />}
 			{documentNotice && <Alert type="info" showIcon title={documentNotice} />}
 			{qualityBlocked && !hasActiveAgentRuns && (

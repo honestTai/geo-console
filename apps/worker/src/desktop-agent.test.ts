@@ -33,6 +33,10 @@ async function seedDesktopSession(message = "帮我分析当前客户") {
 		`INSERT INTO users (id,organization_id,email,display_name,password_hash,role)
 		 VALUES ('user','default','desktop@example.test','桌面成员','x','admin')`,
 	);
+	await database.query(
+		"INSERT INTO user_roles(user_id,role_id) SELECT 'user',id FROM roles WHERE organization_id='default' AND system_key='admin'",
+	);
+	await database.query("UPDATE users SET all_projects=true WHERE id='user'");
 	await writeEncryptedCredential(database, "hrouter_api_key", "hrouter-key-1234567890", "default");
 	await database.query(
 		`INSERT INTO settings (key,value) VALUES

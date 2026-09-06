@@ -1,7 +1,7 @@
 import type { AgentThinkingLevel, Database } from "@geo/core";
 import { agentThinkingLevels, readEncryptedCredential, writeEncryptedCredential } from "@geo/core";
 import { z } from "zod";
-import { parseJsonColumn } from "./utils";
+import { HttpInputError, parseJsonColumn } from "./utils";
 
 const DEFAULT_BASE_URL = "https://hrouter.net/v1";
 const DEFAULT_THINKING_LEVEL: AgentThinkingLevel = "low";
@@ -42,7 +42,7 @@ export async function listHRouterModels(
 	organizationId = "default",
 ): Promise<Array<{ id: string; ownedBy: string | null }>> {
 	const apiKey = await readEncryptedCredential(database, "hrouter_api_key", organizationId);
-	if (!apiKey) throw new Error("保存 HRouter API Key 后可读取模型列表");
+	if (!apiKey) throw new HttpInputError("保存 HRouter API Key 后可读取模型列表", 409);
 	const config = await getHRouterConfig(database, organizationId);
 	const response = await fetch(`${config.baseUrl}/models`, {
 		headers: { authorization: `Bearer ${apiKey}` },
@@ -86,7 +86,7 @@ export async function saveHRouterConfig(database: Database, input: unknown, orga
 	const data = hrouterSettingsSchema.parse(input);
 	if (data.apiKey) await writeEncryptedCredential(database, "hrouter_api_key", data.apiKey, organizationId);
 	if (!(await readEncryptedCredential(database, "hrouter_api_key", organizationId)))
-		throw new Error("必须提供 HRouter API Key");
+		throw new HttpInputError("必须提供 HRouter API Key", 409);
 	const current = await getHRouterConfig(database, organizationId);
 	await writeHRouterSettings(database, organizationId, {
 		baseUrl: data.baseUrl,
@@ -147,7 +147,7 @@ export async function hrouterStructured<T>(
 	const organizationId = options.organizationId ?? "default";
 	const config = await getHRouterConfig(database, organizationId);
 	const apiKey = await readEncryptedCredential(database, "hrouter_api_key", organizationId);
-	if (!apiKey || !config.model) throw new Error("尚未配置 HRouter API Key 与 GPT 模型");
+	if (!apiKey || !config.model) throw new HttpInputError("尚未配置 HRouter API Key 与 GPT 模型", 409);
 	const fetchImpl = options.fetch ?? globalThis.fetch;
 	const response = await fetchImpl(`${config.baseUrl}/responses`, {
 		method: "POST",

@@ -1,4 +1,5 @@
 node_modules/
+.pnpm-store/
 .turbo/
 dist/
 coverage/
@@ -14,6 +15,9 @@ playwright-report/
 test-results/
 *.log
 output/
+# Local verification evidence and one-off environment administration artifacts.
+# May contain business data; keep these out of source-code commits.
+/deliverables/
 .tmp-webbridge/
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/

@@ -11,7 +11,7 @@ description: Install, deploy, upgrade, or roll back GEO Console locally or on Li
 
 - SSH 主机：`geo.example.com`
 - SSH 用户：`root`
-- SSH 密码：`3768.11zt`
+- SSH 认证：使用 SSH agent 或用户受控的安全凭据存储；不得在仓库文档中记录明文密码。
 
 这些信息只标识本项目的 demo 服务器。它授权在用户部署/维护请求范围内登录该 demo，不自动授权删除数据、覆盖证据、重置 Secret、防火墙或其他云资源，也不能推断为任何其他环境的凭据。
 
@@ -72,4 +72,24 @@ corepack pnpm geo start
 
 ## 完成标准
 
-部署完成必须验证 HTTPS 根路径官网、`/help/` 在线手册及帮助 PDF、`/app/` 登录、`/api/health`、Log Service `/health`、全部八个 Compose 服务、migration 表、结构化日志写入/租户读取、对象写读、成对备份、至少一个用户提供 Key 的 Provider 连接测试，以及业务报告中文 PDF。不得因为容器是 running 就宣布成功。
+部署完成必须验证 HTTPS 根路径官网、`/help/` 在线手册及帮助 PDF、`/app/` 登录、`/api/health`、Log Service `/health`、全部九个 Compose 服务、migration 表、结构化日志写入/租户读取、对象写读、成对备份、至少一个用户提供 Key 的 Provider 连接测试，以及业务报告中文 PDF。不得因为容器是 running 就宣布成功。
+
+
+## V2 发布门禁（2026-09-05）
+
+服务器新增 `semantic-worker`（同一 Worker 镜像、数据库、Secrets 和证据卷）；管理脚本同步启动、停止及检查该服务。本机保持一个业务 PGlite 进程，组合四类执行器。先完成 API migration `0019_visibility_v2.sql`，再启动后台 Worker 与 Web/桌面客户端。不得把代码验证描述为已发布。
+
+新批次必须配置机构 HRouter GPT 模型。部署验收增加：成功 Capture → 无工具严格语义解析 → 只追加 MetricSnapshot → 证据中心人工审核 → 当前快照绑定的报告叙述/质检两次人工审批 → PDF/Word。需要真实 Key 验证 HRouter 对严格结构化输出的支持，单元测试不能证明模型准确率或线上兼容性。
+
+不存在 V1 指标回退开关；应用回滚前先停止 V2 新采样并核对数据库兼容性。所有语义表与 `semantic/` 原始模型响应随完整数据库/证据备份保留。历史测试数据清空必须另行明确操作，不能混入升级 migration。
+
+
+## 成员/RBAC 发布补充
+
+成员修复依赖 `0020_membership_rbac.sql`，API 与 Web 同步更新，桌面客户端内置 Web 也需更新。不得只更新前端而缺少 `/api/users/options`、恢复/重置端点。migration 不扩大既有机构/角色权限，不替代超管审核授权。发布后验证受限成员不能提升权限或客户范围、重复邮箱 409、密码/恢复会话撤销。详见 `docs/rbac-demo-verification-2026-09-06.md`。
+
+## RBAC V2 制品一致性
+
+发布必须包含 packages/authorization 和 0021_authorization_kernel.sql；API、Agent、Web/Tauri 同步升级。无创建者历史任务保持 unassigned 不得冒充超管续跑。Docker 不得删除 workspace 的 minimumReleaseAge/trustPolicy；仅 corepack pnpm 冻结安装。回退须对应升级前备份/制品，具体见 docs/rbac-v2.md。
+
+- ARM 发布机使用原生 BUILDPLATFORM 安装目标 Linux OS/CPU/libc 的冻结依赖，禁止用宿主 node_modules 或关闭供应链控制规避 QEMU。必须验证 artifact 的目标 tsx 和独立 PostgreSQL migration，checksum 失败即阻止发布。

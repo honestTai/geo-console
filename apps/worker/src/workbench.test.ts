@@ -9,6 +9,7 @@ import {
 } from "@geo/core";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { runOneAgentJob } from "./agent-jobs";
+import { seedMetricSnapshot } from "./test-support/measurement";
 import {
 	answerQuestion,
 	cancelSession,
@@ -49,8 +50,12 @@ async function seedSession(
 		`INSERT INTO users (id,organization_id,email,display_name,password_hash,role) VALUES ('user','default','a@b.c','成员','x','admin')`,
 	);
 	await database.query(
-		`INSERT INTO agent_sessions (id,organization_id,project_id,title,status,auto_approve,waiting,plan,created_by)
-		 VALUES ('session','default','project','跑基线',$1,$2,$3::jsonb,$4::jsonb,'user')`,
+		"INSERT INTO user_roles(user_id,role_id) SELECT 'user',id FROM roles WHERE organization_id='default' AND system_key='admin'",
+	);
+	await database.query("UPDATE users SET all_projects=true WHERE id='user'");
+	await database.query(
+		`INSERT INTO agent_sessions (id,organization_id,project_id,title,status,auto_approve,waiting,plan,created_by,execution_actor)
+		 VALUES ('session','default','project','跑基线',$1,$2,$3::jsonb,$4::jsonb,'user','{"kind":"user","userId":"user"}')`,
 		[status, autoApprove, waiting ? JSON.stringify(waiting) : null, JSON.stringify(plan)],
 	);
 	return database;
@@ -232,9 +237,15 @@ describe("AI 工作台会话", () => {
 				`INSERT INTO experiment_batches (id,project_id,kind,status,config,config_hash)
 				 VALUES ('batch','project','baseline','running','{"project":{"name":"客户","domain":"brand.example","region":"成都","language":"zh-CN","aliases":["客户"]},"competitors":[],"prompts":[],"platforms":["deepseek_api"],"repeats":1}'::jsonb,'hash')`,
 			);
+			await database.query(
+				`UPDATE agent_runs SET execution_actor='{"kind":"user","userId":"user"}'::jsonb WHERE session_id='session'`,
+			);
 			expect(await resumeWaitingSessions(database)).toBe(0);
 			expect((await readPlan(database))[0].status).toBe("running");
 			await database.query("UPDATE experiment_batches SET status='partial' WHERE id='batch'");
+			await database.query(
+				`UPDATE agent_runs SET execution_actor='{"kind":"user","userId":"user"}'::jsonb WHERE session_id='session'`,
+			);
 			expect(await resumeWaitingSessions(database)).toBe(1);
 			const job = (
 				await database.query<{ payload: { trigger: string; message: string } }>(
@@ -267,6 +278,9 @@ describe("AI 工作台会话", () => {
 				`INSERT INTO experiment_batches (id,project_id,kind,status,config,config_hash)
 				 VALUES ('batch','project','baseline','complete','{"project":{"name":"客户","domain":"brand.example","region":"成都","language":"zh-CN","aliases":["客户"]},"competitors":[],"prompts":[],"platforms":["deepseek_api"],"repeats":1}'::jsonb,'hash')`,
 			);
+			await database.query(
+				`UPDATE agent_runs SET execution_actor='{"kind":"user","userId":"user"}'::jsonb WHERE session_id='session'`,
+			);
 			expect(await resumeWaitingSessions(database)).toBe(1);
 			const session = (
 				await database.query<{ status: string; desktop_pending_trigger: string; desktop_pending_message: string }>(
@@ -298,12 +312,18 @@ describe("AI 工作台会话", () => {
 				 VALUES ('run','project','report_narrative','approved','gpt-test','test','session'),
 				        ('draft','project','diagnosis','failed','gpt-test','test','session')`,
 			);
+			await database.query(
+				`UPDATE agent_runs SET execution_actor='{"kind":"user","userId":"user"}'::jsonb WHERE session_id='session'`,
+			);
 			expect(await resumeWaitingSessions(database)).toBe(1);
 			expect((await readPlan(database))[0]).toMatchObject({ key: "report", status: "running", detail: "叙述生成中" });
 			await database.query(`UPDATE agent_sessions SET status='waiting_job',waiting=$1::jsonb WHERE id='session'`, [
 				JSON.stringify({ kind: "agent_run", id: "draft", label: "模型诊断", toolCallId: "call-2c" }),
 			]);
 			await database.query("UPDATE agent_runs SET error_message='模型超时' WHERE id='draft'");
+			await database.query(
+				`UPDATE agent_runs SET execution_actor='{"kind":"user","userId":"user"}'::jsonb WHERE session_id='session'`,
+			);
 			expect(await resumeWaitingSessions(database)).toBe(1);
 			expect((await readPlan(database))[1]).toMatchObject({ key: "run:draft", status: "failed", detail: "模型超时" });
 		} finally {
@@ -321,9 +341,15 @@ describe("AI 工作台会话", () => {
 				 VALUES ('a1','project','optimization_article','approved','gpt-test','test','session'),
 				        ('a2','project','optimization_article','queued','gpt-test','test','session')`,
 			);
+			await database.query(
+				`UPDATE agent_runs SET execution_actor='{"kind":"user","userId":"user"}'::jsonb WHERE session_id='session'`,
+			);
 			await resumeWaitingSessions(database);
 			expect((await readPlan(database))[0].status).toBe("running");
 			await database.query("UPDATE agent_runs SET status='failed' WHERE id='a2'");
+			await database.query(
+				`UPDATE agent_runs SET execution_actor='{"kind":"user","userId":"user"}'::jsonb WHERE session_id='session'`,
+			);
 			await resumeWaitingSessions(database);
 			expect((await readPlan(database))[0]).toMatchObject({ status: "done", detail: "1 篇已生成，1 篇失败" });
 			const events = await listSessionEvents(database, "session", 0);
@@ -374,6 +400,10 @@ describe("AI 工作台会话", () => {
 					}),
 				],
 			);
+			await seedMetricSnapshot(database, "batch");
+			await database.query(
+				`UPDATE agent_runs SET execution_actor='{"kind":"user","userId":"user"}'::jsonb WHERE session_id='session'`,
+			);
 			await resumeWaitingSessions(database);
 			const run = (
 				await database.query<{ status: string; approved_via: string; approved_by: string }>(
@@ -409,6 +439,9 @@ describe("AI 工作台会话", () => {
 			await database.query(
 				`INSERT INTO agent_runs (id,project_id,purpose,status,model,prompt_version,session_id)
 				 VALUES ('run','project','report_narrative','awaiting_approval','gpt-test','test','session')`,
+			);
+			await database.query(
+				`UPDATE agent_runs SET execution_actor='{"kind":"user","userId":"user"}'::jsonb WHERE session_id='session'`,
 			);
 			await resumeWaitingSessions(database);
 			const session = (

@@ -9,6 +9,7 @@ import {
 	listArticles,
 	updateArticle,
 } from "./articles";
+import { seedMetricSnapshot } from "./test-support/measurement";
 
 async function seed() {
 	const database = openMemoryDatabase();
@@ -59,6 +60,7 @@ async function seed() {
 			}),
 		],
 	);
+	await seedMetricSnapshot(database, "batch");
 	return database;
 }
 
@@ -131,6 +133,10 @@ describe("优化文章", () => {
 				 VALUES ('article-run','project','batch','optimization_article','awaiting_approval','gpt-test','test','["evidence"]'::jsonb,$1::jsonb,$2::jsonb)`,
 				[JSON.stringify(sink.value), JSON.stringify({ narrativeRunId: "narrative", recommendationIndex: 1 })],
 			);
+			await database.query(
+				"UPDATE agent_runs SET metric_snapshot_id=(SELECT current_metric_id FROM semantic_parse_runs WHERE batch_id='batch' ORDER BY created_at DESC LIMIT 1) WHERE batch_id='batch'",
+			);
+			await database.query(`UPDATE agent_runs SET execution_actor='{"kind":"local"}' WHERE id='article-run'`);
 			await approveAgentRun(database, "article-run", null, "auto_article");
 			const list = await listArticles(database, "project", { page: 1, pageSize: 10, offset: 0, search: null });
 			expect(list.total).toBe(1);
@@ -147,6 +153,10 @@ describe("优化文章", () => {
 					JSON.stringify({ narrativeRunId: "narrative", recommendationIndex: 1 }),
 				],
 			);
+			await database.query(
+				"UPDATE agent_runs SET metric_snapshot_id=(SELECT current_metric_id FROM semantic_parse_runs WHERE batch_id='batch' ORDER BY created_at DESC LIMIT 1) WHERE batch_id='batch'",
+			);
+			await database.query(`UPDATE agent_runs SET execution_actor='{"kind":"local"}' WHERE id='article-run-2'`);
 			await approveAgentRun(database, "article-run-2", null, "auto_article");
 			const again = await listArticles(database, "project", { page: 1, pageSize: 10, offset: 0, search: null });
 			expect(again.total).toBe(1);
@@ -202,11 +212,11 @@ describe("优化文章", () => {
 				`INSERT INTO optimization_articles (id,project_id,batch_id,narrative_run_id,recommendation_index,recommendation_title,title,content_markdown)
 				 VALUES ('article-1','project','batch','narrative',1,'发布案例库','案例库','正文')`,
 			);
-			const first = await generateArticlesForBatch(database, "batch");
+			const first = await generateArticlesForBatch(database, "batch", { actor: { kind: "local" } });
 			expect(first.narrativeRunId).toBe("narrative");
 			expect(first.queued.map((item) => item.recommendationIndex)).toEqual([0]);
 			// 再次生成：刚排队的 run 绑定当前叙述，序号 0 已在途，不重复排队。
-			const second = await generateArticlesForBatch(database, "batch");
+			const second = await generateArticlesForBatch(database, "batch", { actor: { kind: "local" } });
 			expect(second.queued).toEqual([]);
 		} finally {
 			await database.close();

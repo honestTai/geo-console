@@ -29,7 +29,7 @@ sudo geo-console logs report-worker
 
 Log Service 仅绑定本机 `127.0.0.1:3020` 或 Compose 内网 `log-service:3020`，不经 Caddy 暴露。API/Worker 使用 owner-only `log_service_token` 上报；服务不可用时业务继续运行并保留容器标准输出，恢复后进程内最多缓冲 500 条并重试。
 
-本机 PGlite 模式由 API 进程组合执行 Capture/Agent/Report，Log Service 使用独立 `${GEO_DATA_DIR}/log-service/database`；不要手工再启动三个 Worker 指向同一 PGlite。`pnpm geo backup` 会在停服后同时复制业务 PGlite、日志 PGlite 和 artifacts。
+本机 PGlite 模式由 API 进程组合执行 Capture/Agent/Report，Log Service 使用独立 `${GEO_DATA_DIR}/log-service/database`；不要手工再启动四个 Worker 指向同一 PGlite。`pnpm geo backup` 会在停服后同时复制业务 PGlite、日志 PGlite 和 artifacts。
 
 工作台“运行日志”由 `page.service_logs` 控制，CSV 与保留清理由独立功能权限控制；超管可同时查看 system logs。查询使用游标逐页替换，不在浏览器或桌面端累积全部日志。默认自动删除 90 天前 `service_logs`。手工清理必须核对活动机构和天数，清理动作写 `audit_logs` 与 `logs.retention_pruned`，但不会删除 `query_captures`、raw、网页、报告或业务审计。
 
@@ -96,3 +96,32 @@ Provider/HRouter 凭据继续按机构隔离；环境变量 Key 只对默认机�
 ## 证据保留
 
 默认永久保留 `query_captures`、网页快照、原始响应、报告快照和 `audit_logs`。`service_logs` 默认保留 90 天，可按机构清理。问题知识库归档只写 `archived_at`。客户或租户删除请求属于破坏性操作：先解析准确 organization/project ID、报告关联、对象前缀、审计要求和备份状态，再获得明确确认。
+
+
+## V2 语义队列与恢复
+
+新增 `semantic-worker`，本机由 `local-workers.ts` 组合运行，禁止对同一 PGlite 目录另起进程。成功 API Capture 才进入 `semantic_parse`；两个槽位、500ms 领取、5 分钟租约、30 秒续期、最多两次尝试、30 秒重试。5 秒协调周期负责排队、耗尽租约清扫、指标快照与配对漂移。Capture complete 不代表 analysis ready。
+
+卡住时查看 `semantic_parse_runs.status`、job 的 attempts/lease/last_error、机构 HRouter 模型/Key 与语义观察校验原因。证据中心可人工审核或重新解析；不得改原始 Capture 状态、补零或回退 V1。Agent/PDF/Semantic 最后一次崩溃也由 `sweepTerminalLeases` 收敛。会话取消标记不得由旧回合覆盖，已创建的采集批次不随会话取消。
+
+完整数据库和证据卷备份必须包含新语义表、指标快照以及 `semantic/` 对象前缀；运行日志保留清理不得删除这些记录。更新前检查 `0019_visibility_v2.sql`，回滚不允许降级已有 V2 基线为 V1。详见 `docs/visibility-measurement-v2.md`。
+
+
+## 不能创建成员 / RBAC 排障
+
+先核对 `/api/auth/me` 的 `isSuperAdmin`、活动机构、有效 `permissions` 和 `allProjects/projectIds`，不要凭角色名称判断权限。普通成员需要机构上限和角色同时包含 `page.members`、`members.manage`；`GET /api/users/options` 返回可分配角色/客户，不是全部机构角色。没有候选时先核对权限，不要临时给所有权限。
+
+重复邮箱返回 409；停用账号在成员列表搜索后恢复，不能再创建同邮箱。恢复必须重新登录，旧 token 不会恢复；管理员重置密码会撤销该成员全部会话，自己修改密码需旧密码且撤销其他会话。所有成员变更记录带目标 user id 的审计，不含密码。403 表示超出管理权限/客户范围或目标受保护，不能按网络故障重试。
+
+机构上限仅收窄有效授权，不删除角色定义；重新授权后重新取交集。`0020_membership_rbac.sql` 不恢复此前已被旧代码删除的角色权限，需超管明确审核后配置。默认机构的现场实测和隔离测试资源处理记录见 `rbac-demo-verification-2026-09-06.md`。
+
+## 授权 V2 运行诊断
+
+遇到 403/404、成员不可管理或后台权限失败，先用超管“权限配置 → 授权引擎 → 授权诊断”检查实际用户、机构、路由、资源、AND/OR 及配置版本。不要通过手工赋超管、清空策略或把 execution_actor 改为 local 修复。后台授权失败直接终止，恢复权限后需要用户重新发起；不自动重播已被拒绝的写入。封禁跳过新监测/采集领取/定时报告并暂停公开分享读取，已有证据不删除。登录改密使用 credential_version，解封/恢复不会复活旧 token。迁移与已知限制见 docs/rbac-v2.md。
+
+## 全功能验收与采集协议升级
+
+cloud-search.v2 是最终回答/引用提取修正，不是重写旧 evidence。旧合同 API 返回 capture_contract_changed；请新建批次，不要改 query_captures 或把旧指标当当前结论。报告流程收到 409 应先检查配置、协议及审批前置条件；真正 500 仅显示 requestId，在受保护日志中排障。Demo 升级先把 dump 恢复到独立临时 PostgreSQL 验证 migration/idempotency，切换前再次成对备份。2026-09-06 的全功能结果与外部条件见 full-audit-2026-09-06.md。
+# 2026-09-06 全功能验收运行补充
+
+最终 Demo 应用版本 a8e8cd284ee0-dev-20260906T063820Z，迁移 0022，adapter cloud-search.v2；此记录不替代后续运行时 health/doctor。旧合同批次不能重解析为当前分数，应创建新批次并保留原始证据。审批接口 approved=true 但 continuationStatus=blocked 表示审批已落库，需有下一阶段权限的成员显式续跑，不应反复提交审批或修改执行者绕过权限。机构封禁暂停新的语义任务领取/调用，不保证取消已发出的模型请求。实测、限制与清理记录见 docs/full-audit-2026-09-06.md。

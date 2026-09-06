@@ -22,7 +22,7 @@ import {
 	Timeline,
 	type TimelineProps,
 } from "antd";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../access";
 import { api, post, put } from "../api";
 import {
@@ -46,6 +46,7 @@ import {
 import { batchStatusLabel, date, Empty, Pagination, percentage, SectionTitle, shortDate } from "../ui/primitives";
 import { BatchMetrics, TrendChart } from "./charts";
 import "./Monitoring.css";
+import { Measurement } from "./Measurement";
 import { Page } from "./Page";
 
 function formatClock(value: string): string {
@@ -366,6 +367,45 @@ export function RunActivityPanel({
 	);
 }
 
+function useMonitoringBatch(selected: string | null) {
+	const [batch, setBatch] = useState<Batch | null>(null);
+	const [loadError, setLoadError] = useState<string | null>(null);
+	const controllerRef = useRef<AbortController | null>(null);
+	const load = useCallback(async () => {
+		controllerRef.current?.abort();
+		const controller = new AbortController();
+		controllerRef.current = controller;
+		if (!selected) return;
+		try {
+			const value = await api<Batch>(`/api/batches/${selected}`, { signal: controller.signal });
+			if (controller.signal.aborted) return;
+			setBatch(value);
+			setLoadError(null);
+		} catch (reason) {
+			if (!controller.signal.aborted) setLoadError(reason instanceof Error ? reason.message : "监测数据加载失败");
+		}
+	}, [selected]);
+	const cancel = useCallback(() => controllerRef.current?.abort(), []);
+	return { batch, setBatch, loadError, load, cancel };
+}
+function whenCurrent<T>(signal: AbortSignal, action: (value: T) => void) {
+	return (value: T) => {
+		if (!signal.aborted) action(value);
+	};
+}
+
+function monitoringDefaults(project: Project) {
+	const schedule = project.monitoringSchedule;
+	const enabledPlatforms = project.enabledPlatforms ?? [];
+	return {
+		enabledPlatforms,
+		schedulePlatforms: schedule?.platforms?.length ? schedule.platforms : enabledPlatforms,
+		scheduleEnabled: schedule?.enabled ?? false,
+		frequencyDays: schedule?.frequency_days ?? 7,
+		scheduleRepeats: schedule?.repeats ?? 3,
+	};
+}
+
 export function Monitoring({
 	project,
 	refresh,
@@ -379,10 +419,11 @@ export function Monitoring({
 	onConsumeFocus?(): void;
 }) {
 	const { message } = App.useApp();
+	const defaults = monitoringDefaults(project);
 	const [selected, setSelected] = useState(focusBatchId ?? project.batches[0]?.id ?? null);
 	const [batchPage, setBatchPage] = useState(1);
 	const visibleBatches = project.batches.slice((batchPage - 1) * BATCH_PAGE_SIZE, batchPage * BATCH_PAGE_SIZE);
-	const [batch, setBatch] = useState<Batch | null>(null);
+	const { batch, setBatch, loadError, load, cancel } = useMonitoringBatch(selected);
 	const [trends, setTrends] = useState<TrendResponse | null>(null);
 	// 调用成本/周期监测/批次记录/同配置趋势分面板互斥展示，避免长页堆叠。
 	const [panel, setPanel] = useState<"batches" | "trends" | "schedule" | "costs">("batches");
@@ -397,36 +438,38 @@ export function Monitoring({
 	});
 	const alerts = alertsPage.items;
 	const [costs, setCosts] = useState<CostGroup[]>([]);
-	const [runPlatforms, setRunPlatforms] = useState<ProviderId[]>(providerIds);
+	const [runPlatforms, setRunPlatforms] = useState<ProviderId[]>(defaults.enabledPlatforms);
 	const [runRepeats, setRunRepeats] = useState(3);
-	const [scheduleEnabled, setScheduleEnabled] = useState(project.monitoringSchedule?.enabled ?? false);
-	const [frequencyDays, setFrequencyDays] = useState(project.monitoringSchedule?.frequency_days ?? 7);
-	const [schedulePlatforms, setSchedulePlatforms] = useState<ProviderId[]>(
-		project.monitoringSchedule?.platforms?.length ? project.monitoringSchedule.platforms : providerIds,
-	);
-	const [scheduleRepeats, setScheduleRepeats] = useState(project.monitoringSchedule?.repeats ?? 3);
+	const [scheduleEnabled, setScheduleEnabled] = useState(defaults.scheduleEnabled);
+	const [frequencyDays, setFrequencyDays] = useState(defaults.frequencyDays);
+	const [schedulePlatforms, setSchedulePlatforms] = useState<ProviderId[]>(defaults.schedulePlatforms);
+	const [scheduleRepeats, setScheduleRepeats] = useState(defaults.scheduleRepeats);
 	const selectedBatch = project.batches.find((item) => item.id === selected);
-	const load = useCallback(async () => {
-		if (selected) setBatch(await api<Batch>(`/api/batches/${selected}`));
-	}, [selected]);
+
 	useEffect(() => {
 		void load();
+		const scope = new AbortController();
 		api<Paginated<DriftAlert>>(
 			`/api/projects/${project.id}/drift-alerts?page=${alertsPage.page}&pageSize=${alertsPage.pageSize}`,
+			{ signal: scope.signal },
 		)
-			.then(setAlertsPage)
-			.catch(() => setAlertsPage((current) => ({ ...current, items: [] })));
-		api<{ groups: CostGroup[] }>(`/api/projects/${project.id}/costs`)
-			.then((result) => setCosts(result.groups))
-			.catch(() => setCosts([]));
+			.then(whenCurrent(scope.signal, setAlertsPage))
+			.catch(whenCurrent(scope.signal, () => setAlertsPage((current) => ({ ...current, items: [] }))));
+		api<{ groups: CostGroup[] }>(`/api/projects/${project.id}/costs`, { signal: scope.signal })
+			.then(whenCurrent(scope.signal, (result: { groups: CostGroup[] }) => setCosts(result.groups)))
+			.catch(whenCurrent(scope.signal, () => setCosts([])));
 		if (selected)
-			api<TrendResponse>(`/api/projects/${project.id}/trends/${selected}`)
-				.then(setTrends)
-				.catch(() => setTrends(null));
+			api<TrendResponse>(`/api/projects/${project.id}/trends/${selected}`, { signal: scope.signal })
+				.then(whenCurrent(scope.signal, setTrends))
+				.catch(whenCurrent(scope.signal, () => setTrends(null)));
 		const pollingMs = ["queued", "running"].includes(batch?.status ?? selectedBatch?.status ?? "") ? 3_000 : 8_000;
 		const timer = window.setInterval(() => void load(), pollingMs);
-		return () => window.clearInterval(timer);
-	}, [alertsPage.page, alertsPage.pageSize, batch?.status, load, project.id, selected, selectedBatch?.status]);
+		return () => {
+			scope.abort();
+			window.clearInterval(timer);
+			cancel();
+		};
+	}, [alertsPage.page, alertsPage.pageSize, batch?.status, load, project.id, selected, selectedBatch?.status, cancel]);
 	// 跳转带来的焦点批次：选中后即消费，避免下次进入本页仍被强制选中。
 	useEffect(() => {
 		if (!focusBatchId) return;
@@ -435,7 +478,7 @@ export function Monitoring({
 		setSelected(focusBatchId);
 		setBatchPage(1);
 		onConsumeFocus?.();
-	}, [focusBatchId, onConsumeFocus]);
+	}, [focusBatchId, onConsumeFocus, setBatch]);
 	// 首次进入时还没有批次、随后由 Agent/周期任务创建了批次：自动选中最新一条。
 	const firstBatchId = project.batches[0]?.id ?? null;
 	useEffect(() => {
@@ -568,6 +611,7 @@ export function Monitoring({
 				</div>
 			}
 		>
+			{batch && <Measurement batch={batch} onRefresh={() => void load()} />}
 			<RunActivityPanel
 				batch={batch}
 				summary={selectedBatch}
@@ -581,7 +625,7 @@ export function Monitoring({
 							)
 				}
 			/>
-			{error && <Alert className="monitor-error" type="error" showIcon title={error} />}
+			{(error || loadError) && <Alert className="monitor-error" type="error" showIcon title={error ?? loadError} />}
 			<DriftAlertSection
 				alerts={pendingAlerts}
 				page={alertsPage}

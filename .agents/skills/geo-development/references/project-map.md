@@ -25,7 +25,7 @@ Tauri WebView  -> local Pi Agent -> controlled Responses relay + business-tool R
 
 Tauri 2 桌面客户端加载同一个工作台构建，是所有角色的正式客户端；浏览器保留同步调试。交互式工作台 Agent 在 WebView 内运行 `pi-agent-core`，每个桌面会话独立执行；模型流通过 Tauri Channel 访问服务端受控 Responses 代理，工具通过服务端 RPC 复用现有业务 service。页面导航、API 策略、会话、证据和审批仍以服务器为事实源，HRouter Key、数据库和文件不进入客户端。
 
-本机 `corepack pnpm geo start` 启动独立 Log Service、包含三个队列执行器的组合 API 进程和 Vite Web，避免多进程 PGlite 目录争用；Log Service 使用独立本机 PGlite。服务器 PostgreSQL Compose 将 Log/API/三个 Worker/Web/Caddy 分开，只有 Caddy 暴露 80/443。
+本机 `corepack pnpm geo start` 启动独立 Log Service、包含四个队列执行器的组合 API 进程和 Vite Web，避免多进程 PGlite 目录争用；Log Service 使用独立本机 PGlite。服务器 PostgreSQL Compose 将 Log/API/四个 Worker/Web/Caddy 分开，只有 Caddy 暴露 80/443。
 
 ## 所有者地图
 
@@ -36,9 +36,10 @@ Tauri 2 桌面客户端加载同一个工作台构建，是所有角色的正式
 | Capture 租约 | `packages/core/src/repository.ts` | `cloud-runner.ts` |
 | 证据 JSON 契约 | `packages/evidence/src/schema.ts` | adapters、cloud runner、metrics、reports |
 | 五平台协议 | `packages/search-providers/src/*.ts` | `apps/worker/src/providers.ts` |
+| V2 语义与指标快照 | `packages/evidence/src/semantic.ts`、`apps/worker/src/measurement.ts`、`semantic-runtime.ts`、`0019_visibility_v2.sql` | Semantic Worker、证据中心审核、API、报告 |
 | 指标分母与汇总 | `packages/metrics/src/visibility.ts` | batch/report UI |
 | HTTP、RBAC、租户隔离、公开分享 | `apps/worker/src/index.ts`、`auth.ts`、`tenancy.ts` | `apps/web/src/api.ts` |
-| 动态权限目录与分页 | `apps/worker/src/rbac.ts`、`pagination.ts`、`permissions/permission_routes/roles` migration | API、Web/Tauri 导航与列表 |
+| 动态权限目录与分页 | `apps/worker/src/rbac.ts`、`pagination.ts`、`permissions/authorization_policies/roles` migration | API、Web/Tauri 导航与列表 |
 | Web 外壳与页头导航 | `apps/web/src/components/Shell.tsx`、`Page.tsx`、`ui/navigation.tsx`（NavigationContext：`openView/openProjectList/panelViews/openEvidence/openBatch/openWorkbench`） | 全部客户工作台页面（面包屑前级返回客户列表、末级下拉切换面板） |
 | 结构化运行日志 | `packages/logging`、`apps/log-service`、`service_logs` migration | API、Capture/Agent/Report Worker、Web 日志中心 |
 | 行业问题知识库 | `apps/worker/src/knowledge-base.ts`、`packages/core/src/schema.ts` | onboarding、Web 知识库 |
@@ -69,7 +70,7 @@ Tauri 2 桌面客户端加载同一个工作台构建，是所有角色的正式
 1. 项目创建后抓取官网证据（最多 40 页、4 路并发，24 小时内重试复用快照），生成画像、竞品和 Prompt 候选；竞品候选以 `pending` 落库后在后台逐个联网核实（结论回写 `competitors.verification`，未通过的在建档页标“待确认”）；人工确认后项目进入 active，确认沿用未变化问题/竞品的 ID，确认时可把新问题回流到行业知识库。成员不知道该监测什么时，可在建档页“后台联网出题”（`prompt_research` 草稿，批准后进入候选列表）或到工作台让 Agent 用 `web_search` 联网研究买家问法；工作台以 `propose_questions` 提交候选，成员在表格里改字、勾选后确认，服务端写入范围并启用项目。
 2. 创建批次时读取已批准范围和启用 Provider，将完整配置写入 `experiment_batches.config` 与 hash，并为每个采样创建 capture job。
 3. Capture Worker 只按冻结 Provider 契约执行；原始响应先写对象存储，再以唯一 `job_id` 插入 QueryCapture v2，最后完成 job 和批次状态。执行抛错走 `failJob` 并刷新批次；Worker 每分钟清扫租约过期且重试用尽的任务，批次总会收敛。周期监测到期时按当前范围构造配置，可比才复测否则新建基线，失败原因写在计划上。
-4. 指标从采集证据确定性计算。规则诊断可更新派生 finding；模型诊断只产生待审批 Agent draft。漂移告警跳过没有成功回答的平台。
+4. 成功 API Capture 异步进入受限 Semantic Worker，经确定性校验/独立复核或人工审核后生成 V2 MetricSnapshot。GET 只读快照；问题/平台等权、覆盖门槛和配对区间决定正式漂移；报告及其草稿绑定当前快照。V1 计算不再调用。
 5. finding 转整改任务；技术类任务重跑官网审计验收，其余任务的发布 URL 必须在客户域名下并重新抓取形成网站快照，再进行相同 baseline config 的 retest。
 6. 报告叙述必须包含证据化口碑与 GEO 建议；批准后系统自动排队绑定该 run 的质量检查，质量检查批准通过后自动冻结 payload/hash 并进入 PDF/Word 队列；质检未通过时重试即重新生成叙述。分享链接只存 token hash，支持过期与撤销。
 7. 归因 CSV 按 `sourceType + csv` 内容 hash 防重复，和 GEO 指标并列展示，不自动声称因果。
@@ -82,4 +83,25 @@ Tauri 2 桌面客户端加载同一个工作台构建，是所有角色的正式
 
 `landing/` 是独立静态官网，部署在根路径；`landing/help/` 是公开帮助中心和同源 PDF，登录页、客户列表与工作台顶栏在新标签打开它；`apps/web` 使用 Vite base `/app/`。官网演示同步工作台菜单顺序和浅色布局，并为菜单、运行操作、设置、成员和日志提供窄屏交互；示意数据必须显式标注，不能请求业务 API、写数据库或被工作台导入。帮助截图通过独立 WebBridge 会话从线上真实界面取证，并在写入公开目录前替换客户名、域名、邮箱、输入值和长 ID；帮助页自身不得访问业务 API。
 
-API 使用 same-origin Cookie。公开面只有登录、健康检查和带 token 的报告分享；Artifact 需要登录。运行时不按固定角色判断：`permission_routes` 匹配 HTTP 方法和路径模板，用户有效权限来自机构上限与多角色并集，项目和 Artifact 再校验客户范围；未登记路由默认拒绝。
+API 使用 same-origin Cookie。公开面只有登录、健康检查和带 token 的报告分享；Artifact 需要登录。运行时不按固定角色判断：`authorization_policies` 匹配 HTTP 方法和路径模板，用户有效权限来自机构上限与多角色并集，项目和 Artifact 再校验客户范围，Artifact 另需对应文件功能权限；未登记路由默认拒绝。
+
+
+## 成员与 RBAC 事实源（2026-09-06）
+
+`auth.ts` 管理账号生命周期/密码/域审计，`member-access.ts` 在事务内校验可授予权限和客户范围，`rbac.ts` 管理角色与机构上限，`0020_membership_rbac.sql` 提供稳定默认角色键与新路由。`Members.tsx`、`hooks/useMemberOptions.ts` 消费服务端可分配选项；`RbacManagement.tsx` 保留跨页角色/客户选择和被机构上限暂停的角色定义。`usePagination.ts` 拒绝过期响应并显示失败，`App.tsx` 刷新身份，`Login.tsx` 提供自己修改密码。排障先看有效权限与机构上限，不按角色显示名称推断权限。参考 `docs/rbac-demo-verification-2026-09-06.md`。
+
+### 授权 V2 路由
+
+- 纯权限/范围/委派算法：`packages/authorization/src/index.ts`。
+- HTTP/文件/后台授权：`apps/worker/src/authorization/{index,principal,policies,resources,execution}.ts`；配置与无副作用诊断：`configuration.ts`。不要向旧 permission_routes 或复制角色 if 判断继续扩展。
+- 授权管理 UI：`AuthorizationConfiguration.tsx`，由 `RbacManagement.tsx` 装配；成员管理继续在 Members。
+- 契约：`0021_authorization_kernel.sql` + `schema.ts`；设计与扩展步骤：`docs/rbac-v2.md`；安全回归：`authorization-kernel.test.ts` 和纯内核测试。
+
+### 全功能审查新增事实源
+
+- 最终回答/实际引用/检索词：search-providers/common.ts responseSearchEvidence/outputText，ADAPTER_VERSION=cloud-search.v2。
+- 旧采集合同隔离：worker/capture-contract.ts；影响 getBatch、重解析、审批与报告。
+- 错误响应：worker/api-errors.ts；不要回显未知异常消息或把可恢复前置条件写为 500。
+- 角色系统边界：0022_tenant_role_boundaries.sql + core/access.ts；默认角色不得包含 system_only。
+- 页面按需加载：web/lazy-views.tsx + components/ViewBoundary.tsx；保持桌面/机构工作区同一注册表。
+- 全功能真实验收与限制：docs/full-audit-2026-09-06.md。

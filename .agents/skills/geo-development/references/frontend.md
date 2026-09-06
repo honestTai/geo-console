@@ -68,3 +68,18 @@ apps/web/src/
 - 整改中心的“规划草稿/建任务”按钮作用于头部 Select 选中的已完成批次（默认最近完成的一条），不再固定指向 `project.batches[0]`；任务卡按服务端 `task.verification_mode` 渲染“重跑审计验收”或“抓取验收”（后者需要发布地址），验收按钮带 `busy`；状态下拉里的“已验收”只用于显示（`disabled`）。
 - 报告页质检未通过（`workflowState==='quality_blocked'` 或最新绑定当前叙述的质检 verdict 为 blocked）时主按钮改为“质检未通过 · 重新生成叙述”，步骤条质检项标 `error`。
 - 公开帮助中心位于 `landing/help/`，不作为动态 RBAC 页面注册：登录页、客户列表和工作台顶栏都以新标签打开 `/help/`，无须业务会话即可阅读。帮助正文按当前页面与按钮事实源维护，可搜索、可打印，并与随 release 发布的 PDF 同源；截图只能由独立浏览器会话生成，公开前替换客户名、域名、邮箱、输入值和长 ID，帮助页面不得调用 `/api`、`/artifacts` 或读取业务状态。
+
+
+## 成员与授权编辑补充
+
+成员角色/客户候选来自 `/api/users/options` 的服务端可分配范围，支持搜索和继续加载，不能拿第一页第一个角色当默认授权。默认只读角色按 system_key 识别，新建客户范围默认空。Member 表单、重置密码和自己改密表单使用不同 Form name，避免重复 input id 与标签关联。只读成员只看列表；业务错误与候选加载错误分开，429/403/409 不当作成功。
+
+角色编辑跨页保留勾选，客户 Table 配置 `preserveSelectedRowKeys`；分页不重置未保存的机构授权。通用分页在卸载/查询条件变化时失效旧请求并将失败交给界面，不允许分页 Promise 拒绝无人处理。撤权后 App 定期刷新身份并清除不再可见的项目；新建客户先刷新自己的范围再进入客户页。
+
+### 授权引擎管理界面
+
+`RbacManagement` → `AuthorizationConfiguration` 是超管权限目录、策略分页/搜索/编辑和只读授权诊断入口。策略编辑必须提交 version，409 要刷新再编辑；资源绑定不可变不能只在 UI 禁用而漏服务端校验。新权限不自动赋予机构/角色；OR 与 AND 分开展示，页面父子关系读 parent_key。界面不推测最终 API 授权，解释器必须调用后端同一规则。背景标签/减少动态效果下弹窗关闭不能依赖动画结束事件。
+
+### 按需加载与异常恢复
+
+App 与 Management 共用 lazy-views；功能组件放在 ViewBoundary 下，导航壳保持可用，不自动无限刷新失败 chunk。客户卡片提供 role/button、焦点和 Enter/Space 操作。旧采集合同用 capture_contract_changed 明确只读，不以旧分数冒充新协议。API 输入错误展示简明说明与 requestId；404 asset 不能回退为 index.html。

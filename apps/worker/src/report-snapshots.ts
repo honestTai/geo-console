@@ -1,11 +1,14 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { access } from "node:fs/promises";
+import type { ExecutionActor } from "@geo/authorization";
 import { areBatchConfigsComparable, type Database, type ReportType } from "@geo/core";
 import type { QueryCapture } from "@geo/evidence";
 import { StructuredLogger, safeErrorMessage } from "@geo/logging";
+import { rateKeys } from "@geo/metrics";
 import { chromium } from "playwright";
 import { z } from "zod";
 import { enqueueAgentDraft } from "./agent";
+import { assertBatchCaptureContract } from "./capture-contract";
 import { renderReportDocx } from "./docx";
 import {
 	PRODUCT_NAME,
@@ -15,18 +18,22 @@ import {
 	sourceCategoryLabel,
 	taskStatusLabel,
 } from "./labels";
+import { currentMeasurement, readPairedComparisons } from "./measurement";
 import { artifactExists, putArtifact } from "./object-store";
 import { type Paginated, type PaginationInput, paginated } from "./pagination";
 import { providerDefinitions } from "./providers";
+import { sweepTerminalLeases } from "./queue-recovery";
 import { type EvidenceIndexEntry, evidencePlatformLabel, stripTrackingFragment } from "./report";
 import { getBatch, getBatchReport } from "./service";
-import { parseJsonColumn, sha256, stableJson } from "./utils";
+import { HttpInputError, parseJsonColumn, sha256, stableJson } from "./utils";
 
 const reportTypeSchema = z.enum(["quick_audit", "remediation", "retest"]);
 const reportLogger = new StructuredLogger("report-worker");
 
 export type ReportWorkflowResult = {
 	state:
+		| "analysis_pending"
+		| "analysis_unavailable"
 		| "narrative_queued"
 		| "narrative_running"
 		| "narrative_approval"
@@ -55,25 +62,64 @@ function activeRunState(run: WorkflowRun, purpose: "narrative" | "quality"): Rep
 	return purpose === "narrative" ? "narrative_queued" : "quality_queued";
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The workflow advances evidence-bound approval gates idempotently in one transactionally observable decision.
 export async function advanceReportWorkflow(
 	database: Database,
 	batchId: string,
-	options: { createdBy?: string | null; allowRetry?: boolean; restart?: boolean } = {},
+	options: { createdBy?: string | null; actor?: ExecutionActor; allowRetry?: boolean; restart?: boolean } = {},
+): Promise<ReportWorkflowResult> {
+	return database.transaction((tx) => advanceReportWorkflowLocked(tx, batchId, options));
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The workflow advances evidence-bound approval gates idempotently in one transactionally observable decision.
+async function advanceReportWorkflowLocked(
+	database: Database,
+	batchId: string,
+	options: { createdBy?: string | null; actor?: ExecutionActor; allowRetry?: boolean; restart?: boolean } = {},
 ): Promise<ReportWorkflowResult> {
 	const batch = (
-		await database.query<{ project_id: string; kind: ReportType | "baseline"; status: string }>(
-			"SELECT project_id,kind,status FROM experiment_batches WHERE id=$1",
-			[batchId],
-		)
+		await database.query<{
+			project_id: string;
+			kind: ReportType | "baseline";
+			status: string;
+			compare_to_batch_id: string | null;
+		}>("SELECT project_id,kind,status,compare_to_batch_id FROM experiment_batches WHERE id=$1 FOR UPDATE", [batchId])
 	).rows[0];
-	if (!batch) throw new Error("采集批次不存在");
-	if (!["complete", "partial"].includes(batch.status)) throw new Error("报告工作流只能基于已完成或部分完成的批次");
+	if (!batch) throw new HttpInputError("采集批次不存在", 404);
+	await assertBatchCaptureContract(database, batchId);
+	if (!["complete", "partial"].includes(batch.status))
+		throw new HttpInputError("报告工作流只能基于已完成或部分完成的批次", 409);
+	const measurement = await currentMeasurement(database, batchId);
+	if (!measurement.snapshotId)
+		return {
+			state: ["queued", "running"].includes(measurement.status) ? "analysis_pending" : "analysis_unavailable",
+			runId: null,
+			reportId: null,
+		};
+	if (!measurement.payload || measurement.payload.overall.status === "unavailable")
+		return { state: "analysis_unavailable", runId: null, reportId: null };
+	let baselineMetricId: string | null = null;
+	if (batch.kind === "retest" && batch.compare_to_batch_id) {
+		await database.query("SELECT id FROM experiment_batches WHERE id=$1 FOR UPDATE", [batch.compare_to_batch_id]);
+		const baseline = await currentMeasurement(database, batch.compare_to_batch_id);
+		baselineMetricId = baseline.snapshotId;
+		if (!baselineMetricId)
+			return {
+				state: baseline.status === "failed" ? "analysis_unavailable" : "analysis_pending",
+				runId: null,
+				reportId: null,
+			};
+		const paired = await database.query(
+			"SELECT id FROM measurement_drift_observations WHERE metric_id=$1 AND baseline_metric_id=$2",
+			[measurement.snapshotId, baselineMetricId],
+		);
+		if (paired.rows.length < Object.keys(measurement.payload.perPlatform).length * rateKeys.length)
+			return { state: "analysis_pending", runId: null, reportId: null };
+	}
 	const runs = (
 		await database.query<WorkflowRun>(
-			`SELECT id,purpose,status,draft,created_at,approved_at FROM agent_runs WHERE batch_id=$1
+			`SELECT id,purpose,status,draft,created_at,approved_at FROM agent_runs WHERE batch_id=$1 AND metric_snapshot_id=$2 AND baseline_metric_snapshot_id IS NOT DISTINCT FROM $3
 			 AND purpose IN ('report_narrative','quality_review') ORDER BY created_at DESC`,
-			[batchId],
+			[batchId, measurement.snapshotId, baselineMetricId],
 		)
 	).rows;
 	const activeNarrative = runs.find(
@@ -87,6 +133,8 @@ export async function advanceReportWorkflow(
 			projectId: batch.project_id,
 			batchId,
 			purpose: "report_narrative",
+			actor:
+				options.actor ?? (options.createdBy ? { kind: "user", userId: options.createdBy } : { kind: "unassigned" }),
 		});
 		return { state: "narrative_queued", runId: queued.id, reportId: null };
 	};
@@ -113,6 +161,8 @@ export async function advanceReportWorkflow(
 			projectId: batch.project_id,
 			batchId,
 			purpose: "quality_review",
+			actor:
+				options.actor ?? (options.createdBy ? { kind: "user", userId: options.createdBy } : { kind: "unassigned" }),
 		});
 		return { state: "quality_queued", runId: queued.id, reportId: null };
 	}
@@ -154,6 +204,15 @@ const escapeHtml = (value: unknown): string =>
 		.replaceAll('"', "&quot;")
 		.replaceAll("'", "&#039;");
 const percent = (value: unknown): string => (typeof value === "number" ? `${Math.round(value * 100)}%` : "不可用");
+export function safeReportLink(value: string): string {
+	try {
+		if (["http:", "https:"].includes(new URL(value).protocol))
+			return `<a href="${escapeHtml(value)}" rel="noreferrer noopener" target="_blank">${escapeHtml(value)}</a>`;
+	} catch {
+		/* Untrusted or historical non-web URLs are rendered as inert text. */
+	}
+	return escapeHtml(value);
+}
 const reportDate = (value: unknown): string => {
 	const parsed = new Date(String(value ?? ""));
 	return Number.isNaN(parsed.getTime())
@@ -191,30 +250,67 @@ function sourceSet(captures: QueryCapture[]): Set<string> {
 	return new Set(captures.flatMap((capture) => capture.sources.map((source) => source.url)));
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Snapshot freezing validates type, comparison, narrative, and quality gates together.
 export async function createReportSnapshot(
+	database: Database,
+	input: { batchId: string; reportType: ReportType; compareToBatchId?: string | null; createdBy?: string | null },
+): Promise<{ id: string }> {
+	return database.transaction(async (tx) => {
+		await tx.query("SELECT id FROM experiment_batches WHERE id=$1 FOR UPDATE", [input.batchId]);
+		return createReportSnapshotLocked(tx, input);
+	});
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Snapshot freezing validates type, comparison, narrative, and quality gates together.
+async function createReportSnapshotLocked(
 	database: Database,
 	input: { batchId: string; reportType: ReportType; compareToBatchId?: string | null; createdBy?: string | null },
 ): Promise<{ id: string }> {
 	const reportType = reportTypeSchema.parse(input.reportType);
 	const batch = await getBatch(database, input.batchId);
-	if (!batch) throw new Error("采集批次不存在");
-	if (reportType === "quick_audit" && batch.kind !== "quick_audit") throw new Error("售前快审报告只能由快审批次生成");
-	if (reportType === "retest" && batch.kind !== "retest") throw new Error("周期复测报告只能由复测批次生成");
+	if (!batch) throw new HttpInputError("采集批次不存在", 404);
+	await assertBatchCaptureContract(database, input.batchId);
+	if (reportType === "quick_audit" && batch.kind !== "quick_audit")
+		throw new HttpInputError("售前快审报告只能由快审批次生成", 409);
+	if (reportType === "retest" && batch.kind !== "retest")
+		throw new HttpInputError("周期复测报告只能由复测批次生成", 409);
 	const report = await getBatchReport(database, input.batchId);
-	if (!report) throw new Error("报告数据不存在");
+	if (!report) throw new HttpInputError("报告数据不存在", 404);
+	const measurement = await currentMeasurement(database, input.batchId);
+	if (!measurement.snapshotId || measurement.payload?.overall.status === "unavailable")
+		throw new HttpInputError("V2 语义证据不足，不能冻结报告", 409);
+	if ((batch.measurement as { snapshotId?: string }).snapshotId !== measurement.snapshotId)
+		throw new HttpInputError("测量版本已变化，请重新生成报告", 409);
 	let comparison: Record<string, unknown> | null = null;
 	if (reportType === "retest") {
 		const compareToBatchId = input.compareToBatchId ?? String(batch.compare_to_batch_id ?? "");
+		if (compareToBatchId !== String(batch.compare_to_batch_id ?? ""))
+			throw new Error("复测报告必须使用采集时绑定的基线");
+		await database.query("SELECT id FROM experiment_batches WHERE id=$1 FOR UPDATE", [compareToBatchId]);
 		const baseline = await getBatch(database, compareToBatchId);
-		if (!baseline) throw new Error("复测报告缺少正式基线");
-		if (baseline.project_id !== batch.project_id) throw new Error("复测报告基线不属于当前客户项目");
+		if (!baseline) throw new HttpInputError("复测报告缺少正式基线", 409);
+		if (baseline.project_id !== batch.project_id) throw new HttpInputError("复测报告基线不属于当前客户项目", 404);
 		if (!areBatchConfigsComparable(batch.config as never, baseline.config as never))
-			throw new Error("复测与基线冻结条件不一致，禁止生成前后对比");
+			throw new HttpInputError("复测与基线冻结条件不一致，禁止生成前后对比", 409);
+		const baseMeasurement = await currentMeasurement(database, compareToBatchId);
+		if (
+			measurement.payload?.overall.status !== "ready" ||
+			baseMeasurement.payload?.overall.status !== "ready" ||
+			stableJson(measurement.payload.contract) !== stableJson(baseMeasurement.payload.contract)
+		)
+			throw new Error("复测对比必须使用同一 V2 测量契约且双方达到 ready");
+		const pairedResults = await readPairedComparisons(database, measurement.snapshotId, compareToBatchId);
+		if (
+			!pairedResults.some(
+				(row) => row.metric === "brandMentionRate" && (row.result as { status?: string }).status === "ready",
+			)
+		)
+			throw new HttpInputError("共同有效问题未达到 V2 门槛，不能生成正式复测对比报告", 409);
 		const currentSources = sourceSet(batch.captures as QueryCapture[]);
 		const baselineSources = sourceSet(baseline.captures as QueryCapture[]);
 		comparison = {
 			baselineBatchId: baseline.id,
+			baselineMetricSnapshotId: baseMeasurement.snapshotId,
+			pairedResults,
 			baselineMetrics: baseline.metrics,
 			currentMetrics: batch.metrics,
 			newSources: [...currentSources].filter((url) => !baselineSources.has(url)),
@@ -223,17 +319,18 @@ export async function createReportSnapshot(
 	}
 	const approvedNarrative = (
 		await database.query<Record<string, unknown>>(
-			`SELECT id,draft,approved_at FROM agent_runs WHERE batch_id=$1 AND purpose='report_narrative' AND status='approved'
+			`SELECT id,draft,approved_at FROM agent_runs WHERE batch_id=$1 AND metric_snapshot_id=$2 AND baseline_metric_snapshot_id IS NOT DISTINCT FROM $3 AND purpose='report_narrative' AND status='approved'
 			 ORDER BY approved_at DESC LIMIT 1`,
-			[input.batchId],
+			[input.batchId, measurement.snapshotId, comparison?.baselineMetricSnapshotId ?? null],
 		)
 	).rows[0];
-	if (!approvedNarrative) throw new Error("冻结报告前必须先运行并批准 HRouter Agent 报告叙述（含口碑检测与 GEO 建议）");
+	if (!approvedNarrative)
+		throw new HttpInputError("冻结报告前必须先运行并批准 HRouter Agent 报告叙述（含口碑检测与 GEO 建议）", 409);
 	const approvedQuality = (
 		await database.query<Record<string, unknown>>(
-			`SELECT id,draft,approved_at FROM agent_runs WHERE batch_id=$1 AND purpose='quality_review' AND status='approved'
+			`SELECT id,draft,approved_at FROM agent_runs WHERE batch_id=$1 AND metric_snapshot_id=$2 AND baseline_metric_snapshot_id IS NOT DISTINCT FROM $3 AND purpose='quality_review' AND status='approved'
 			 ORDER BY approved_at DESC LIMIT 20`,
-			[input.batchId],
+			[input.batchId, measurement.snapshotId, comparison?.baselineMetricSnapshotId ?? null],
 		)
 	).rows
 		.map((row) => ({
@@ -244,9 +341,10 @@ export async function createReportSnapshot(
 			(row) =>
 				(row.parsedDraft as { reviewedNarrativeRunId?: unknown }).reviewedNarrativeRunId === approvedNarrative.id,
 		);
-	if (!approvedQuality) throw new Error("冻结报告前必须先运行并批准针对当前报告叙述的 HRouter Agent 质量检查");
+	if (!approvedQuality)
+		throw new HttpInputError("冻结报告前必须先运行并批准针对当前报告叙述的 HRouter Agent 质量检查", 409);
 	if ((approvedQuality.parsedDraft as { verdict?: unknown }).verdict !== "pass")
-		throw new Error("HRouter Agent 质量检查未通过，禁止冻结或导出正式报告");
+		throw new HttpInputError("HRouter Agent 质量检查未通过，禁止冻结或导出正式报告", 409);
 	const providerDisclosures = (batch.config as { platforms: string[] }).platforms.map((providerId) => ({
 		providerId,
 		disclosure:
@@ -257,6 +355,7 @@ export async function createReportSnapshot(
 	const createdAt = new Date().toISOString();
 	const payload = {
 		schemaVersion: "geo.report-snapshot.v2",
+		metricSnapshotId: measurement.snapshotId,
 		reportType,
 		createdAt,
 		batch,
@@ -367,11 +466,11 @@ function evidenceIndexTable(lookup: EvidenceLookup, prompts: Array<Record<string
 					entry.sourceUrls.length
 						? entry.sourceUrls
 								.slice(0, 5)
-								.map((url) => `<a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`)
+								.map((url) => safeReportLink(url))
 								.join("<br>")
 						: entry.url
-							? `<a href="${escapeHtml(entry.url)}">${escapeHtml(entry.url)}</a>`
-							: "平台未开放来源"
+							? safeReportLink(entry.url)
+							: "平台未展示最终引用 URL"
 				}</td></tr>`,
 		)
 		.join("")}</tbody></table>`;
@@ -383,9 +482,26 @@ function platformRows(payload: Record<string, unknown>): string {
 	return entries
 		.map(
 			([provider, metrics]) =>
-				`<tr><td>${escapeHtml(provider in providerDefinitions ? providerDefinitions[provider as keyof typeof providerDefinitions].label : provider)}</td><td>${escapeHtml(percent(metrics.answerCoverage))}</td><td>${escapeHtml(percent(metrics.brandMentionRate))}</td><td>${escapeHtml(percent(metrics.firstRecommendationRate))}</td><td>${escapeHtml(percent(metrics.brandShareOfVoice))}</td><td>${escapeHtml(percent(metrics.citationRate))}</td></tr>`,
+				`<tr><td>${escapeHtml(provider in providerDefinitions ? providerDefinitions[provider as keyof typeof providerDefinitions].label : provider)}</td><td>${escapeHtml(percent(metrics.captureCoverage))}</td><td>${escapeHtml(percent(metrics.brandMentionRate))}</td><td>${escapeHtml(percent(metrics.firstRecommendationRate))}</td><td>${escapeHtml(percent(metrics.monitoredBrandShare))}</td><td>${escapeHtml(percent(metrics.citationRate))}</td></tr>`,
 		)
 		.join("");
+}
+
+function pairedResultsHtml(value: unknown): string {
+	if (!Array.isArray(value)) return "";
+	return `<h3>共同有效问题的配对变化</h3><table><thead><tr><th>平台 / 指标</th><th>基线 / 复测</th><th>变化及95%区间（百分点）</th><th>共同问题 / 状态</th></tr></thead><tbody>${value
+		.map((row) => {
+			const r = row.result as {
+				previous: number | null;
+				current: number | null;
+				delta: number | null;
+				interval: [number, number] | null;
+				promptIds: string[];
+				status: string;
+			};
+			return `<tr><td>${escapeHtml(row.provider_id)} / ${escapeHtml(row.metric)}</td><td>${percent(r.previous)} / ${percent(r.current)}</td><td>${r.delta === null ? "不可用" : escapeHtml((r.delta * 100).toFixed(1))} / ${escapeHtml(r.interval?.map((x) => (x * 100).toFixed(1)).join(" – ") ?? "不可用")}</td><td>${r.promptIds.length} / ${escapeHtml(r.status)}</td></tr>`;
+		})
+		.join("")}</tbody></table>`;
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Report sections intentionally mirror the immutable document contract.
@@ -435,7 +551,7 @@ export function renderReportHtml(snapshot: Record<string, unknown>): string {
 		const urls = Array.isArray(signal.sourceUrls)
 			? signal.sourceUrls.map((url) => stripTrackingFragment(String(url)))
 			: [];
-		return `<article class="reputation-signal ${polarity}"><strong>${polarity === "positive" ? "正面" : "负面"}</strong><p>${escapeHtml(signal.statement)}${citationMarks(signal.evidenceIds, lookup)}</p><small>来源：${urls.length ? [...new Set(urls)].map((url) => `<a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`).join("、") : "平台未开放来源"}</small></article>`;
+		return `<article class="reputation-signal ${polarity}"><strong>${polarity === "positive" ? "正面" : "负面"}</strong><p>${escapeHtml(signal.statement)}${citationMarks(signal.evidenceIds, lookup)}</p><small>来源：${urls.length ? [...new Set(urls)].map((url) => safeReportLink(url)).join("、") : "平台未展示最终引用 URL"}</small></article>`;
 	};
 	const comparison = payload.comparison as Record<string, unknown> | null;
 	const chart = Object.entries(
@@ -450,13 +566,13 @@ export function renderReportHtml(snapshot: Record<string, unknown>): string {
 	return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(snapshot.title)}</title><style>
 		@page{size:A4;margin:20mm 14mm 18mm}*{box-sizing:border-box}body{margin:0;color:#18201d;font:14px/1.65 "Noto Sans CJK SC","Source Han Sans SC","PingFang SC","Microsoft YaHei",sans-serif;background:#fff}main{max-width:1080px;margin:auto;padding:32px}.cover{min-height:240px;border-bottom:4px solid #117a65;padding:40px 0}.eyebrow{color:#117a65;font-weight:700}.cover h1{font-size:32px;margin:14px 0 10px;letter-spacing:0}.muted{color:#66716d}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:24px 0}.kpi{border:1px solid #d9e1de;border-radius:6px;padding:14px}.kpi strong{display:block;font-size:24px;color:#0d584a}.section{break-inside:avoid;margin:28px 0}.section h2{font-size:20px;border-bottom:1px solid #ccd7d3;padding-bottom:7px}.toc a{display:block;color:#117a65;text-decoration:none;padding:3px 0}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #d9e1de;padding:7px;text-align:left;vertical-align:top}th{background:#eff5f2}.bar-row{display:grid;grid-template-columns:150px 1fr 52px;gap:10px;align-items:center;margin:8px 0}.bar{height:12px;background:#e5ece9}.bar i{display:block;height:100%;background:#117a65}.finding{border-left:3px solid #117a65;padding:8px 12px;margin:12px 0;background:#f7faf9}.reputation-signal{padding:10px 12px;margin:10px 0;border-left:3px solid #188b66;background:#f1f9f5}.reputation-signal.negative{border-color:#c43d46;background:#fff3f3}.reputation-signal p{margin:4px 0}.reputation-signal a{color:#0d584a;word-break:break-all}.recommendation{border:1px solid #d9e1de;padding:10px 12px;margin:9px 0}.warning{border:1px solid #d4a72c;background:#fff9e8;padding:12px}.appendix{font-size:11px;word-break:break-all}.cite{color:#117a65;font-size:10px;margin-left:2px}.evidence-index td{font-size:10.5px}.evidence-index a{color:#0d584a}@media(max-width:700px){main{padding:18px}.kpis{grid-template-columns:1fr 1fr}.cover h1{font-size:25px}.bar-row{grid-template-columns:100px 1fr 46px}table{display:block;overflow:auto}}
 		</style></head><body><main><section class="cover"><div class="eyebrow">${PRODUCT_NAME} / ${escapeHtml(reportTypeLabel(snapshot.report_type))}</div><h1>${escapeHtml(snapshot.title)}</h1><p>${escapeHtml((analysis.executive ?? {}).headline)}</p><p class="muted">快照 ${escapeHtml(snapshot.id)} · ${escapeHtml(reportDate(snapshot.created_at))}</p></section>
-		<section class="kpis"><div class="kpi">品牌提及率<strong>${percent(overall.brandMentionRate)}</strong></div><div class="kpi">首位推荐率<strong>${percent(overall.firstRecommendationRate)}</strong></div><div class="kpi">品牌声量份额<strong>${percent(overall.brandShareOfVoice)}</strong></div><div class="kpi">数据覆盖率<strong>${percent(overall.dataCoverage)}</strong></div></section>
+		<section class="kpis"><div class="kpi">品牌提及率<strong>${percent(overall.brandMentionRate)}</strong></div><div class="kpi">首位推荐率<strong>${percent(overall.firstRecommendationRate)}</strong></div><div class="kpi">监测品牌出现份额<strong>${percent(overall.monitoredBrandShare)}</strong></div><div class="kpi">采集覆盖率<strong>${percent(overall.captureCoverage)}</strong></div></section>
 		<section class="section toc"><h2>目录</h2><a href="#summary">1. 执行摘要</a><a href="#reputation">2. AI 口碑检测</a><a href="#platforms">3. 平台指标</a><a href="#questions">4. 问题与竞品</a><a href="#sources">5. 信源</a><a href="#remediation">6. GEO 优化与整改</a><a href="#evidence">7. 证据与局限</a></section>
-		<section class="section" id="summary"><h2>1. 执行摘要</h2><p>${escapeHtml((analysis.executive ?? {}).summary)}</p><p>${escapeHtml((payload.agentNarrative as Record<string, unknown> | null)?.executiveSummary ?? "")}</p>${chart}</section>
+		<section class="section" id="summary"><h2>1. 执行摘要</h2><p>${escapeHtml((analysis.executive ?? {}).validityNote)}</p><p>${escapeHtml((analysis.executive ?? {}).summary)}</p><p>${escapeHtml((payload.agentNarrative as Record<string, unknown> | null)?.executiveSummary ?? "")}</p>${chart}</section>
 		<section class="section" id="reputation"><h2>2. AI 口碑检测</h2><p><strong>${escapeHtml(reputationLabel(reputation?.overall ?? "not_observed"))}</strong> · ${escapeHtml(reputation?.summary ?? "AI 搜索回答中未观察到可报告的口碑评价。")}</p>${(reputation?.positiveSignals ?? []).map((signal) => reputationSignal(signal, "positive")).join("")}${(reputation?.negativeSignals ?? []).map((signal) => reputationSignal(signal, "negative")).join("") || "<p>本批次未观察到负面口碑信号。</p>"}</section>
-		<section class="section" id="platforms"><h2>3. 平台指标</h2><table><thead><tr><th>平台口径</th><th>回答覆盖</th><th>品牌提及</th><th>首位推荐</th><th>声量份额</th><th>官网引用</th></tr></thead><tbody>${platformRows(payload)}</tbody></table></section>
-		<section class="section" id="questions"><h2>4. 问题与竞品</h2><table><thead><tr><th>问题</th><th>有效/计划</th><th>提及率</th><th>首位率</th><th>最佳位置</th><th>来源数</th></tr></thead><tbody>${prompts.map((row) => `<tr><td>${escapeHtml(row.question)}</td><td>${escapeHtml(row.completeSamples)}/${escapeHtml(row.plannedSamples)}</td><td>${percent(row.targetMentionRate)}</td><td>${percent(row.firstRecommendationRate)}</td><td>${escapeHtml(row.bestTargetPosition ?? "未出现")}</td><td>${escapeHtml(row.sourceCount)}</td></tr>`).join("")}</tbody></table></section>
-		<section class="section" id="sources"><h2>5. 信源与变化</h2><table><thead><tr><th>域名</th><th>引用次数</th><th>覆盖问题</th><th>分类</th></tr></thead><tbody>${sources.map((source) => `<tr><td>${escapeHtml(source.domain)}</td><td>${escapeHtml(source.citationCount)}</td><td>${escapeHtml(source.promptCount)}</td><td>${escapeHtml(sourceCategoryLabel(source.category ?? (source.isOwned ? "owned" : "other")))}</td></tr>`).join("")}</tbody></table>${comparison ? `<p>新增信源：${escapeHtml((comparison.newSources as string[]).join("、") || "无")}</p><p>丢失信源：${escapeHtml((comparison.lostSources as string[]).join("、") || "无")}</p>` : ""}</section>
+		<section class="section" id="platforms"><h2>3. 平台指标</h2><table><thead><tr><th>平台口径</th><th>回答覆盖</th><th>品牌提及</th><th>首位推荐</th><th>监测品牌出现份额</th><th>官网引用</th></tr></thead><tbody>${platformRows(payload)}</tbody></table></section>
+		<section class="section" id="questions"><h2>4. 问题与竞品</h2><table><thead><tr><th>问题</th><th>有效/计划</th><th>提及率</th><th>首位率</th><th>明确推荐名次中位数</th><th>来源数</th></tr></thead><tbody>${prompts.map((row) => `<tr><td>${escapeHtml(row.question)}</td><td>${escapeHtml(row.completeSamples)}/${escapeHtml(row.plannedSamples)}</td><td>${percent(row.targetMentionRate)}</td><td>${percent(row.firstRecommendationRate)}</td><td>${escapeHtml(row.bestTargetPosition ?? "无明确排名")}</td><td>${escapeHtml(row.sourceCount)}</td></tr>`).join("")}</tbody></table></section>
+		<section class="section" id="sources"><h2>5. 信源与变化</h2>${pairedResultsHtml(comparison?.pairedResults)}<table><thead><tr><th>域名</th><th>引用次数</th><th>覆盖问题</th><th>分类</th></tr></thead><tbody>${sources.map((source) => `<tr><td>${escapeHtml(source.domain)}</td><td>${escapeHtml(source.citationCount)}</td><td>${escapeHtml(source.promptCount)}</td><td>${escapeHtml(sourceCategoryLabel(source.category ?? (source.isOwned ? "owned" : "other")))}</td></tr>`).join("")}</tbody></table>${comparison ? `<p>新增信源：${escapeHtml((comparison.newSources as string[]).join("、") || "无")}</p><p>丢失信源：${escapeHtml((comparison.lostSources as string[]).join("、") || "无")}</p>` : ""}</section>
 		<section class="section" id="remediation"><h2>6. GEO 优化与整改</h2>${(narrative?.geoRecommendations ?? []).map((item) => `<article class="recommendation"><strong>${escapeHtml(priorityLabel(item.priority))} · ${escapeHtml(item.title)}</strong><p>${escapeHtml(item.action)}</p><small>${escapeHtml(item.rationale)}${citationMarks(item.evidenceIds, lookup)}</small></article>`).join("")}${findings.map((finding) => `<article class="finding"><strong>${escapeHtml(finding.title)}</strong><p>${escapeHtml(finding.detail)}</p><p>建议：${escapeHtml(finding.recommendation)}${citationMarks(parseJsonColumn<string[]>((finding.evidence_ids ?? finding.evidenceIds ?? []) as string | string[]), lookup)}</p></article>`).join("") || "<p>尚无已批准诊断。</p>"}<table><thead><tr><th>任务</th><th>优先级</th><th>状态</th><th>负责人</th><th>验收</th></tr></thead><tbody>${tasks.map((task) => `<tr><td>${escapeHtml(task.title)}</td><td>${escapeHtml(priorityLabel(task.priority))}</td><td>${escapeHtml(taskStatusLabel(task.status))}</td><td>${escapeHtml(task.owner ?? "待分配")}</td><td>${escapeHtml(task.acceptance_criteria)}</td></tr>`).join("")}</tbody></table></section>
 		<section class="section appendix" id="evidence"><h2>7. 证据索引与口径声明</h2><p>正文中的 [n] 对应下表编号；每条证据都是指定时间、平台、问题下的真实采样或官网快照。</p>${evidenceIndexTable(lookup, prompts)}<div class="warning"><strong>证据与黑盒局限</strong>${(narrative?.limitations ?? []).map((item) => `<p>${escapeHtml(item)}</p>`).join("")}<p>${escapeHtml(payload.blackBoxStatement)}</p>${disclosures.map((item) => `<p><b>${escapeHtml(item.providerId in providerDefinitions ? providerDefinitions[item.providerId as keyof typeof providerDefinitions].label : item.providerId)}</b>：${escapeHtml(item.disclosure)}</p>`).join("")}</div></section>
 		</main></body></html>`;
@@ -464,7 +580,7 @@ export function renderReportHtml(snapshot: Record<string, unknown>): string {
 
 export async function generateReportPdf(database: Database, reportId: string): Promise<{ artifactKey: string }> {
 	const snapshot = await getReportSnapshot(database, reportId);
-	if (!snapshot) throw new Error("报告快照不存在");
+	if (!snapshot) throw new HttpInputError("报告快照不存在", 404);
 	const artifactKey = `reports/${reportId}.pdf`;
 	// The object may have been committed before a worker crashed. Reconcile the row instead of overwriting immutable evidence.
 	if (await artifactExists(artifactKey)) {
@@ -501,7 +617,7 @@ export async function generateReportPdf(database: Database, reportId: string): P
 
 export async function generateReportWord(database: Database, reportId: string): Promise<{ artifactKey: string }> {
 	const snapshot = await getReportSnapshot(database, reportId);
-	if (!snapshot) throw new Error("报告快照不存在");
+	if (!snapshot) throw new HttpInputError("报告快照不存在", 404);
 	const artifactKey = `reports/${reportId}.docx`;
 	if (!(await artifactExists(artifactKey)))
 		await putArtifact(
@@ -520,8 +636,9 @@ export async function requestReportPdf(
 	database: Database,
 	reportId: string,
 ): Promise<{ status: "ready" | "queued"; artifactKey: string | null }> {
+	await sweepTerminalLeases(database);
 	const report = await getReportSnapshot(database, reportId);
-	if (!report) throw new Error("报告快照不存在");
+	if (!report) throw new HttpInputError("报告快照不存在", 404);
 	if (report.pdf_artifact_key && report.word_artifact_key)
 		return { status: "ready", artifactKey: String(report.pdf_artifact_key) };
 	const active = (
@@ -583,12 +700,15 @@ export async function queueScheduledReportSnapshots(database: Database): Promise
 			(SELECT id FROM report_snapshots WHERE batch_id=b.id ORDER BY created_at DESC LIMIT 1) AS report_id
 		 FROM monitoring_schedules s
 		 JOIN experiment_batches b ON b.id=s.last_batch_id
-		 WHERE b.status IN ('complete','partial')`,
+		 JOIN projects p ON p.id=b.project_id JOIN organizations o ON o.id=p.organization_id
+ WHERE b.status IN ('complete','partial') AND o.suspended_at IS NULL`,
 	);
 	let created = 0;
 	for (const batch of batches.rows) {
 		try {
-			const result = await advanceReportWorkflow(database, batch.batch_id);
+			const result = await advanceReportWorkflow(database, batch.batch_id, {
+				actor: { kind: "service", serviceId: "report-scheduler" },
+			});
 			if (!batch.report_id && result.reportId) created += 1;
 		} catch (error) {
 			reportLogger.error("report.workflow_failed", safeErrorMessage(error), {
@@ -601,6 +721,7 @@ export async function queueScheduledReportSnapshots(database: Database): Promise
 }
 
 export async function runOneReportJob(database: Database, owner: string): Promise<boolean> {
+	await sweepTerminalLeases(database);
 	const job = await database.transaction(async (transaction) => {
 		const result = await transaction.query<{ id: string; payload: { reportId: string } }>(
 			`WITH candidate AS (
@@ -614,6 +735,16 @@ export async function runOneReportJob(database: Database, owner: string): Promis
 		return result.rows[0] ?? null;
 	});
 	if (!job) return false;
+	const leaseTimer = setInterval(
+		() =>
+			void database
+				.query(
+					"UPDATE jobs SET lease_expires_at=now()+interval '5 minutes' WHERE id=$1 AND lease_owner=$2 AND status='leased'",
+					[job.id, owner],
+				)
+				.catch(() => undefined),
+		30_000,
+	);
 	const reportContext = (
 		await database.query<{ organization_id: string; project_id: string }>(
 			"SELECT organization_id,project_id FROM report_snapshots WHERE id=$1",
@@ -652,6 +783,8 @@ export async function runOneReportJob(database: Database, owner: string): Promis
 			traceId: job.id,
 			metadata: { reportId: job.payload.reportId },
 		});
+	} finally {
+		clearInterval(leaseTimer);
 	}
 	return true;
 }
@@ -666,7 +799,7 @@ export async function createReportShare(
 	expiresInDays: number,
 	createdBy: string | null = null,
 ): Promise<{ id: string; token: string; expiresAt: string }> {
-	if (!(await getReportSnapshot(database, reportId))) throw new Error("报告快照不存在");
+	if (!(await getReportSnapshot(database, reportId))) throw new HttpInputError("报告快照不存在", 404);
 	const id = randomUUID();
 	const token = randomBytes(32).toString("base64url");
 	const expiresAt = new Date(Date.now() + Math.max(1, Math.min(365, expiresInDays)) * 86_400_000).toISOString();
@@ -704,13 +837,13 @@ export async function revokeReportShare(database: Database, shareId: string): Pr
 	const result = await database.query("UPDATE report_shares SET revoked_at=COALESCE(revoked_at,now()) WHERE id=$1", [
 		shareId,
 	]);
-	if (result.affectedRows !== 1) throw new Error("分享链接不存在");
+	if (result.affectedRows !== 1) throw new HttpInputError("分享链接不存在", 404);
 }
 
 export async function getSharedReport(database: Database, token: string): Promise<Record<string, unknown> | null> {
 	const row = (
 		await database.query<{ report_id: string }>(
-			"SELECT report_id FROM report_shares WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at>now()",
+			"SELECT s.report_id FROM report_shares s JOIN report_snapshots r ON r.id=s.report_id JOIN organizations o ON o.id=r.organization_id WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND o.suspended_at IS NULL",
 			[hashToken(token)],
 		)
 	).rows[0];
@@ -724,8 +857,18 @@ export function reportCsv(snapshot: Record<string, unknown>): string {
 	const rows = payload.report?.analysis?.promptRows ?? [];
 	const index = payload.report?.analysis?.evidenceIndex ?? [];
 	const quote = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+	const metrics =
+		(snapshot.payload as { batch?: { metrics?: { overall?: Record<string, unknown> } } }).batch?.metrics?.overall ?? {};
+	const intervals = metrics.confidenceIntervals as Record<string, unknown> | undefined;
 	const lines = [
-		["问题", "意图", "有效样本", "计划样本", "品牌提及率", "首位推荐率", "最佳位置", "来源数"],
+		["测量版本", "V2"],
+		["可报告状态", metrics.status ?? "unavailable"],
+		["采集覆盖", metrics.captureCoverage ?? null],
+		["解析覆盖", metrics.parseCoverage ?? null],
+		["问题覆盖", metrics.promptCoverage ?? null],
+		["提及率95%区间", JSON.stringify(intervals?.brandMentionRate ?? null)],
+		[],
+		["问题", "意图", "有效样本", "计划样本", "品牌提及率", "首位推荐率", "明确推荐名次中位数", "来源数"],
 		...rows.map((row) => [
 			row.question,
 			row.intent,
@@ -737,6 +880,40 @@ export function reportCsv(snapshot: Record<string, unknown>): string {
 			row.sourceCount,
 		]),
 	];
+	const comparisonRows = (
+		snapshot.payload as {
+			comparison?: {
+				pairedResults?: Array<{
+					provider_id: string;
+					metric: string;
+					result: {
+						previous: number | null;
+						current: number | null;
+						delta: number | null;
+						interval: unknown;
+						promptIds: string[];
+						status: string;
+					};
+				}>;
+			};
+		}
+	).comparison?.pairedResults;
+	if (comparisonRows?.length)
+		lines.push(
+			[],
+			["平台", "指标", "基线（共同问题）", "复测（共同问题）", "配对变化", "95%区间", "共同问题数", "状态"],
+			...comparisonRows.map((row) => [
+				row.provider_id,
+				row.metric,
+				row.result.previous,
+				row.result.current,
+				row.result.delta,
+				JSON.stringify(row.result.interval),
+				row.result.promptIds.length,
+				row.result.status,
+			]),
+		);
+
 	if (index.length) {
 		lines.push([], ["证据编号", "来源", "问题/页面", "采样", "时间", "引用网址", "证据 ID"]);
 		for (const entry of index)

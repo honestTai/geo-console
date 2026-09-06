@@ -3,8 +3,11 @@ import { mkdir } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { geoPaths, migrateDatabase, openDatabase, searchProviderIds } from "@geo/core";
 import { checkLogService, LogServiceUnavailableError, StructuredLogger, safeErrorMessage } from "@geo/logging";
+import { ADAPTER_VERSION } from "@geo/search-providers";
 import { z } from "zod";
 import { approveAgentRun, enqueueAgentDraft, enqueueTaskContentAgent, listAgentRuns, rejectAgentRun } from "./agent";
+import { apiErrorResponse } from "./api-errors";
+import { continueApprovedReport } from "./approval-workflow";
 import {
 	deleteArticle,
 	generateArticlesForBatch,
@@ -18,6 +21,7 @@ import {
 	AuthenticationError,
 	auditRequest,
 	authenticateRequest,
+	changeOwnPassword,
 	createUser,
 	disableUser,
 	ensureBootstrapAdmin,
@@ -26,8 +30,18 @@ import {
 	listUsers,
 	login,
 	logout,
+	resetMemberPassword,
+	restoreUser,
 	selectOrganization,
 } from "./auth";
+import { actorFromIdentity, authorizeArtifact, authorizeRequest, principalForIdentity } from "./authorization";
+import {
+	explainRequest,
+	listPolicies,
+	requireSystemAdministrator,
+	savePermission,
+	savePolicy,
+} from "./authorization/configuration";
 import { exportKnowledge, exportSettings, importKnowledge, importSettings } from "./config-transfer";
 import {
 	claimDesktopTurn,
@@ -40,9 +54,13 @@ import {
 	relayDesktopAgentResponse,
 } from "./desktop-agent";
 import { getHRouterConfig, listHRouterModels, saveHRouterConfig } from "./hrouter";
+import { routeMatch } from "./http-routes";
 import { archiveLibraryQuestion, createLibraryQuestion, listLibraryQuestions } from "./knowledge-base";
 import { startLocalWorkers } from "./local-workers";
-import { checkObjectStore, readArtifact } from "./object-store";
+import { loginClientAddress } from "./login-limiter";
+import { currentMeasurement, reparseMeasurement, reviewSemanticObservation } from "./measurement";
+import { listMemberOptions } from "./member-access";
+import { artifactSafetyHeaders, checkObjectStore, readArtifact } from "./object-store";
 import { parsePagination } from "./pagination";
 import {
 	ensureProviderConfigs,
@@ -53,7 +71,6 @@ import {
 } from "./providers";
 import {
 	AccessDeniedError,
-	authorizeDynamicRequest,
 	createRole,
 	deleteRole,
 	getDynamicNavigation,
@@ -101,15 +118,8 @@ import {
 	verifyTask,
 } from "./service";
 import { applyServiceLogRetention, getServiceLogs, getServiceLogsCsv } from "./service-log-proxy";
-import {
-	canAccessProject,
-	canReadArtifact,
-	createOrganization,
-	listOrganizations,
-	requestResourceScope,
-	setOrganizationStatus,
-} from "./tenancy";
-import { json, readJson } from "./utils";
+import { canAccessProject, createOrganization, listOrganizations, setOrganizationStatus } from "./tenancy";
+import { HttpInputError, json, readJson } from "./utils";
 import { getWebSearchTestStatus, listWebSearchEvidencePage, testWebSearch } from "./web-search";
 import {
 	answerQuestion,
@@ -135,11 +145,6 @@ const objectStore = await checkObjectStore();
 const apiLogger = new StructuredLogger("api");
 const stopLocalWorkers = process.env.GEO_LOCAL_COMBINED === "true" ? await startLocalWorkers(database) : null;
 
-function routeMatch(pathname: string, expression: RegExp): string[] | null {
-	const match = pathname.match(expression);
-	return match ? match.slice(1).map(decodeURIComponent) : null;
-}
-
 /** 路由策略之外的附加功能开关（如“同步写入知识库”）仍按有效权限判断，超管始终放行。 */
 const hasPermission = (identity: Identity, permission: string): boolean =>
 	identity.isSuperAdmin || identity.permissions.includes(permission);
@@ -160,6 +165,7 @@ async function serveArtifact(response: ServerResponse, artifactPath: string): Pr
 		const artifact = await readArtifact(artifactPath);
 		response.writeHead(200, {
 			"content-type": artifact.contentType,
+			...artifactSafetyHeaders(artifact.contentType),
 			"content-length": artifact.contentLength,
 			"cache-control": "private, no-store",
 		});
@@ -189,7 +195,13 @@ async function handleProjectRoutes(
 		return true;
 	}
 	if (path === "/api/projects" && request.method === "POST")
-		return json(response, 201, await createProject(database, await readJson(request), identity.organizationId)) ?? true;
+		return (
+			json(
+				response,
+				201,
+				await createProject(database, await readJson(request), identity.organizationId, identity.id),
+			) ?? true
+		);
 	const project = routeMatch(path, /^\/api\/projects\/([^/]+)$/);
 	if (project && request.method === "GET") {
 		const value = await getProject(database, project[0]);
@@ -223,7 +235,15 @@ async function handleProjectRoutes(
 		// 建档页“后台联网出题”：非交互的 prompt_research 草稿，批准后作为候选进入建档页；先保证有官网快照可引用。
 		const body = z.object({ purpose: z.literal("prompt_research") }).parse(await readJson(request));
 		await ensureProjectSnapshots(database, research[0]);
-		json(response, 202, await enqueueAgentDraft(database, { projectId: research[0], purpose: body.purpose }));
+		json(
+			response,
+			202,
+			await enqueueAgentDraft(database, {
+				projectId: research[0],
+				purpose: body.purpose,
+				actor: actorFromIdentity(identity),
+			}),
+		);
 		return true;
 	}
 	const webSearches = routeMatch(path, /^\/api\/projects\/([^/]+)\/web-searches$/);
@@ -333,8 +353,47 @@ async function handleBatchTaskRoutes(
 	request: IncomingMessage,
 	response: ServerResponse,
 	path: string,
-	actorUserId: string | null,
+	identity: Identity,
 ): Promise<boolean> {
+	const actorUserId = identity.id;
+	const actor = actorFromIdentity(identity);
+	const measurementRoute = routeMatch(path, /^\/api\/batches\/([^/]+)\/measurement(\/review)?$/);
+	if (measurementRoute) {
+		const [batchId, review] = measurementRoute;
+		if (request.method === "POST") {
+			if (review) {
+				await reviewSemanticObservation(database, batchId, await readJson(request), actorUserId);
+				json(response, 200, { reviewed: true });
+			} else json(response, 202, await reparseMeasurement(database, batchId, actorUserId));
+			return true;
+		}
+		if (request.method === "GET" && !review) {
+			const current = await currentMeasurement(database, batchId);
+			const url = new URL(request.url ?? path, "http://local");
+			const page = parsePagination(url);
+			const observations = await database.query(
+				`SELECT o.*,s.observation_id IS NOT NULL AS selected FROM semantic_observations o
+				LEFT JOIN semantic_selections s ON s.observation_id=o.id WHERE o.run_id=$1 ORDER BY o.created_at DESC,o.id LIMIT $2 OFFSET $3`,
+				[current.runId, page.pageSize, page.offset],
+			);
+			const total = Number(
+				(
+					await database.query<{ count: number }>(
+						"SELECT count(*)::int AS count FROM semantic_observations WHERE run_id=$1",
+						[current.runId],
+					)
+				).rows[0].count,
+			);
+			json(response, 200, {
+				...current,
+				observations: observations.rows,
+				total,
+				page: page.page,
+				pageSize: page.pageSize,
+			});
+			return true;
+		}
+	}
 	const batch = routeMatch(path, /^\/api\/batches\/([^/]+)$/);
 	if (batch && request.method === "GET") {
 		const value = await getBatch(database, batch[0]);
@@ -357,6 +416,7 @@ async function handleBatchTaskRoutes(
 				projectId: String(batchValue.project_id),
 				batchId: modelDiagnosis[0],
 				purpose: "diagnosis",
+				actor,
 			}),
 		);
 		return true;
@@ -375,18 +435,27 @@ async function handleBatchTaskRoutes(
 				projectId: String(batchValue.project_id),
 				batchId: batchAgent[0],
 				purpose: body.purpose,
+				actor,
 			}),
 		);
 		return true;
 	}
 	const approveAgent = routeMatch(path, /^\/api\/agent-runs\/([^/]+)\/approve$/);
 	if (approveAgent && request.method === "POST") {
-		const approved = await approveAgentRun(database, approveAgent[0], actorUserId);
-		const workflow =
-			approved.batchId && ["report_narrative", "quality_review"].includes(approved.purpose)
-				? await advanceReportWorkflow(database, approved.batchId, { createdBy: actorUserId, allowRetry: false })
+		const approved = await approveAgentRun(database, approveAgent[0], actorUserId, "manual", undefined, actor);
+		const next = await continueApprovedReport(approved, (batchId) =>
+			advanceReportWorkflow(database, batchId, { createdBy: actorUserId, allowRetry: false, actor }),
+		);
+		const workflowError =
+			next.status === "blocked"
+				? apiErrorResponse(next.error, String(response.getHeader("x-request-id") ?? "")).body.error
 				: null;
-		json(response, 200, { approved: true, workflow });
+		if (next.status === "blocked")
+			apiLogger.warn("report.continuation_blocked", safeErrorMessage(next.error), {
+				organizationId: identity.organizationId,
+				metadata: { runId: approveAgent[0], approvalCommitted: true },
+			});
+		json(response, 200, { approved: true, workflow: next.workflow, workflowError, continuationStatus: next.status });
 		return true;
 	}
 	const reportWorkflow = routeMatch(path, /^\/api\/batches\/([^/]+)\/report-workflow$/);
@@ -397,6 +466,7 @@ async function handleBatchTaskRoutes(
 			202,
 			await advanceReportWorkflow(database, reportWorkflow[0], {
 				createdBy: actorUserId,
+				actor,
 				allowRetry: true,
 				restart: body.restart,
 			}),
@@ -502,7 +572,7 @@ async function handleBatchTaskRoutes(
 	}
 	const content = routeMatch(path, /^\/api\/tasks\/([^/]+)\/content$/);
 	if (content && request.method === "POST") {
-		json(response, 202, await enqueueTaskContentAgent(database, content[0]));
+		json(response, 202, await enqueueTaskContentAgent(database, content[0], actor));
 		return true;
 	}
 	return false;
@@ -541,6 +611,7 @@ async function handleWorkbenchRoutes(
 			201,
 			await createSession(database, sessions[0], await readJson(request), actorUserId, {
 				desktopClient: isDesktopRequest(request),
+				actor: actorFromIdentity(identity),
 			}),
 		);
 		return true;
@@ -659,7 +730,7 @@ async function handleWorkbenchRoutes(
 		const body = z.object({ batchId: z.string().min(1) }).parse(await readJson(request));
 		const batchValue = await getBatch(database, body.batchId);
 		if (!batchValue || String(batchValue.project_id) !== generate[0]) throw new Error("采集批次不存在或不属于当前客户");
-		json(response, 202, await generateArticlesForBatch(database, body.batchId));
+		json(response, 202, await generateArticlesForBatch(database, body.batchId, { actor: actorFromIdentity(identity) }));
 		return true;
 	}
 	const article = routeMatch(path, /^\/api\/articles\/([^/]+)$/);
@@ -680,7 +751,7 @@ async function handleWorkbenchRoutes(
 	}
 	const regenerate = routeMatch(path, /^\/api\/articles\/([^/]+)\/regenerate$/);
 	if (regenerate && request.method === "POST") {
-		json(response, 202, await regenerateArticle(database, regenerate[0]));
+		json(response, 202, await regenerateArticle(database, regenerate[0], actorFromIdentity(identity)));
 		return true;
 	}
 	return false;
@@ -878,7 +949,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 		return;
 	}
 	if (path === "/api/auth/login" && request.method === "POST") {
-		const result = await login(database, response, await readJson(request));
+		const result = await login(database, response, await readJson(request, 16 * 1024), loginClientAddress(request));
 		requestOrganizationId = result.user.organizationId;
 		json(response, 200, {
 			user: result.user,
@@ -889,6 +960,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 	if (path === "/api/health")
 		return json(response, 200, {
 			status: "ok",
+			captureAdapterVersion: ADAPTER_VERSION,
 			database: process.env.DATABASE_URL ? "postgresql" : "pglite",
 			analysisConfigured: (await getHRouterConfig(database)).configured,
 			captureRunner: "cloud",
@@ -900,16 +972,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 		if (!identity) return json(response, 401, { error: "请先登录" });
 		requestOrganizationId = identity.organizationId;
 		const artifactKey = decodeURIComponent(path.slice("/artifacts/".length));
-		if (
-			!(await canReadArtifact(
-				database,
-				identity.organizationId,
-				artifactKey,
-				identity.allProjects,
-				identity.projectIds,
-			))
-		)
-			return json(response, 404, { error: "证据文件不存在" });
+		await authorizeArtifact(database, await principalForIdentity(database, identity), artifactKey);
 		await serveArtifact(response, artifactKey);
 		return;
 	}
@@ -917,6 +980,10 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 	if (!identity) return json(response, 401, { error: "请先登录" });
 	requestOrganizationId = identity.organizationId;
 	if (path === "/api/auth/me" && request.method === "GET") return json(response, 200, { user: identity });
+	if (path === "/api/auth/password" && request.method === "POST") {
+		await changeOwnPassword(database, request, identity, await readJson(request, 16 * 1024));
+		return json(response, 200, { changed: true });
+	}
 	if (path === "/api/auth/logout" && request.method === "POST") {
 		await logout(database, request, response);
 		return json(response, 200, { loggedOut: true });
@@ -933,7 +1000,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 			await getDynamicNavigation(database, identity.permissions, identity.isSuperAdmin, isDesktop),
 		);
 	}
-	await authorizeDynamicRequest(database, identity.permissions, identity.isSuperAdmin, request.method ?? "GET", path);
+	await authorizeRequest(database, await principalForIdentity(database, identity), request.method ?? "GET", path);
 	if (path === "/api/organizations" && request.method === "GET") {
 		if (!identity.isSuperAdmin) return json(response, 403, { error: "只有系统超管可以查看全部机构" });
 		return json(response, 200, await listOrganizations(database, parsePagination(requestUrl)));
@@ -959,6 +1026,31 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 		await auditRequest(database, identity, request.method, path);
 		return json(response, 200, { saved: true });
 	}
+	if (path.startsWith("/api/rbac/configuration")) {
+		const actor = actorFromIdentity(identity);
+		await requireSystemAdministrator(database, actor, identity.organizationId);
+		if (path === "/api/rbac/configuration/policies" && request.method === "GET")
+			return json(response, 200, await listPolicies(database, parsePagination(requestUrl)));
+		if (path === "/api/rbac/configuration/permissions" && request.method === "PUT") {
+			await savePermission(database, actor, identity.organizationId, await readJson(request));
+			return json(response, 200, { saved: true });
+		}
+		if (path === "/api/rbac/configuration/policies" && request.method === "POST")
+			return json(response, 201, await savePolicy(database, actor, identity.organizationId, await readJson(request)));
+		const policy = routeMatch(path, /^\/api\/rbac\/configuration\/policies\/([^/]+)$/);
+		if (policy && request.method === "PUT")
+			return json(
+				response,
+				200,
+				await savePolicy(database, actor, identity.organizationId, await readJson(request), policy[0]),
+			);
+		if (path === "/api/rbac/configuration/explain" && request.method === "POST")
+			return json(
+				response,
+				200,
+				await explainRequest(database, actor, identity.organizationId, await readJson(request)),
+			);
+	}
 	if (path === "/api/rbac/catalog" && request.method === "GET")
 		return json(response, 200, await getRbacCatalog(database, identity.organizationId));
 	if (path === "/api/rbac/roles" && request.method === "GET")
@@ -979,8 +1071,33 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 		await auditRequest(database, identity, request.method, path);
 		return json(response, 200, { deleted: true });
 	}
+	if (path === "/api/users/options" && request.method === "GET") {
+		const kind = z.enum(["roles", "projects"]).parse(requestUrl.searchParams.get("kind") ?? "roles");
+		return json(
+			response,
+			200,
+			await listMemberOptions(database, identity.organizationId, kind, parsePagination(requestUrl), identity),
+		);
+	}
+	const memberAction = routeMatch(path, /^\/api\/users\/([^/]+)\/(restore|password)$/);
+	if (memberAction && request.method === "POST") {
+		if (memberAction[1] === "restore") await restoreUser(database, identity.organizationId, memberAction[0], identity);
+		else
+			await resetMemberPassword(
+				database,
+				identity.organizationId,
+				memberAction[0],
+				await readJson(request, 16 * 1024),
+				identity,
+			);
+		return json(response, 200, { saved: true });
+	}
 	if (path === "/api/users" && request.method === "GET")
-		return json(response, 200, await listUsers(database, identity.organizationId, parsePagination(requestUrl)));
+		return json(
+			response,
+			200,
+			await listUsers(database, identity.organizationId, parsePagination(requestUrl), identity),
+		);
 	if (path === "/api/audit-logs" && request.method === "GET")
 		return json(response, 200, await listAuditLogs(database, identity.organizationId, parsePagination(requestUrl)));
 	if (path === "/api/service-logs" && request.method === "GET")
@@ -999,8 +1116,8 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 		return json(response, 200, result);
 	}
 	if (path === "/api/users" && request.method === "POST") {
-		const value = await createUser(database, await readJson(request), identity.organizationId);
-		await auditRequest(database, identity, request.method, path);
+		const value = await createUser(database, await readJson(request, 32 * 1024), identity.organizationId, identity);
+		// Domain audit and account creation commit together; no second post-commit write may turn success into a 500.
 		return json(response, 201, value);
 	}
 	const userAccess = routeMatch(path, /^\/api\/users\/([^/]+)\/access$/);
@@ -1011,21 +1128,14 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 	}
 	const user = routeMatch(path, /^\/api\/users\/([^/]+)$/);
 	if (user && request.method === "DELETE") {
-		await disableUser(database, user[0], identity.id, identity.organizationId);
-		await auditRequest(database, identity, request.method, path);
+		await disableUser(database, user[0], identity.id, identity.organizationId, identity);
 		return json(response, 200, { disabled: true });
 	}
-	const resourceScope = await requestResourceScope(database, path);
-	if (
-		resourceScope &&
-		(resourceScope.organizationId !== identity.organizationId ||
-			!canAccessProject(resourceScope.projectId, identity.allProjects, identity.projectIds))
-	)
-		return json(response, 404, { error: "资源不存在" });
+
 	const handled =
 		(await handleProjectRoutes(request, response, path, identity)) ||
 		(await handleProjectDataRoutes(request, response, path)) ||
-		(await handleBatchTaskRoutes(request, response, path, identity.id)) ||
+		(await handleBatchTaskRoutes(request, response, path, identity)) ||
 		(await handleWorkbenchRoutes(request, response, path, identity)) ||
 		(await handleSettingsRoutes(request, response, path, identity.organizationId)) ||
 		(await handleHRouterRoutes(request, response, path, identity.organizationId)) ||
@@ -1037,15 +1147,6 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 	json(response, 404, { error: "接口不存在" });
 }
 
-function apiErrorStatus(error: unknown): number {
-	if (error instanceof z.ZodError) return 400;
-	if (error instanceof AuthenticationError) return 401;
-	if (error instanceof AccessDeniedError) return 403;
-	if (error instanceof DesktopAgentConflictError) return 409;
-	if (error instanceof LogServiceUnavailableError) return 503;
-	return 500;
-}
-
 const server = createServer((request, response) => {
 	handle(request, response).catch((error) => {
 		const traceId = String(response.getHeader("x-request-id") ?? randomUUID());
@@ -1053,9 +1154,12 @@ const server = createServer((request, response) => {
 			traceId,
 			metadata: { method: request.method ?? "GET", path: new URL(request.url ?? "/", "http://local").pathname },
 		});
-		if (!response.headersSent)
-			json(response, apiErrorStatus(error), { error: error instanceof Error ? error.message : "未知错误" });
-		else response.end();
+		if (error instanceof HttpInputError && error.status === 429) response.setHeader("retry-after", "900");
+		if (error instanceof HttpInputError && error.status === 413) response.setHeader("connection", "close");
+		if (!response.headersSent) {
+			const result = apiErrorResponse(error, traceId);
+			json(response, result.status, result.body);
+		} else response.end();
 	});
 });
 

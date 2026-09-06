@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { applicationPermissions, type Database, legacyRolePermissionPresets, permissionParentKey } from "@geo/core";
+import { applicationPermissions, type Database, legacyRolePermissionPresets } from "@geo/core";
 import { z } from "zod";
+import { loadPrincipal } from "./authorization/principal";
 import { type Paginated, type PaginationInput, paginated } from "./pagination";
+import { HttpInputError } from "./utils";
+
+export { AccessDeniedError } from "./authorization";
 
 export type EffectiveAccess = {
 	roles: Array<{ id: string; name: string }>;
@@ -38,6 +42,15 @@ export async function seedOrganizationRbac(
 	grantedBy: string | null = null,
 ): Promise<void> {
 	await database.transaction(async (transaction) => {
+		await transaction.query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE", [organizationId]);
+		if (
+			(
+				await transaction.query("SELECT id FROM roles WHERE organization_id=$1 AND system_key IS NOT NULL LIMIT 1", [
+					organizationId,
+				])
+			).rows.length
+		)
+			return;
 		for (const permission of applicationPermissions) {
 			if ("systemOnly" in permission && permission.systemOnly) continue;
 			await transaction.query(
@@ -52,16 +65,16 @@ export async function seedOrganizationRbac(
 			viewer: { name: "只读成员", description: "默认只读角色" },
 		})) {
 			const existing = (
-				await transaction.query<{ id: string }>("SELECT id FROM roles WHERE organization_id=$1 AND name=$2 LIMIT 1", [
-					organizationId,
-					details.name,
-				])
+				await transaction.query<{ id: string }>(
+					"SELECT id FROM roles WHERE organization_id=$1 AND system_key=$2 LIMIT 1",
+					[organizationId, legacyRole],
+				)
 			).rows[0];
 			const roleId = existing?.id ?? randomUUID();
 			if (!existing)
 				await transaction.query(
-					"INSERT INTO roles (id,organization_id,name,description,is_system) VALUES ($1,$2,$3,$4,true)",
-					[roleId, organizationId, details.name, details.description],
+					"INSERT INTO roles (id,organization_id,name,description,is_system,system_key) VALUES ($1,$2,$3,$4,true,$5)",
+					[roleId, organizationId, details.name, details.description, legacyRole],
 				);
 			for (const permissionKey of legacyRolePermissionPresets[legacyRole as keyof typeof legacyRolePermissionPresets])
 				await transaction.query(
@@ -72,57 +85,29 @@ export async function seedOrganizationRbac(
 	});
 }
 
+/** Legacy projection for consumers; the underlying authorization snapshot is read by one SQL statement. */
 export async function resolveEffectiveAccess(
 	database: Database,
 	userId: string | null,
 	organizationId: string,
-	isSuperAdmin: boolean,
+	_isSuperAdmin: boolean,
 ): Promise<EffectiveAccess> {
-	if (isSuperAdmin || userId === null) {
-		const permissionRows = await database.query<{ key: string }>("SELECT key FROM permissions ORDER BY key");
-		return {
-			roles: [{ id: "super-admin", name: "系统超管" }],
-			permissions: permissionRows.rows.map((row) => row.key),
-			allProjects: true,
-			projectIds: [],
-		};
-	}
-	const [roleRows, permissionRows, userRow, projectRows] = await Promise.all([
-		database.query<{ id: string; name: string }>(
-			`SELECT r.id,r.name FROM user_roles ur JOIN roles r ON r.id=ur.role_id
-			 WHERE ur.user_id=$1 AND r.organization_id=$2 ORDER BY r.name`,
-			[userId, organizationId],
-		),
-		database.query<{ permission_key: string }>(
-			`SELECT DISTINCT rp.permission_key FROM user_roles ur
-			 JOIN roles r ON r.id=ur.role_id
-			 JOIN role_permissions rp ON rp.role_id=r.id
-			 JOIN organization_permissions op ON op.organization_id=r.organization_id AND op.permission_key=rp.permission_key
-			 WHERE ur.user_id=$1 AND r.organization_id=$2 ORDER BY rp.permission_key`,
-			[userId, organizationId],
-		),
-		database.query<{ all_projects: boolean }>("SELECT all_projects FROM users WHERE id=$1 AND organization_id=$2", [
-			userId,
-			organizationId,
-		]),
-		database.query<{ project_id: string }>(
-			`SELECT upa.project_id FROM user_project_access upa JOIN projects p ON p.id=upa.project_id
-			 WHERE upa.user_id=$1 AND p.organization_id=$2 ORDER BY upa.project_id`,
-			[userId, organizationId],
-		),
-	]);
-	return {
-		roles: roleRows.rows,
-		permissions: permissionRows.rows.map((row) => row.permission_key),
-		allProjects: Boolean(userRow.rows[0]?.all_projects),
-		projectIds: projectRows.rows.map((row) => row.project_id),
-	};
+	if (!userId) return { roles: [], permissions: [], allProjects: false, projectIds: [] };
+	const principal = await loadPrincipal(database, { userId, organizationId });
+	return principal
+		? {
+				roles: principal.roles,
+				permissions: principal.permissions,
+				allProjects: principal.projects.all,
+				projectIds: principal.projects.ids,
+			}
+		: { roles: [], permissions: [], allProjects: false, projectIds: [] };
 }
 
 export async function getRbacCatalog(database: Database, organizationId: string): Promise<Record<string, unknown>> {
 	const [catalog, grants] = await Promise.all([
 		database.query(
-			`SELECT key,kind,group_label,label,navigation_key,icon_key,system_only,desktop_only,position
+			`SELECT key,kind,group_label,label,navigation_key,icon_key,system_only,desktop_only,position,parent_key,enabled,built_in
 			 FROM permissions ORDER BY position,key`,
 		),
 		database.query<{ permission_key: string }>(
@@ -131,7 +116,7 @@ export async function getRbacCatalog(database: Database, organizationId: string)
 		),
 	]);
 	return {
-		permissions: catalog.rows.map((row) => ({ ...row, parent_key: permissionParentKey(String(row.key)) })),
+		permissions: catalog.rows.map((row) => ({ ...row, parent_key: row.parent_key })),
 		organizationPermissionKeys: grants.rows.map((row) => row.permission_key),
 	};
 }
@@ -152,7 +137,7 @@ export async function listRoles(
 	);
 	const roles = (
 		await database.query<Record<string, unknown>>(
-			`SELECT r.id,r.name,r.description,r.is_system,r.created_at,r.updated_at,count(DISTINCT ur.user_id)::int AS user_count
+			`SELECT r.id,r.name,r.description,r.is_system,r.system_key,r.created_at,r.updated_at,count(DISTINCT ur.user_id)::int AS user_count
 			 FROM roles r LEFT JOIN user_roles ur ON ur.role_id=r.id
 			 WHERE r.organization_id=$1 AND ($2::text IS NULL OR r.name ILIKE $2)
 			 GROUP BY r.id ORDER BY r.is_system DESC,r.created_at,r.name LIMIT $3 OFFSET $4`,
@@ -184,7 +169,8 @@ async function assertOrganizationPermissionKeys(
 		 AND permission_key IN (${sqlPlaceholders(permissionKeys, 2)})`,
 		[organizationId, ...permissionKeys],
 	);
-	if (rows.rows.length !== new Set(permissionKeys).size) throw new Error("角色包含机构尚未获准的页面或功能");
+	if (rows.rows.length !== new Set(permissionKeys).size)
+		throw new HttpInputError("角色包含机构尚未获准的页面或功能", 403);
 }
 
 async function replaceRolePermissions(database: Database, roleId: string, permissionKeys: string[]): Promise<void> {
@@ -198,9 +184,22 @@ async function replaceRolePermissions(database: Database, roleId: string, permis
 
 export async function createRole(database: Database, organizationId: string, input: unknown): Promise<{ id: string }> {
 	const data = roleInputSchema.parse(input);
-	await assertOrganizationPermissionKeys(database, organizationId, data.permissionKeys);
 	const id = randomUUID();
 	await database.transaction(async (transaction) => {
+		const organization = await transaction.query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE", [
+			organizationId,
+		]);
+		if (!organization.rows.length) throw new HttpInputError("机构不存在", 404);
+		await assertOrganizationPermissionKeys(transaction, organizationId, data.permissionKeys);
+		if (
+			(
+				await transaction.query("SELECT id FROM roles WHERE organization_id=$1 AND name=$2", [
+					organizationId,
+					data.name,
+				])
+			).rows.length
+		)
+			throw new HttpInputError("本机构已存在同名角色", 409);
 		await transaction.query("INSERT INTO roles (id,organization_id,name,description) VALUES ($1,$2,$3,$4)", [
 			id,
 			organizationId,
@@ -219,29 +218,53 @@ export async function updateRole(
 	input: unknown,
 ): Promise<void> {
 	const data = roleInputSchema.parse(input);
-	await assertOrganizationPermissionKeys(database, organizationId, data.permissionKeys);
 	await database.transaction(async (transaction) => {
+		await transaction.query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE", [organizationId]);
+		const currentKeys = (
+			await transaction.query<{ permission_key: string }>(
+				"SELECT rp.permission_key FROM role_permissions rp JOIN roles r ON r.id=rp.role_id WHERE r.id=$1 AND r.organization_id=$2",
+				[roleId, organizationId],
+			)
+		).rows.map((r) => r.permission_key);
+		await assertOrganizationPermissionKeys(
+			transaction,
+			organizationId,
+			data.permissionKeys.filter((key) => !currentKeys.includes(key)),
+		);
+		if (
+			(
+				await transaction.query("SELECT id FROM roles WHERE organization_id=$1 AND name=$2 AND id<>$3", [
+					organizationId,
+					data.name,
+					roleId,
+				])
+			).rows.length
+		)
+			throw new HttpInputError("本机构已存在同名角色", 409);
 		const result = await transaction.query(
 			"UPDATE roles SET name=$3,description=$4,updated_at=now() WHERE id=$1 AND organization_id=$2",
 			[roleId, organizationId, data.name, data.description ?? null],
 		);
-		if (result.affectedRows !== 1) throw new Error("角色不存在");
+		if (result.affectedRows !== 1) throw new HttpInputError("角色不存在", 404);
 		await replaceRolePermissions(transaction, roleId, data.permissionKeys);
 	});
 }
 
 export async function deleteRole(database: Database, organizationId: string, roleId: string): Promise<void> {
-	const role = (
-		await database.query<{ is_system: boolean; user_count: number }>(
-			`SELECT r.is_system,count(ur.user_id)::int AS user_count FROM roles r LEFT JOIN user_roles ur ON ur.role_id=r.id
-			 WHERE r.id=$1 AND r.organization_id=$2 GROUP BY r.id`,
-			[roleId, organizationId],
-		)
-	).rows[0];
-	if (!role) throw new Error("角色不存在");
-	if (role.is_system) throw new Error("默认角色不能删除，但可以修改其权限");
-	if (Number(role.user_count) > 0) throw new Error("请先移除该角色下的用户");
-	await database.query("DELETE FROM roles WHERE id=$1 AND organization_id=$2", [roleId, organizationId]);
+	await database.transaction(async (tx) => {
+		await tx.query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE", [organizationId]);
+		const role = (
+			await tx.query<{ is_system: boolean }>(
+				"SELECT is_system FROM roles WHERE id=$1 AND organization_id=$2 FOR UPDATE",
+				[roleId, organizationId],
+			)
+		).rows[0];
+		if (!role) throw new HttpInputError("角色不存在", 404);
+		if (role.is_system) throw new HttpInputError("默认角色不能删除，但可以修改其权限", 409);
+		if ((await tx.query("SELECT user_id FROM user_roles WHERE role_id=$1 LIMIT 1", [roleId])).rows.length)
+			throw new HttpInputError("请先移除该角色下的用户", 409);
+		await tx.query("DELETE FROM roles WHERE id=$1 AND organization_id=$2", [roleId, organizationId]);
+	});
 }
 
 export async function updateOrganizationPermissions(
@@ -256,54 +279,21 @@ export async function updateOrganizationPermissions(
 			`SELECT key FROM permissions WHERE system_only=false AND key IN (${sqlPlaceholders(permissionKeys)})`,
 			permissionKeys,
 		);
-		if (rows.rows.length !== permissionKeys.length) throw new Error("机构授权包含不存在或仅限系统超管的权限");
+		if (rows.rows.length !== permissionKeys.length)
+			throw new HttpInputError("机构授权包含不存在或仅限系统超管的权限", 400);
 	}
 	await database.transaction(async (transaction) => {
+		if (!(await transaction.query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE", [organizationId])).rows.length)
+			throw new HttpInputError("机构不存在", 404);
 		await transaction.query("DELETE FROM organization_permissions WHERE organization_id=$1", [organizationId]);
 		for (const permissionKey of [...new Set(permissionKeys)])
 			await transaction.query(
 				"INSERT INTO organization_permissions (organization_id,permission_key,granted_by) VALUES ($1,$2,$3)",
 				[organizationId, permissionKey, grantedBy],
 			);
-		await transaction.query(
-			`DELETE FROM role_permissions WHERE role_id IN (SELECT id FROM roles WHERE organization_id=$1)
-			 AND permission_key NOT IN (SELECT permission_key FROM organization_permissions WHERE organization_id=$1)`,
-			[organizationId],
-		);
+
+		// Entitlements are an upper bound, not a destructive rewrite of configured roles.
 	});
-}
-
-export class AccessDeniedError extends Error {}
-
-function pathMatches(pattern: string, path: string): boolean {
-	const patternSegments = pattern.split("/").filter(Boolean);
-	const pathSegments = path.split("/").filter(Boolean);
-	for (let index = 0; index < patternSegments.length; index += 1) {
-		const expected = patternSegments[index];
-		if (expected === "*") return true;
-		const actual = pathSegments[index];
-		if (!actual || (expected && !expected.startsWith(":") && expected !== actual)) return false;
-	}
-	return patternSegments.length === pathSegments.length;
-}
-
-export async function authorizeDynamicRequest(
-	database: Database,
-	permissions: string[],
-	isSuperAdmin: boolean,
-	method: string,
-	path: string,
-): Promise<void> {
-	if (isSuperAdmin) return;
-	const policies = (
-		await database.query<{ permission_key: string; path_pattern: string }>(
-			"SELECT permission_key,path_pattern FROM permission_routes WHERE http_method=$1 ORDER BY position,id",
-			[method.toUpperCase()],
-		)
-	).rows.filter((policy) => pathMatches(policy.path_pattern, path));
-	if (!policies.length) throw new AccessDeniedError("接口尚未登记动态权限策略");
-	if (!policies.some((policy) => permissions.includes(policy.permission_key)))
-		throw new AccessDeniedError("当前角色未获得此页面或功能权限");
 }
 
 export async function getDynamicNavigation(
@@ -315,10 +305,32 @@ export async function getDynamicNavigation(
 	const rows = (
 		await database.query<Record<string, unknown>>(
 			`SELECT key,group_label,label,navigation_key,icon_key,desktop_only,position FROM permissions
-			 WHERE kind='page' AND navigation_key IS NOT NULL ORDER BY position,key`,
+			 WHERE kind='page' AND enabled=true AND navigation_key IS NOT NULL ORDER BY position,key`,
 		)
 	).rows;
 	return { items: isSuperAdmin ? rows : rows.filter((row) => permissions.includes(String(row.key))) };
+}
+
+async function validateMemberScope(
+	transaction: Database,
+	organizationId: string,
+	roleIds: string[],
+	projectIds: string[],
+): Promise<void> {
+	if (roleIds.length) {
+		const roleRows = await transaction.query<{ id: string }>(
+			`SELECT id FROM roles WHERE organization_id=$1 AND id IN (${sqlPlaceholders(roleIds, 2)}) FOR SHARE`,
+			[organizationId, ...roleIds],
+		);
+		if (roleRows.rows.length !== roleIds.length) throw new HttpInputError("包含其他机构或不存在的角色", 400);
+	}
+	if (projectIds.length) {
+		const projectRows = await transaction.query<{ id: string }>(
+			`SELECT id FROM projects WHERE organization_id=$1 AND id IN (${sqlPlaceholders(projectIds, 2)})`,
+			[organizationId, ...projectIds],
+		);
+		if (projectRows.rows.length !== projectIds.length) throw new HttpInputError("包含其他机构或不存在的客户", 400);
+	}
 }
 
 export async function updateUserAccess(
@@ -330,27 +342,15 @@ export async function updateUserAccess(
 	const data = userAccessSchema.parse(input);
 	const roleIds = [...new Set(data.roleIds)];
 	const projectIds = [...new Set(data.projectIds)];
-	if (roleIds.length) {
-		const roleRows = await database.query<{ id: string }>(
-			`SELECT id FROM roles WHERE organization_id=$1 AND id IN (${sqlPlaceholders(roleIds, 2)})`,
-			[organizationId, ...roleIds],
-		);
-		if (roleRows.rows.length !== roleIds.length) throw new Error("包含其他机构或不存在的角色");
-	}
-	if (!data.allProjects && projectIds.length) {
-		const projectRows = await database.query<{ id: string }>(
-			`SELECT id FROM projects WHERE organization_id=$1 AND id IN (${sqlPlaceholders(projectIds, 2)})`,
-			[organizationId, ...projectIds],
-		);
-		if (projectRows.rows.length !== projectIds.length) throw new Error("包含其他机构或不存在的客户");
-	}
 	await database.transaction(async (transaction) => {
+		await transaction.query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE", [organizationId]);
+		await validateMemberScope(transaction, organizationId, roleIds, projectIds);
 		const user = await transaction.query<{ is_super_admin: boolean }>(
 			"SELECT is_super_admin FROM users WHERE id=$1 AND organization_id=$2",
 			[userId, organizationId],
 		);
-		if (!user.rows[0]) throw new Error("用户不存在");
-		if (user.rows[0].is_super_admin) throw new Error("系统超管不接受机构角色或客户范围限制");
+		if (!user.rows[0]) throw new HttpInputError("用户不存在", 404);
+		if (user.rows[0].is_super_admin) throw new HttpInputError("系统超管不接受机构角色或客户范围限制", 403);
 		await transaction.query("UPDATE users SET all_projects=$2,updated_at=now() WHERE id=$1", [
 			userId,
 			data.allProjects,

@@ -1,5 +1,5 @@
 import { IconHelpCircle, IconRefresh } from "@tabler/icons-react";
-import { Alert, Form, Input, Space, Tag } from "antd";
+import { Alert, App, Form, Input, Modal, Space, Tag } from "antd";
 import { useEffect, useState } from "react";
 import { Button } from "../access";
 import { post } from "../api";
@@ -32,7 +32,13 @@ export function Login({ error, onLogin }: { error: string | null; onLogin(user: 
 	}
 	return (
 		<main className="login-page">
-			<Form<LoginFormValues> layout="vertical" className="login-panel" onFinish={submit} requiredMark={false}>
+			<Form<LoginFormValues>
+				name="account-login"
+				layout="vertical"
+				className="login-panel"
+				onFinish={submit}
+				requiredMark={false}
+			>
 				<div className="brand">
 					<span className="brand-mark">Z</span>
 					<div>
@@ -85,11 +91,86 @@ export function AccountControl({ user, onLogout }: { user: UserIdentity; onLogou
 				</div>
 				{user.organizationSuspended && <Tag>已封禁</Tag>}
 				<DesktopUpdateButton />
+				{!user.localBypass && <ChangePassword />}
 				<Button variant="secondary" onClick={() => void onLogout()}>
 					退出
 				</Button>
 			</Space>
 		</div>
+	);
+}
+
+function ChangePassword() {
+	const { message } = App.useApp();
+	const [open, setOpen] = useState(false),
+		[busy, setBusy] = useState(false),
+		[error, setError] = useState<string | null>(null);
+	const [form] = Form.useForm<{ currentPassword: string; newPassword: string; confirmation: string }>();
+	async function submit(values: { currentPassword: string; newPassword: string }) {
+		setBusy(true);
+		setError(null);
+		try {
+			await post("/api/auth/password", { currentPassword: values.currentPassword, newPassword: values.newPassword });
+			message.success("密码已修改，其他登录会话已退出");
+			setOpen(false);
+			form.resetFields();
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : "密码修改失败");
+		} finally {
+			setBusy(false);
+		}
+	}
+	return (
+		<>
+			<Button
+				variant="secondary"
+				onClick={() => {
+					setOpen(true);
+					setError(null);
+					form.resetFields();
+				}}
+			>
+				修改密码
+			</Button>
+			<Modal
+				title="修改自己的密码"
+				open={open}
+				onCancel={() => setOpen(false)}
+				onOk={() => form.submit()}
+				confirmLoading={busy}
+				destroyOnHidden
+			>
+				<Form name="change-own-password" form={form} layout="vertical" onFinish={(values) => void submit(values)}>
+					<Form.Item name="currentPassword" label="当前密码" rules={[{ required: true, message: "请输入当前密码" }]}>
+						<Input.Password autoComplete="current-password" />
+					</Form.Item>
+					<Form.Item
+						name="newPassword"
+						label="新密码"
+						rules={[{ required: true }, { min: 12, max: 1024, message: "新密码需为 12–1024 位" }]}
+					>
+						<Input.Password autoComplete="new-password" />
+					</Form.Item>
+					<Form.Item
+						name="confirmation"
+						label="确认新密码"
+						dependencies={["newPassword"]}
+						rules={[
+							{ required: true },
+							({ getFieldValue }) => ({
+								validator: (_, value) =>
+									value === getFieldValue("newPassword")
+										? Promise.resolve()
+										: Promise.reject(new Error("两次新密码不一致")),
+							}),
+						]}
+					>
+						<Input.Password autoComplete="new-password" />
+					</Form.Item>
+				</Form>
+				{error && <Alert type="error" showIcon title={error} />}
+			</Modal>
+		</>
 	);
 }
 

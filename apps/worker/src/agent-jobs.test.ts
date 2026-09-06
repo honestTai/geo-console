@@ -10,8 +10,8 @@ async function seedAgentJob() {
 		 VALUES ('project','测试客户','https://brand.example','brand.example','成都','zh-CN','active')`,
 	);
 	await database.query(
-		`INSERT INTO agent_runs (id,project_id,purpose,status,model,prompt_version)
-		 VALUES ('run','project','report_narrative','queued','gpt-test','test')`,
+		`INSERT INTO agent_runs (id,project_id,purpose,status,model,prompt_version,execution_actor)
+		 VALUES ('run','project','report_narrative','queued','gpt-test','test','{"kind":"local"}')`,
 	);
 	await database.query(
 		`INSERT INTO jobs (id,type,payload,status,max_attempts,available_at)
@@ -68,8 +68,8 @@ describe("Agent 任务队列", () => {
 		const database = await seedAgentJob();
 		try {
 			await database.query(
-				`INSERT INTO agent_sessions (id,organization_id,project_id,title,status)
-				 VALUES ('session','default','project','新问题','running')`,
+				`INSERT INTO agent_sessions (id,organization_id,project_id,title,status,execution_actor)
+				 VALUES ('session','default','project','新问题','running','{"kind":"local"}')`,
 			);
 			await database.query(
 				`INSERT INTO jobs (id,type,payload,status,max_attempts,available_at,created_at)

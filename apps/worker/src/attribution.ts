@@ -3,7 +3,7 @@ import type { Database } from "@geo/core";
 import { parse } from "csv-parse/sync";
 import { z } from "zod";
 import type { PaginationInput } from "./pagination";
-import { sha256 } from "./utils";
+import { HttpInputError, sha256 } from "./utils";
 
 const importSchema = z.object({
 	sourceType: z.enum(["ga4", "gsc", "form", "phone", "manual"]),
@@ -35,19 +35,27 @@ function valueFor(record: Record<string, string>, names: string[]): string | nul
 
 /** 只有日期没有时刻的行（GA4/GSC 日报）按中国时区当天零点记录，避免被当成 UTC 零点后显示成早上 8 点。 */
 function observedAt(value: string | null, row: number): string {
-	if (!value) throw new Error(`第 ${row} 行缺少日期 observed_at/date/日期`);
+	if (!value) throw new HttpInputError(`第 ${row} 行缺少日期 observed_at/date/日期`, 400);
 	const dayOnly = value.match(/^(\d{4})-?(\d{2})-?(\d{2})$/) ?? value.match(/^(\d{4})[/.](\d{1,2})[/.](\d{1,2})$/);
+	const calendar = dayOnly ?? value.match(/^(\d{4})-(\d{2})-(\d{2})T/);
+	if (calendar) {
+		const [year, month, day] = calendar.slice(1, 4).map(Number),
+			date = new Date(0);
+		date.setUTCFullYear(year, month - 1, day);
+		if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day)
+			throw new HttpInputError(`第 ${row} 行日期不存在：${value}`, 400);
+	}
 	const parsed = new Date(
 		dayOnly ? `${dayOnly[1]}-${dayOnly[2].padStart(2, "0")}-${dayOnly[3].padStart(2, "0")}T00:00:00+08:00` : value,
 	);
-	if (Number.isNaN(parsed.getTime())) throw new Error(`第 ${row} 行日期无法解析：${value}`);
+	if (Number.isNaN(parsed.getTime())) throw new HttpInputError(`第 ${row} 行日期无法解析：${value}`, 400);
 	return parsed.toISOString();
 }
 
 function numericValue(value: string | null, row: number, metric: string): number {
-	if (value === null) throw new Error(`第 ${row} 行指标 ${metric} 缺少数值`);
+	if (value === null) throw new HttpInputError(`第 ${row} 行指标 ${metric} 缺少数值`, 400);
 	const parsed = Number(value.replace(/,/g, "").replace(/%$/, ""));
-	if (!Number.isFinite(parsed)) throw new Error(`第 ${row} 行指标 ${metric} 的数值无效：${value}`);
+	if (!Number.isFinite(parsed)) throw new HttpInputError(`第 ${row} 行指标 ${metric} 的数值无效：${value}`, 400);
 	return parsed;
 }
 
@@ -99,7 +107,7 @@ function eventsFromRecord(record: Record<string, string>, index: number): Attrib
 					},
 				];
 	});
-	if (!events.length) throw new Error(`第 ${row} 行没有可识别的指标列`);
+	if (!events.length) throw new HttpInputError(`第 ${row} 行没有可识别的指标列`, 400);
 	return events;
 }
 
@@ -110,7 +118,7 @@ export async function importAttributionCsv(
 ): Promise<{ importId: string; rows: number; events: number }> {
 	const data = importSchema.parse(input);
 	const project = (await database.query("SELECT id FROM projects WHERE id=$1", [projectId])).rows[0];
-	if (!project) throw new Error("客户项目不存在");
+	if (!project) throw new HttpInputError("客户项目不存在", 404);
 	const records = parse(data.csv, {
 		bom: true,
 		columns: true,
@@ -118,7 +126,7 @@ export async function importAttributionCsv(
 		trim: true,
 		relax_column_count: true,
 	}) as Array<Record<string, string>>;
-	if (!records.length) throw new Error("CSV 没有数据行");
+	if (!records.length) throw new HttpInputError("CSV 没有数据行", 400);
 	const events = records.flatMap(eventsFromRecord);
 	const importId = randomUUID();
 	const contentHash = sha256(`${data.sourceType}\n${data.csv}`);
@@ -149,7 +157,7 @@ export async function importAttributionCsv(
 		});
 	} catch (error) {
 		if (error instanceof Error && /unique|duplicate/i.test(error.message))
-			throw new Error("这份归因文件已经导入过，系统已阻止重复计数");
+			throw new HttpInputError("这份归因文件已经导入过，系统已阻止重复计数", 409);
 		throw error;
 	}
 	return { importId, rows: records.length, events: events.length };

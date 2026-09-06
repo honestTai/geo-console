@@ -8,10 +8,12 @@ import {
 	processDueSchedules,
 	saveMonitoringSchedule,
 } from "./service";
+import { seedMeasurementModel } from "./test-support/measurement";
 
 async function seed() {
 	const database = openMemoryDatabase();
 	await migrateDatabase(database);
+	await seedMeasurementModel(database);
 	await ensureProviderConfigs(database);
 	await database.query("UPDATE provider_configs SET enabled=true WHERE provider_id='kimi_api'");
 	await database.query(

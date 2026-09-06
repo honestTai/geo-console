@@ -17,6 +17,8 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
+		"@geo/authorization":"workspace:*",
+		"@geo/evidence": "workspace:*",
 		"@electric-sql/pglite": "^0.3.14",
 		"drizzle-orm": "^0.45.2",
 		"pg": "^8.23.0",

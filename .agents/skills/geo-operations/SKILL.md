@@ -16,7 +16,7 @@ description: Operate and troubleshoot an existing GEO Console instance, includin
 
 ## 事实边界
 
-- `/api/health` 证明 API 可访问数据库/对象存储并报告 Log Service 状态；Log Service `/health` 只证明其可读数据库。两者都不证明三个 Worker 正在消费，也不测试五个 Provider。
+- `/api/health` 证明 API 可访问数据库/对象存储并报告 Log Service 状态；Log Service `/health` 只证明其可读数据库。两者都不证明四个 Worker 正在消费，也不测试五个 Provider。
 - 服务器 `geo-console doctor` 检查 Compose、全部服务、HTTPS 和备份文件可见性；它仍不证明队列已排空、Provider Key 有效或 S3 对象可恢复。
 - `query_captures`、raw response objects、网站快照和报告快照不可作为普通修复更新或删除。修配置、网络、配额或代码后，创建新批次或重试派生任务。
 - Provider 的 auth、quota、timeout、model retirement、search-not-triggered、protocol change 是不同故障；必须保留原 Provider 和失败码，不得替换模型/平台或补写成功。
@@ -25,7 +25,7 @@ description: Operate and troubleshoot an existing GEO Console instance, includin
 
 ## 恢复原则
 
-- Capture、Agent 和 PDF 使用不同租约与重试次数。只让未到最大尝试的过期租约被 Worker 正常重领；不要手工把未完成任务标成 complete。
+- Capture、Semantic、Agent 和 PDF 使用不同租约与重试次数。V2 解析故障与采集故障分开处理；禁止回退 V1 或改原始回答状态。只让未到最大尝试的过期租约被 Worker 正常重领；不要手工把未完成任务标成 complete。
 - Provider 失败已经形成真实 QueryCapture 时，修复 Key/配额/网络后创建新的 baseline 或严格 retest，不修改原 capture。
 - PDF 失败时复用已冻结 report snapshot，只修 Chromium、中文字体或对象存储后重试 PDF job，不重建 payload。
 - Agent 失败时保留 tool trace 和 error；重新入队产生新的运行记录或按产品流程重试，不把未审批 draft 写入正式记录。

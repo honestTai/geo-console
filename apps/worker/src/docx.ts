@@ -104,17 +104,50 @@ export function renderReportDocx(snapshot: Record<string, unknown>): Buffer {
 	const sourceLine = (signal: Record<string, unknown>): string =>
 		Array.isArray(signal.sourceUrls) && signal.sourceUrls.length
 			? [...new Set(signal.sourceUrls.map((url) => stripTrackingFragment(String(url))))].join("、")
-			: "平台未开放来源";
+			: "平台未展示最终引用 URL";
+	const paired =
+		(
+			payload.comparison as
+				| {
+						pairedResults?: Array<{
+							provider_id: string;
+							metric: string;
+							result: {
+								previous: number | null;
+								current: number | null;
+								delta: number | null;
+								interval: [number, number] | null;
+								status: string;
+								promptIds: string[];
+							};
+						}>;
+				  }
+				| undefined
+		)?.pairedResults ?? [];
 	const body = [
 		paragraph(snapshot.title, "Title"),
 		paragraph(`${PRODUCT_NAME} · ${reportTypeLabel(snapshot.report_type)} · 报告快照 ${snapshot.id}`),
 		paragraph("执行摘要", "Heading1"),
 		paragraph(narrative?.executiveSummary ?? report.analysis?.executive?.summary ?? ""),
-		paragraph("核心指标", "Heading1"),
+		paragraph("核心指标（V2）", "Heading1"),
+		paragraph(report.analysis?.executive?.validityNote ?? ""),
+		paragraph(
+			`采集覆盖：${percentage(overall.captureCoverage)}；解析覆盖：${percentage(overall.parseCoverage)}；问题覆盖：${percentage(overall.promptCoverage)}`,
+		),
 		paragraph(`品牌提及率：${percentage(overall.brandMentionRate)}`),
 		paragraph(`首位推荐率：${percentage(overall.firstRecommendationRate)}`),
-		paragraph(`品牌声量份额：${percentage(overall.brandShareOfVoice)}`),
-		paragraph(`数据覆盖率：${percentage(overall.dataCoverage)}`),
+		paragraph(`监测品牌出现份额：${percentage(overall.monitoredBrandShare)}`),
+		paragraph(`达到正式门槛的平台覆盖率：${percentage(overall.dataCoverage)}（不是采集覆盖率；快审不形成正式结论）`),
+		...(paired.length
+			? [
+					paragraph("共同有效问题的配对变化", "Heading1"),
+					...paired.map((p) =>
+						paragraph(
+							`${p.provider_id} / ${p.metric}：${percentage(p.result.previous)} → ${percentage(p.result.current)}；差值 ${p.result.delta === null ? "不可用" : (p.result.delta * 100).toFixed(1)} 个百分点；95% 区间 ${p.result.interval?.map((v) => (v * 100).toFixed(1)).join(" – ") ?? "不可用"}；共同问题 ${p.result.promptIds.length}；${p.result.status}`,
+						),
+					),
+				]
+			: []),
 		paragraph("AI 口碑检测", "Heading1"),
 		paragraph(`总体：${reputationLabel(reputation?.overall ?? "not_observed")}`),
 		paragraph(reputation?.summary ?? "AI 搜索回答中未观察到可报告的口碑评价。"),

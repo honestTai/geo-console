@@ -1,7 +1,7 @@
 import type { BrandMatch, CaptureFailureCode, CaptureStatus, CitationSource } from "@geo/evidence";
 import type { AdapterDependencies, CaptureBrand, ConnectionResult, ProviderUsage } from "./types";
 
-export const ADAPTER_VERSION = "cloud-search.v1";
+export const ADAPTER_VERSION = "cloud-search.v2";
 
 export class ProviderRequestError extends Error {
 	constructor(
@@ -120,6 +120,8 @@ export function citationSource(
 ): CitationSource | null {
 	try {
 		const parsed = new URL(url);
+		if (!["http:", "https:"].includes(parsed.protocol)) return null;
+		if (parsed.hash.startsWith("#ws_call_id=")) parsed.hash = "";
 		return { url: parsed.toString(), domain: parsed.hostname, title: title?.trim() || null, position, isCitation };
 	} catch {
 		return null;
@@ -129,29 +131,81 @@ export function citationSource(
 export function dedupeSources(sources: Array<CitationSource | null>): CitationSource[] {
 	const unique = new Map<string, CitationSource>();
 	for (const source of sources) {
-		if (!source || unique.has(source.url)) continue;
+		if (!source) continue;
+		const prior = unique.get(source.url);
+		if (prior) {
+			unique.set(source.url, {
+				...prior,
+				title: prior.title ?? source.title,
+				isCitation: prior.isCitation || source.isCitation,
+			});
+			continue;
+		}
 		unique.set(source.url, { ...source, position: unique.size + 1 });
 	}
 	return [...unique.values()];
 }
 
+function responseItems(response: Record<string, unknown>): Record<string, unknown>[] {
+	return Array.isArray(response.output)
+		? response.output.filter((item): item is Record<string, unknown> =>
+				Boolean(item && typeof item === "object" && !Array.isArray(item)),
+			)
+		: [];
+}
+function finalMessage(response: Record<string, unknown>): Record<string, unknown> | undefined {
+	return responseItems(response)
+		.filter((item) => item.type === "message" && (item.role === undefined || item.role === "assistant"))
+		.at(-1);
+}
 export function outputText(response: Record<string, unknown>): string | null {
-	if (typeof response.output_text === "string" && response.output_text.trim()) return response.output_text.trim();
-	const output = Array.isArray(response.output) ? response.output : [];
-	const text = output
-		.flatMap((item) =>
-			item && typeof item === "object" && Array.isArray((item as { content?: unknown }).content)
-				? (item as { content: unknown[] }).content
-				: [],
-		)
-		.map((part) =>
-			part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string"
-				? (part as { text: string }).text
-				: "",
-		)
-		.join("\n")
-		.trim();
-	return text || null;
+	if (["incomplete", "failed", "cancelled", "in_progress", "queued"].includes(String(response.status))) return null;
+	const message = finalMessage(response);
+	if (message) {
+		if (message.phase !== undefined && message.phase !== "final_answer") return null;
+		if (message.channel === "analysis" || message.channel === "commentary") return null;
+		if (message.status !== undefined && message.status !== "completed") return null;
+		const parts = Array.isArray(message.content) ? message.content : [];
+		return (
+			parts
+				.filter((p) => p && typeof p === "object" && p.type === "output_text" && typeof p.text === "string")
+				.map((p) => p.text)
+				.join("\n")
+				.trim() || null
+		);
+	}
+	// Some SDKs provide only the documented final output_text convenience field.
+	return typeof response.output_text === "string" ? response.output_text.trim() || null : null;
+}
+export function responseSearchEvidence(response: Record<string, unknown>) {
+	const calls = responseItems(response).filter(
+		(item) => String(item.type).includes("web_search") && (item.status === undefined || item.status === "completed"),
+	);
+	const queries = calls.flatMap((item) => {
+		const action = item.action as Record<string, unknown> | undefined;
+		return [action?.query, ...(Array.isArray(action?.queries) ? action.queries : [])]
+			.filter((q): q is string => typeof q === "string" && Boolean(q.trim()))
+			.map((q) => q.trim());
+	});
+	const message = finalMessage(response),
+		parts = Array.isArray(message?.content) ? message.content : [];
+	const annotationUrls = recursiveUrls(
+		parts.filter((p) => p && p.type === "output_text").map((p) => p.annotations ?? []),
+	);
+	const answer = outputText(response) ?? "";
+	const linkedUrls = [...answer.matchAll(/\[[^\]]*\]\((https?:\/\/[^\s)]+)(?:\s+"[^"]*")?\)/g)].map((match) => ({
+		url: match[1],
+		title: null,
+	}));
+	const cited = [...annotationUrls, ...linkedUrls].map((item, index) =>
+		citationSource(item.url, index + 1, item.title, true),
+	);
+	const observed = recursiveUrls(calls).map((item, index) => citationSource(item.url, index + 1, item.title, false));
+	return {
+		searchTriggered: calls.length > 0,
+		sources: dedupeSources([...cited, ...observed]),
+		queryFanOut: [...new Set(queries)],
+	};
 }
 
 export function usageFrom(value: unknown): ProviderUsage | null {

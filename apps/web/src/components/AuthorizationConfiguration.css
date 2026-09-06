@@ -1,0 +1,18 @@
+.authorization-configuration,
+.authorization-full {
+	width: 100%;
+	min-width: 0;
+}
+.authorization-search {
+	width: 260px;
+	max-width: 100%;
+}
+.authorization-explanation {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+	.authorization-configuration .ant-tabs-content-holder {
+		min-width: 0;
+	}
+}

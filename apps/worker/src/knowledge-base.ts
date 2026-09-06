@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Database } from "@geo/core";
 import { z } from "zod";
 import { type Paginated, type PaginationInput, paginated } from "./pagination";
+import { HttpInputError } from "./utils";
 
 const questionSchema = z.object({
 	industry: z.string().trim().min(1).max(120),
@@ -100,5 +101,5 @@ export async function archiveLibraryQuestion(
 		 WHERE id=$1 AND organization_id=$2 AND archived_at IS NULL`,
 		[questionId, organizationId],
 	);
-	if (result.affectedRows !== 1) throw new Error("知识库问题不存在");
+	if (result.affectedRows !== 1) throw new HttpInputError("知识库问题不存在", 404);
 }

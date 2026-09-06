@@ -101,3 +101,30 @@ Settings 的连接测试只验证当前配置；运行中的 batch 使用创建�
 - S3 模式检查 bucket、endpoint、region、path-style、凭据对是否完整，以及 HeadBucket/HeadObject/Put 权限。
 - 生产 bucket 应为私有、版本化、加密；对象恢复必须验证具体 version，不只验证 bucket 可列出。
 - 严禁单独删除对象并留下数据库引用，也不得覆盖同一 key。
+
+
+## V2 语义队列与恢复
+
+新增 `semantic-worker`，本机由 `local-workers.ts` 组合运行，禁止对同一 PGlite 目录另起进程。成功 API Capture 才进入 `semantic_parse`；两个槽位、500ms 领取、5 分钟租约、30 秒续期、最多两次尝试、30 秒重试。5 秒协调周期负责排队、耗尽租约清扫、指标快照与配对漂移。Capture complete 不代表 analysis ready。
+
+卡住时查看 `semantic_parse_runs.status`、job 的 attempts/lease/last_error、机构 HRouter 模型/Key 与语义观察校验原因。证据中心可人工审核或重新解析；不得改原始 Capture 状态、补零或回退 V1。Agent/PDF/Semantic 最后一次崩溃也由 `sweepTerminalLeases` 收敛。会话取消标记不得由旧回合覆盖，已创建的采集批次不随会话取消。
+
+完整数据库和证据卷备份必须包含新语义表、指标快照以及 `semantic/` 对象前缀；运行日志保留清理不得删除这些记录。更新前检查 `0019_visibility_v2.sql`，回滚不允许降级已有 V2 基线为 V1。详见 `docs/visibility-measurement-v2.md`。
+
+
+## RBAC 成员生命周期排障
+
+角色名称不是权限。核对 auth/me → 活动机构上限 → 角色权限 → 客户范围；创建需要 members.manage，菜单需要 page.members。只可分配自身权限和范围的子集。重复邮箱 409 提示搜索已有成员/恢复停用账号；恢复/重置后的旧 token 不应可用。自己修改密码需验证旧密码。
+
+迁移 0020 不恢复旧权限、不改已有客户范围；机构上限变更不再破坏角色定义。默认机构的权限不足可能是配置，不得自动“修复”为全权限。审计按 member.created/disabled/restored/password_reset/password_changed 和 target_id 追踪，禁止记录密码。线上 Demo 测试账号已停用、独立测试机构封存，不要把它们当客户业务数据。
+
+## RBAC V2 排障
+
+事实源为 authorization_policies、permissions.enabled、organization_permissions、user_roles 和用户客户范围。先用无副作用 explain 核对当前主体与具体资源；can_manage 包含休眠配置权限，不能因为有效权限低就强行管理。Agent 授权失败不重试；unassigned 历史任务须重新发起，禁止人工冒充 service/local。封禁后新采集领取及定时监测/报告跳过该机构，原始证据不动；分享读取封禁时返回不存在。规则见 docs/rbac-v2.md。
+
+## 全盘验收后的新故障分类
+
+400=参数，404=资源/隔离，409=当前状态或配置前置条件，未知500只返回requestId，需查受保护日志。平台缺密钥409与供应商401分开，不能切模型假装成功。采集合同cloud-search.v2之前的记录可能包含中间输出，保留审计而不更新原行；新建批次验证，不能只重跑语义器。全功能验收和部署证据见 docs/full-audit-2026-09-06.md。
+# 2026-09-06 审批与采集版本排障补充
+
+审批成功但 continuationStatus=blocked 时，先保留已批准状态，检查下一阶段权限/前置条件，再由有权限成员显式继续；不要伪报审批失败或直接改 execution_actor。新批次应冻结编译时 adapter 版本，平台初始化只同步版本字段；遇到 capture_contract_changed/protocol_changed 保留原始记录并创建新批次，不覆盖 raw。机构封禁后语义队列不再领取新任务，已有上游请求不承诺取消。Demo 最终回归和外部未验项见 docs/full-audit-2026-09-06.md。

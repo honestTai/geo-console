@@ -90,6 +90,7 @@ services:
       <<: *worker-environment
       GEO_WORKER_HOST: 0.0.0.0
       GEO_WORKER_PORT: 3010
+      GEO_TRUST_PROXY: "true"
       GEO_ALLOWED_ORIGIN: https://${GEO_DOMAIN:?set GEO_DOMAIN}
       GEO_ADMIN_EMAIL: ${GEO_ADMIN_EMAIL:-admin@geo.local}
       GEO_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
@@ -123,6 +124,10 @@ services:
   report-worker:
     <<: *worker-base
     command: ["/opt/geo-app/apps/worker/node_modules/.bin/tsx", "/opt/geo-app/apps/worker/src/report-worker.ts"]
+
+  semantic-worker:
+    <<: *worker-base
+    command: ["/opt/geo-app/apps/worker/node_modules/.bin/tsx", "/opt/geo-app/apps/worker/src/semantic-worker.ts"]
 
   web:
     image: geo-console-web:${GEO_IMAGE_TAG:-local}

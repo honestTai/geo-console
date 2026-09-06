@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { frozenProviderContract } from "./cloud-runner";
 import { ensureProviderConfigs } from "./providers";
 import { confirmProject, createBatch, getProject, getProjectTrends } from "./service";
+import { seedMeasurementModel, seedMetricSnapshot } from "./test-support/measurement";
 import { sha256, stableJson } from "./utils";
 
 describe("监测范围版本", () => {
@@ -10,8 +11,13 @@ describe("监测范围版本", () => {
 		const database = openMemoryDatabase();
 		try {
 			await migrateDatabase(database);
+			await seedMeasurementModel(database);
 			await ensureProviderConfigs(database);
 			await database.query("UPDATE provider_configs SET enabled=true WHERE provider_id='kimi_api'");
+			// Existing installations retain provider rows across upgrades; their stale metadata must not freeze old executable code.
+			await database.query(
+				"UPDATE provider_configs SET adapter_version='cloud-search.v1' WHERE provider_id='kimi_api'",
+			);
 			await database.query(
 				`INSERT INTO projects (id,name,website_url,domain,region,language,aliases,status)
 				 VALUES ('project','客户','https://brand.cn','brand.cn','成都','zh-CN','["客户"]'::jsonb,'active')`,
@@ -57,7 +63,7 @@ describe("监测范围版本", () => {
 			expect(frozenProviderContract(savedBatch.config, "kimi_api")).toMatchObject({
 				endpoint: "https://api.moonshot.ai/v1",
 				model: "kimi-k3",
-				adapterVersion: "cloud-search.v1",
+				adapterVersion: "cloud-search.v2",
 			});
 
 			const current = await getProject(database, "project");
@@ -86,6 +92,7 @@ describe("监测范围版本", () => {
 		const database = openMemoryDatabase();
 		try {
 			await migrateDatabase(database);
+			await seedMeasurementModel(database);
 			await ensureProviderConfigs(database);
 			await database.query("UPDATE provider_configs SET enabled=true WHERE provider_id='kimi_api'");
 			await database.query(
@@ -118,6 +125,8 @@ describe("监测范围版本", () => {
 			await database.query(
 				"UPDATE experiment_batches SET status='complete',completed_at=now() WHERE project_id='project'",
 			);
+			await seedMetricSnapshot(database, first.id);
+			await seedMetricSnapshot(database, second.id);
 			const trends = (await getProjectTrends(database, "project", second.id)) as { comparable: Array<{ id: string }> };
 			expect(trends.comparable.map((item) => item.id)).toEqual([first.id, second.id]);
 			expect((await database.query("SELECT id FROM prompts WHERE project_id='project'")).rows).toHaveLength(2);
@@ -153,6 +162,7 @@ describe("监测范围版本", () => {
 			await database.query("UPDATE experiment_batches SET status='complete',completed_at=now() WHERE id=$1", [
 				third.id,
 			]);
+			await seedMetricSnapshot(database, third.id);
 			const changed = (await getProjectTrends(database, "project", third.id)) as { comparable: Array<{ id: string }> };
 			expect(changed.comparable.map((item) => item.id)).toEqual([third.id]);
 		} finally {
@@ -164,6 +174,7 @@ describe("监测范围版本", () => {
 		const database = openMemoryDatabase();
 		try {
 			await migrateDatabase(database);
+			await seedMeasurementModel(database);
 			await database.query(
 				`INSERT INTO projects (id,name,website_url,domain,region,language,aliases,status)
 				 VALUES ('project','客户','https://www.brand.cn','brand.cn','成都','zh-CN','["客户"]'::jsonb,'review')`,
@@ -213,6 +224,7 @@ describe("监测范围版本", () => {
 		const database = openMemoryDatabase();
 		try {
 			await migrateDatabase(database);
+			await seedMeasurementModel(database);
 			await database.query("INSERT INTO organizations (id,name) VALUES ('other','别的机构')");
 			await database.query(
 				`INSERT INTO projects (id,organization_id,name,website_url,domain,region,language,industry,aliases,status)
@@ -253,6 +265,7 @@ describe("监测范围版本", () => {
 		const database = openMemoryDatabase();
 		try {
 			await migrateDatabase(database);
+			await seedMeasurementModel(database);
 			await database.query(
 				`INSERT INTO projects (id,name,website_url,domain,region,language,industry,aliases,status)
 				 VALUES ('project','客户','https://brand.cn','brand.cn','成都','zh-CN','数控设备','["客户"]'::jsonb,'review'),
@@ -327,6 +340,7 @@ describe("监测范围版本", () => {
 		const database = openMemoryDatabase();
 		try {
 			await migrateDatabase(database);
+			await seedMeasurementModel(database);
 			await ensureProviderConfigs(database);
 			await database.query("UPDATE provider_configs SET enabled=true WHERE provider_id='kimi_api'");
 			await database.query(
@@ -352,6 +366,8 @@ describe("监测范围版本", () => {
 			expect(hashes.size).toBe(1);
 			for (const row of rows) expect(sha256(stableJson(row.config))).toBe(row.config_hash);
 			await database.query("UPDATE experiment_batches SET status='complete' WHERE project_id='project'");
+			await seedMetricSnapshot(database, baseline.id);
+			await seedMetricSnapshot(database, retest.id);
 			const trends = (await getProjectTrends(database, "project", retest.id)) as {
 				comparable: Array<{ id: string }>;
 			};

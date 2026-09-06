@@ -1,3 +1,4 @@
+import { hasRequirements } from "@geo/authorization";
 import { Button as AntdButton, type ButtonProps as AntdButtonProps } from "antd";
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
 import { api } from "./api";
@@ -6,7 +7,9 @@ import type { AgentRun, Batch, Project, UserIdentity } from "./types";
 export const AccessContext = createContext<UserIdentity | null>(null);
 
 export function hasPermission(identity: UserIdentity | null, permission: string): boolean {
-	return Boolean(identity?.isSuperAdmin || identity?.permissions.includes(permission));
+	return Boolean(
+		identity?.isSuperAdmin || (identity && hasRequirements(identity.permissions, { anyOf: [], allOf: [permission] })),
+	);
 }
 
 export function usePermission(permission: string): boolean {
@@ -87,10 +90,31 @@ export function useBatch(project: Project, initialBatchId: string | null = null)
 	const [selected, setSelected] = useState(initialBatchId ?? project.batches[0]?.id ?? null);
 	const [batch, setBatch] = useState<Batch | null>(null);
 	useEffect(() => {
-		if (selected)
-			api<Batch>(`/api/batches/${selected}`)
-				.then(setBatch)
-				.catch(() => setBatch(null));
+		const controller = new AbortController();
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const load = async () => {
+			if (!selected || controller.signal.aborted) return;
+			try {
+				const value = await api<Batch>(`/api/batches/${selected}`, { signal: controller.signal });
+				if (controller.signal.aborted) return;
+				setBatch(value);
+				if (
+					["queued", "running"].includes(value.status) ||
+					["queued", "running"].includes(value.measurement?.status ?? "")
+				)
+					timer = setTimeout(() => void load(), 3000);
+			} catch {
+				if (!controller.signal.aborted) {
+					setBatch(null);
+					timer = setTimeout(() => void load(), 5000);
+				}
+			}
+		};
+		void load();
+		return () => {
+			controller.abort();
+			clearTimeout(timer);
+		};
 	}, [selected]);
 	return { selected, setSelected, batch };
 }

@@ -1,4 +1,5 @@
-FROM node:24.16.0-bookworm-slim AS build
+FROM --platform=$BUILDPLATFORM node:24.16.0-bookworm-slim AS build
+ARG TARGETARCH
 WORKDIR /app
 ENV COREPACK_NPM_REGISTRY=https://registry.npmmirror.com
 
@@ -6,20 +7,24 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY apps/worker/package.json apps/worker/tsconfig.json ./apps/worker/
 COPY apps/log-service/package.json apps/log-service/tsconfig.json ./apps/log-service/
+COPY packages/authorization/package.json packages/authorization/tsconfig.json ./packages/authorization/
 COPY packages/core/package.json packages/core/tsconfig.json ./packages/core/
 COPY packages/evidence/package.json packages/evidence/tsconfig.json ./packages/evidence/
 COPY packages/logging/package.json packages/logging/tsconfig.json ./packages/logging/
 COPY packages/metrics/package.json packages/metrics/tsconfig.json ./packages/metrics/
 COPY packages/search-providers/package.json packages/search-providers/tsconfig.json ./packages/search-providers/
 
-RUN sed -i -e '/^minimumReleaseAge:/d' -e '/^minimumReleaseAgeExclude:/,/^trustPolicy:/d' -e '/^trustPolicy/d' pnpm-workspace.yaml \
-	&& pnpm config set registry https://registry.npmmirror.com \
-	&& pnpm config set store-dir /pnpm-store
+RUN corepack pnpm config set registry https://registry.npmmirror.com \
+	&& corepack pnpm config set store-dir /pnpm-store
 RUN --mount=type=cache,id=geo-pnpm-store,target=/pnpm-store \
-	pnpm install --frozen-lockfile --filter @geo/worker... --filter @geo/log-service...
+	case "$TARGETARCH" in amd64) dependency_cpu=x64 ;; arm64) dependency_cpu=arm64 ;; *) exit 1 ;; esac \
+	&& corepack pnpm install --frozen-lockfile --ignore-scripts --os=linux --cpu="$dependency_cpu" --libc=glibc --filter @geo/worker... --filter @geo/log-service... \
+	&& test -x "/app/apps/worker/node_modules/tsx/dist/cli.mjs" \
+	&& test -n "$(find /app/node_modules/.pnpm -path "*/@esbuild/linux-$dependency_cpu/bin/esbuild" -print -quit)"
 
 COPY apps/worker/src ./apps/worker/src
 COPY apps/log-service/src ./apps/log-service/src
+COPY packages/authorization/src ./packages/authorization/src
 COPY packages/core/src ./packages/core/src
 COPY packages/core/migrations ./packages/core/migrations
 COPY packages/evidence/src ./packages/evidence/src

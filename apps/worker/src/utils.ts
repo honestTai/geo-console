@@ -6,11 +6,34 @@ export function json(response: ServerResponse, status: number, body: unknown): v
 	response.end(JSON.stringify(body));
 }
 
-export async function readJson(request: AsyncIterable<Uint8Array>): Promise<unknown> {
+export class HttpInputError extends Error {
+	constructor(
+		message: string,
+		readonly status = 400,
+	) {
+		super(message);
+	}
+}
+
+export async function readJson(
+	request: AsyncIterable<Uint8Array> & {
+		iterator?: (options: { destroyOnReturn: boolean }) => AsyncIterable<Uint8Array>;
+	},
+	limit = 8 * 1024 * 1024,
+): Promise<unknown> {
 	const chunks: Buffer[] = [];
-	for await (const chunk of request) chunks.push(Buffer.from(chunk));
+	let bytes = 0;
+	for await (const chunk of request.iterator?.({ destroyOnReturn: false }) ?? request) {
+		bytes += chunk.byteLength;
+		if (bytes > limit) throw new HttpInputError("请求内容过大", 413);
+		chunks.push(Buffer.from(chunk));
+	}
 	if (chunks.length === 0) return {};
-	return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+	try {
+		return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+	} catch {
+		throw new HttpInputError("请求必须是有效 JSON");
+	}
 }
 
 export function sha256(value: string | Buffer): string {

@@ -43,6 +43,99 @@ function dependencies(
 }
 
 describe("五平台联网采集契约", () => {
+	it.each([DeepSeekSearchAdapter, DoubaoSearchAdapter])(
+		"Responses 只测量最终回答；浏览记录不冒充引用，queries 数组可追溯",
+		async (Adapter) => {
+			const adapter = new Adapter(
+				config(Adapter === DeepSeekSearchAdapter ? "deepseek_api" : "doubao_api"),
+				dependencies([
+					{
+						body: {
+							status: "completed",
+							output_text: "不可信的汇总中间文本",
+							output: [
+								{
+									type: "reasoning",
+									content: [{ type: "reasoning_text", text: "内部推理中出现真实品牌，不是最终回答" }],
+								},
+								{ type: "message", role: "assistant", content: [{ type: "output_text", text: "我正在搜索真实品牌" }] },
+								{
+									type: "web_search_call",
+									status: "completed",
+									action: { type: "search", queries: ["用户问题", "扩展问题"] },
+								},
+								{
+									type: "web_search_call",
+									status: "completed",
+									action: { type: "open_page", url: "https://read.example/page#ws_call_id=tracking" },
+								},
+								{ type: "web_search_call", status: "failed", action: { url: "https://failed.example" } },
+								{
+									type: "message",
+									role: "assistant",
+									status: "completed",
+									content: [
+										{
+											type: "output_text",
+											text: "最终公开回答。[资料](https://cited.example/page)",
+											annotations: [{ url: "https://cited.example/page" }],
+										},
+									],
+								},
+							],
+						},
+					},
+				]),
+			);
+			const result = await adapter.capture(input);
+			expect(result.status).toBe("complete");
+			expect(result.answerText).toBe("最终公开回答。[资料](https://cited.example/page)");
+			expect(result.brandMatches).toEqual([]);
+			expect(result.queryFanOut).toEqual(["用户问题", "扩展问题"]);
+			expect(result.sources).toEqual([
+				expect.objectContaining({ url: "https://cited.example/page", isCitation: true }),
+				expect.objectContaining({ url: "https://read.example/page", isCitation: false }),
+			]);
+		},
+	);
+	it("普通回答中的 URL 不能冒充已经执行了联网工具", async () => {
+		const adapter = new DeepSeekSearchAdapter(
+			config("deepseek_api"),
+			dependencies([
+				{
+					body: {
+						output: [
+							{
+								type: "message",
+								role: "assistant",
+								content: [{ type: "output_text", text: "正文", annotations: [{ url: "https://example.com" }] }],
+							},
+						],
+					},
+				},
+			]),
+		);
+		expect((await adapter.capture(input)).status).toBe("search_not_triggered");
+	});
+	it("未完成的响应和只有推理的响应不能计为成功回答", async () => {
+		for (const response of [
+			{ status: "incomplete", output_text: "被截断的正文" },
+			{ output: [{ type: "reasoning", content: [{ type: "reasoning_text", text: "不是回答" }] }] },
+		]) {
+			const adapter = new DeepSeekSearchAdapter(
+				config("deepseek_api"),
+				dependencies([
+					{
+						body: {
+							...response,
+							output: [...(response.output ?? []), { type: "web_search_call", status: "completed" }],
+						},
+					},
+				]),
+			);
+			expect((await adapter.capture(input)).status).toBe("no_answer");
+		}
+	});
 	it("DeepSeek 强制搜索并保存来源", async () => {
 		const adapter = new DeepSeekSearchAdapter(
 			config("deepseek_api"),

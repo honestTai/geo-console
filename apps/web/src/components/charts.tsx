@@ -119,8 +119,10 @@ export function TrendChart({ trends }: { trends: TrendResponse }) {
 export type ChartSeries = { label: string; color: string; values: Array<number | null> };
 export type ChartLabel = { id: string; label: string };
 
-export const overallMetric = (item: TrendResponse["comparable"][number], key: string): number | null =>
-	(item.metrics.overall[key] as number | null | undefined) ?? null;
+export const overallMetric = (item: TrendResponse["comparable"][number], key: string): number | null => {
+	const value = item.metrics.overall[key];
+	return typeof value === "number" && Number.isFinite(value) ? value : null;
+};
 
 export const overallPercent = (item: TrendResponse["comparable"][number], key: string): number | null => {
 	const value = overallMetric(item, key);
@@ -129,7 +131,7 @@ export const overallPercent = (item: TrendResponse["comparable"][number], key: s
 
 /** 没有任何成功回答的平台不进入品牌率分母，图表上显示“不可用”而不是 0%。 */
 export const platformUnavailable = (metrics: PlatformMetrics | undefined): boolean =>
-	!metrics || metrics.answeredCaptures === 0;
+	!metrics || metrics.answeredCaptures === 0 || metrics.status === "unavailable";
 
 export const perPlatformMention = (metrics: Batch["metrics"]): Array<{ label: string; value: number | null }> =>
 	Object.entries(metrics.perPlatform).map(([platform, item]) => ({
@@ -289,8 +291,12 @@ export function ComparisonDeltaChart({
 		metrics.map((metric) => {
 			const beforeMetrics = baseline.metrics.perPlatform[platform];
 			const afterMetrics = current.metrics.perPlatform[platform];
-			const before = platformUnavailable(beforeMetrics) ? null : (beforeMetrics?.[metric.key] ?? null);
-			const after = platformUnavailable(afterMetrics) ? null : (afterMetrics?.[metric.key] ?? null);
+			const paired = current.pairedComparison?.find(
+				(p) => p.provider_id === platform && p.metric === metric.key,
+			)?.result;
+			const before =
+				platformUnavailable(beforeMetrics) || paired?.status !== "ready" ? null : (paired?.previous ?? null);
+			const after = platformUnavailable(afterMetrics) || paired?.status !== "ready" ? null : (paired?.current ?? null);
 			return {
 				label: `${providerShortLabel(platform)} · ${metric.label}`,
 				value: before == null || after == null ? null : (after - before) * 100,
@@ -299,7 +305,10 @@ export function ComparisonDeltaChart({
 	);
 	if (!rows.some((row) => row.value != null)) return null;
 	return (
-		<ChartCard title={title} note="正值表示复测高于基线；数据来自两个冻结批次的平台指标，失败平台不计入分母。">
+		<ChartCard
+			title={title}
+			note="正值表示复测高于基线；使用共同有效问题的配对点估计；是否显著以配对区间和正式告警为准。"
+		>
 			<div className="chart-bars">
 				{rows.map((row) => {
 					const widthPercent = Math.min(50, Math.abs(row.value ?? 0) / 2);
@@ -337,10 +346,10 @@ function MetricCard({ platform, metrics }: { platform: string; metrics: Platform
 	const rows: Array<{ label: string; value: string }> = [
 		{ label: "首位推荐率", value: unavailable ? "-" : percentage(metrics.firstRecommendationRate) },
 		{ label: "官网引用率", value: unavailable ? "-" : percentage(metrics.citationRate) },
-		{ label: "品牌声量份额", value: unavailable ? "-" : percentage(metrics.brandShareOfVoice) },
-		{ label: "重复一致性", value: unavailable ? "-" : percentage(metrics.repeatConsistency) },
-		{ label: "平均提及位置", value: unavailable ? "-" : (metrics.averageMentionPosition?.toFixed(1) ?? "-") },
-		{ label: "回答覆盖率", value: percentage(metrics.answerCoverage) },
+		{ label: "监测品牌出现份额", value: unavailable ? "-" : percentage(metrics.monitoredBrandShare) },
+		{ label: "两两一致率", value: unavailable ? "-" : percentage(metrics.pairwiseAgreement) },
+		{ label: "明确推荐名次中位数", value: unavailable ? "-" : (metrics.medianRecommendationRank?.toFixed(1) ?? "-") },
+		{ label: "回答覆盖率", value: percentage(metrics.captureCoverage) },
 	];
 	return (
 		<article className={unavailable ? "metric-card unavailable" : "metric-card"}>

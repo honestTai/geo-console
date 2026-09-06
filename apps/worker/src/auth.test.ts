@@ -30,12 +30,17 @@ describe("机构身份与角色", () => {
 			expect(identity?.isSuperAdmin).toBe(true);
 			expect(identity?.organizationId).toBe("default");
 			expect(identity?.permissions).toContain("organization.manage");
-			const analyst = await createUser(database, {
-				email: "analyst@example.com",
-				displayName: "分析师",
-				role: "analyst",
-				password: "a-strong-analyst-password",
-			});
+			const analyst = await createUser(
+				database,
+				{
+					email: "analyst@example.com",
+					displayName: "分析师",
+					role: "analyst",
+					password: "a-strong-analyst-password",
+				},
+				"default",
+				admin,
+			);
 			expect(
 				(await listUsers(database, "default", { page: 1, pageSize: 20, offset: 0, search: null })).items,
 			).toHaveLength(2);

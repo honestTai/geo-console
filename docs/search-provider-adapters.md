@@ -23,3 +23,11 @@ Provider config 与加密凭据按 `organization_id` 隔离。创建批次时只
 3. 契约测试至少覆盖正常回答、无来源、未触发搜索、限流、超时、鉴权失败、模型下线和协议变化。
 4. 原始响应始终完整写入对象存储，解析结果写 `QueryCapture v2`。
 5. 真实验收只使用用户提供的 Key，不提交问题、回答、Key 或验收项目。
+
+## V2 测量接入（2026-09-05）
+
+本轮不修改外部 Provider 协议或切换模型。新采样任务冻结稳定 `sampleKey`，Capture 提交在事务内验证任务范围与有效租约，原始证据仍只追加。原始 `brandMatches` 仅为历史/文本标记，不再参与推荐排名或指标计算；成功 API 回答由独立 Semantic Worker 按冻结的语义契约解析，指标来自 V2 MetricSnapshot。Provider 失败与语义失败分别计入覆盖率，不能伪造回答或把解析失败当未提及。详见 `visibility-measurement-v2.md`。
+
+## 2026-09-06 Responses 提取修正
+
+当前 ADAPTER_VERSION=cloud-search.v2。DeepSeek/豆包只能采用最后完成的 assistant/output_text；reasoning_text、工具结果、中间消息、incomplete 输出不能当回答。source.isCitation 仅由最终回答 annotations/明确 Markdown 链接证明；成功浏览 URL 可观测但不是引用，失败工具 URL 排除，query/queries 均记录并去重。来源未知仍 unavailable，不能靠任意 URL 推断搜索已执行。全盘实测发现的旧污染记录保留原样，仅新批次采用新合同；报告口碑也只接受回答中 isCitation=true 的 URL。见 full-audit-2026-09-06.md。

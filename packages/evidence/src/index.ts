@@ -26,3 +26,4 @@ export {
 	type SearchProvider,
 	searchProviderSchema,
 } from "./schema";
+export * from "./semantic";

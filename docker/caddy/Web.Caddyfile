@@ -5,8 +5,18 @@
 	redir @appExact /app/ 308
 	handle_path /app/* {
 		root * /srv/app
-		try_files {path} /index.html
-		file_server
+		header X-Content-Type-Options nosniff
+		handle /assets/* {
+			header Cache-Control "public, max-age=31536000, immutable" {
+				match status 2xx 304
+			}
+			file_server
+		}
+		handle {
+			header Cache-Control "no-cache"
+			try_files {path} /index.html
+			file_server
+		}
 	}
 	@helpExact path /help
 	redir @helpExact /help/ 308

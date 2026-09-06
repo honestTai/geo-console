@@ -1,6 +1,7 @@
 packages:
   - "apps/*"
   - "packages/core"
+  - "packages/authorization"
   - "packages/evidence"
   - "packages/metrics"
   - "packages/logging"

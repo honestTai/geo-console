@@ -12,7 +12,7 @@ corepack pnpm --filter @geo/worker exec playwright install chromium
 corepack pnpm geo start
 ```
 
-服务只绑定 `127.0.0.1`；Log Service 使用 3020 和独立日志 PGlite，API 使用 3010 并在进程内组合执行三个本机队列 Worker。PGlite 仅用于开发测试，不要对同一目录启动多进程 Worker。Report Worker 优先使用 Playwright Chromium；服务器镜像始终安装 Playwright Chromium。
+服务只绑定 `127.0.0.1`；Log Service 使用 3020 和独立日志 PGlite，API 使用 3010 并在进程内组合执行四个本机队列 Worker。PGlite 仅用于开发测试，不要对同一目录启动多进程 Worker。Report Worker 优先使用 Playwright Chromium；服务器镜像始终安装 Playwright Chromium。
 
 ## 服务器 Docker
 
@@ -118,7 +118,7 @@ sudo bash ./geo-console-<版本>.run \
 - 在无 Swap 的服务器创建 `/swapfile` 2 GB；可用 `--no-swap` 关闭。
 - 创建 `/opt/geo-console/releases/<版本>` 和持久的 `/opt/geo-console/shared`。
 - 生成 owner-only 的 PostgreSQL 密码、32 字节 Base64 主密钥、系统超管初始密码和 Log Service 内部令牌。
-- 顺序启动 PostgreSQL、Log Service、API、Capture Worker、Agent Worker、Report Worker、Web 和 Caddy，避免首次迁移竞争。
+- 顺序启动 PostgreSQL、Log Service、API、Capture Worker、Semantic Worker、Agent Worker、Report Worker、Web 和 Caddy，避免首次迁移竞争。
 - 验证 HTTPS、服务健康和一次数据库/本地证据成对备份。
 - 验证根路径官网、`/help/` 在线手册及 PDF、`/app/` 同步调试入口以及桌面客户端登录与动态导航。
 - 验证 migration `0018_desktop_agent_runtime.sql` 已执行；桌面新会话显示“桌面执行”、不产生 `agent_session_turn` job，受控 Responses 流和一个只读业务工具可完整跑通，PDF/Word 仍由 Report Worker 生成。
@@ -170,3 +170,30 @@ sudo geo-console backup
 ```
 
 S3 模式由桶版本控制和跨区域复制保护对象，命令仍备份 PostgreSQL。数据库备份包含全部租户、RBAC、问题库、Agent 审批、业务审计、运行日志和报告索引；对象备份覆盖 PDF 与 Word。恢复后需同时抽查 Log Service 健康、租户日志隔离和保留配置。
+
+
+## V2 发布门禁（2026-09-05）
+
+服务器新增 `semantic-worker`（同一 Worker 镜像、数据库、Secrets 和证据卷）；管理脚本同步启动、停止及检查该服务。本机保持一个业务 PGlite 进程，组合四类执行器。先完成 API migration `0019_visibility_v2.sql`，再启动后台 Worker 与 Web/桌面客户端。不得把代码验证描述为已发布。
+
+新批次必须配置机构 HRouter GPT 模型。部署验收增加：成功 Capture → 无工具严格语义解析 → 只追加 MetricSnapshot → 证据中心人工审核 → 当前快照绑定的报告叙述/质检两次人工审批 → PDF/Word。需要真实 Key 验证 HRouter 对严格结构化输出的支持，单元测试不能证明模型准确率或线上兼容性。
+
+不存在 V1 指标回退开关；应用回滚前先停止 V2 新采样并核对数据库兼容性。所有语义表与 `semantic/` 原始模型响应随完整数据库/证据备份保留。历史测试数据清空必须另行明确操作，不能混入升级 migration。
+
+
+## RBAC 成员修复发布门禁（2026-09-06）
+
+新增迁移 `0020_membership_rbac.sql`，与 API/Web 同步发布：稳定默认角色键、候选权限端点、恢复/重置端点、新成员默认无客户。已有用户范围不被修改，既有机构/角色的撤权不会自动恢复；不要借升级扩大默认机构权限。
+
+先部署服务端并验证 migration，再更新 Web/桌面内置 Web。验收至少覆盖超管正常新增、重复邮箱 409、受限管理员越权创建/停用 403、停用恢复后旧 token 401、密码重置和跨页范围保存。新前端不能搭配没有 `/api/users/options` 的旧 API。实际是否已部署以部署记录为准，见 `rbac-demo-verification-2026-09-06.md`。
+
+## RBAC V2 发布补充（2026-09-06）
+
+必须将 packages/authorization 随服务端制品打包，并同步更新 API、Agent、Web/Tauri 与 0021 migration。Docker 和旧制品复用检查已纳入该 package；构建使用 corepack pnpm、冻结 lockfile，保留 minimumReleaseAge/trustPolicy。升级前备份，在隔离库验证，禁止混跑旧 API/Agent 与新授权语义；回退使用对应备份与制品。本轮没有构建发布服务器镜像、部署 Demo 或清空数据库。详情见 docs/rbac-v2.md。
+
+## ARM 发布机与 AMD64 制品（全盘审查修正）
+
+Docker artifact builder 使用 BUILDPLATFORM 原生 Linux Node 24 执行 corepack pnpm，不在 QEMU 中运行目标 Node；install 明确 --os=linux、--cpu=x64/arm64、--libc=glibc，--ignore-scripts 更严格禁依赖脚本，并检查目标 esbuild 存在。继续冻结锁文件和保留供应链控制，不打包宿主 node_modules。服务器固定 Worker base 不变，并用恢复到独立 PostgreSQL 的目标架构容器验证 tsx/DB/迁移。相对输出目录先解析为绝对路径，外层 checksum 计算失败必须终止。正式切换仍走 geo-console upgrade，无服务器下载/安装/构建代码。
+# 仓库凭据与本地验收制品
+
+SSH 密码、管理员初始密码和模型密钥不得写入仓库文档；连接认证通过 SSH agent 或用户受控的安全凭据存储取得。本地 `deliverables/` 中的业务截图、报告及一次性环境操作制品不随源码提交。删除当前文件中的明文凭据不等于清除 Git 历史；曾进入提交历史的真实密码应轮换，历史重写须另行明确授权，不能在普通发布或推送时擅自执行。

@@ -1,6 +1,9 @@
 import type { AgentJobPayload, AgentSessionTurnPayload, Database } from "@geo/core";
 import { safeErrorMessage } from "@geo/logging";
 import { agentRuntimeLogger, executeAgentDraft } from "./agent";
+import { AccessDeniedError } from "./authorization";
+import { authorizeDraftExecution, authorizeWorkbench } from "./authorization/execution";
+import { sweepTerminalLeases } from "./queue-recovery";
 import { parseJsonColumn } from "./utils";
 import { executeSessionTurn, recoverOrphanedSessions, resumeWaitingSessions, workbenchLogger } from "./workbench";
 
@@ -45,6 +48,7 @@ export type AgentJobRunners = {
 /** 周期性协调：自动批准工作台草稿、唤醒等待中的会话。失败不影响任务领取。 */
 export async function coordinateWorkbench(database: Database): Promise<void> {
 	try {
+		await sweepTerminalLeases(database);
 		await resumeWaitingSessions(database);
 	} catch (error) {
 		workbenchLogger.error("workbench.coordinate_failed", safeErrorMessage(error));
@@ -58,6 +62,7 @@ export async function runOneAgentJob(
 		| ((database: Database, runId: string, targetTaskId: string | null) => Promise<void>)
 		| AgentJobRunners = executeAgentDraft,
 ): Promise<boolean> {
+	await sweepTerminalLeases(database);
 	const runners: AgentJobRunners = typeof runner === "function" ? { draft: runner } : runner;
 	const runDraft = runners.draft ?? executeAgentDraft;
 	const runTurn = runners.sessionTurn ?? executeSessionTurn;
@@ -93,9 +98,11 @@ export async function runOneAgentJob(
 	try {
 		if (job.type === "agent_session_turn") {
 			const turn = payload as AgentSessionTurnPayload;
+			await authorizeWorkbench(database, turn.sessionId);
 			await runTurn(database, turn.sessionId, turn.trigger, turn.message);
 		} else {
 			const draft = payload as AgentJobPayload;
+			await authorizeDraftExecution(database, draft.runId);
 			await runDraft(database, draft.runId, draft.targetTaskId);
 		}
 		await database.query(
@@ -104,13 +111,14 @@ export async function runOneAgentJob(
 		);
 	} catch (error) {
 		const message = error instanceof Error ? error.message.slice(0, 2000) : "Agent 执行失败";
-		const retrying = job.attempts < job.max_attempts;
+		const retrying = !(error instanceof AccessDeniedError) && job.attempts < job.max_attempts;
 		await database.transaction(async (transaction) => {
-			await transaction.query(
+			const updated = await transaction.query(
 				`UPDATE jobs SET status=$3::job_status,lease_owner=NULL,lease_expires_at=NULL,last_error=$4,
 				 available_at=now()+interval '30 seconds',updated_at=now() WHERE id=$1 AND lease_owner=$2`,
 				[job.id, owner, retrying ? "pending" : "failed", message],
 			);
+			if (!updated.affectedRows) return;
 			if (job.type === "agent_session_turn") {
 				const turn = payload as AgentSessionTurnPayload;
 				if (retrying)

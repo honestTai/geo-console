@@ -35,6 +35,7 @@ export async function claimCaptureJob(
 			`WITH candidate AS (
 				SELECT id FROM jobs
 				WHERE type = 'capture'
+ AND EXISTS(SELECT 1 FROM projects p JOIN organizations o ON o.id=p.organization_id WHERE p.id=jobs.payload->>'projectId' AND o.suspended_at IS NULL)
 				  AND attempts < max_attempts
 				  AND available_at <= now()
 				  AND ($3::text[] IS NULL OR payload->>'platform' = ANY($3::text[]))
@@ -90,7 +91,8 @@ export async function failExpiredCaptureJobs(database: Database): Promise<string
 	const result = await database.query<{ batch_id: string | null }>(
 		`UPDATE jobs SET status = 'failed'::job_status, lease_owner = NULL, lease_expires_at = NULL,
 		 last_error = COALESCE(last_error, '执行进程中断：租约过期且已达最大重试次数'), updated_at = now()
-		 WHERE type = 'capture' AND status = 'leased' AND lease_expires_at < now() AND attempts >= max_attempts
+		 WHERE type = 'capture'
+ AND EXISTS(SELECT 1 FROM projects p JOIN organizations o ON o.id=p.organization_id WHERE p.id=jobs.payload->>'projectId' AND o.suspended_at IS NULL) AND status = 'leased' AND lease_expires_at < now() AND attempts >= max_attempts
 		 RETURNING payload->>'batchId' AS batch_id`,
 	);
 	return [...new Set(result.rows.flatMap((row) => (row.batch_id ? [row.batch_id] : [])))];
