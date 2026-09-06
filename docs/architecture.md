@@ -1,5 +1,7 @@
 # 架构与数据边界
 
+完整回答辅助解读：证据中心按需 POST → `answer_analysis` job → Semantic Worker 独立 1 槽 → 只追加分析尝试 → GET/原文高亮。正式测量仍保留 2 槽和唯一指标算法；辅助解读不改 Capture、冻结 config 或 MetricSnapshot。Python 仅用于离线标注评测，无新增生产服务。完整契约、0023 migration 和授权见 `docs/answer-analysis.md`。
+
 ## 运行组件
 
 ```text

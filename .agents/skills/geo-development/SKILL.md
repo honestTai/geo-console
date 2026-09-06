@@ -25,6 +25,7 @@ description: Develop or review GEO Console application code, including the Web/A
 - 批次创建时冻结客户、竞品、Prompt、平台、重复次数、时间窗及完整 Provider 契约。复测必须逐字段复用正式基线 `config`；任何配置变化都创建新基线。
 - Provider 失败必须保留为该 Provider 的真实状态，不得切换模型、平台或用合成结果补齐。来源或 Fan-out 不可见时保留 `unavailable`，不是空数组代表的 0。
 - 指标仅使用 V2 MetricSnapshot：原子语义必须经原文与品牌白名单校验，先问题等权再达标平台等权。采集/解析/问题覆盖独立，正式漂移必须有共同问题配对区间；禁止 V1 首次提及排名回退，未知费用保持 `null`。实现细节见 `references/domain-contracts.md` 与 `docs/visibility-measurement-v2.md`。
+- 完整回答辅助解读独立于正式指标：只追加 `answer_analysis` 运行/尝试，按需收费，全文片段与品牌归属校验，不能把辅助情感/理由写回正式排名。Python 仅离线评测，不给业务 Agent 任意代码执行能力；见 `docs/answer-analysis.md`。
 - 授权扩展统一使用 `packages/authorization` 和 Worker `authorization/`；单 SQL 主体、credential_version 会话、显式异步执行者及逐工具策略不得绕过，细节见 `docs/rbac-v2.md`。
 - 成员管理必须在服务端事务内限制可授予角色/客户范围，不能以 members.manage 间接提升权限；默认角色用稳定 system_key，机构授权上限不删除角色定义。账号生命周期与前端状态规则见 domain-contracts/frontend。
 - HRouter Agent 只能读取当前项目的领域数据并提交待审批结构化草稿。不得增加 Bash、任意文件、任意 SQL 或开放 HTTP；审批时重新校验证据、Prompt、任务和项目归属。

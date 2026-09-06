@@ -1,3 +1,4 @@
+export * from "./answer-analysis";
 export {
 	type ApiCaptureEvidence,
 	apiCaptureEvidenceSchema,

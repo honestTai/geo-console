@@ -1,5 +1,9 @@
 # GEO Console Domain Contracts
 
+## 完整回答辅助解读
+
+事实源 `packages/evidence/src/answer-analysis.ts` 和 worker 同名 service；`geo.answer-analysis.v1` 独立于正式 measurement。冻结原文输入哈希、批次问题/品牌、模型/提示/分段/校验版本；每次手动重生成追加 run/attempt，不修改 Capture/config/MetricSnapshot。全文按序覆盖片段，引文逐字唯一定位为 UTF-16；无效引文/品牌归属不展示正文，缺段/条件/歧义为 needs_review，覆盖不是准确率。POST 与执行均走 `answer.analysis.execute`、明确 actor 和当前权限；模型无工具/代码/联网能力。单次 60,000 UTF-16 输入、16,000 output tokens、120 秒；独立 1 槽、两次技术尝试、5 分钟租约、30 秒续租/重试。未知费用 null。详见 `docs/answer-analysis.md`。
+
 ## 证据
 
 - 当前采集契约是 `geo.query-capture.v2`，模式固定 `llm_search_api`；`engine` 只能是五个 `SearchProviderId`。

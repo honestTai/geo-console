@@ -1,5 +1,7 @@
 # GEO Console Web 前端架构规则
 
+完整回答语义解读由 EvidenceDetail 装配 AnswerAnalysis，结构化视图在 `ui/answer-analysis.tsx`、按需读取/串行轮询在 `hooks/useAnswerAnalysis.ts`。切换回答必须取消旧请求并重置状态；只读不生成，生成按钮权限 `agent.run`，重生成需确认。分段/品牌/条件分节平铺，不 dump JSON；原文 Drawer 用转义文本和服务端验证的 UTF-16 高亮。明确区分 ready（未人工复核）/needs_review/failed/历史只读；导出是主动下载客户证据，不可放公开目录。
+
 适用于 `apps/web/`(React 19 + Vite 8 + antd 6)。这是 2026-09 UI 精修后确立的结构,后续前端改动必须遵守。
 
 ## 目录结构与拆分规则

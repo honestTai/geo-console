@@ -6,6 +6,7 @@ import { checkLogService, LogServiceUnavailableError, StructuredLogger, safeErro
 import { ADAPTER_VERSION } from "@geo/search-providers";
 import { z } from "zod";
 import { approveAgentRun, enqueueAgentDraft, enqueueTaskContentAgent, listAgentRuns, rejectAgentRun } from "./agent";
+import { enqueueAnswerAnalysis, getAnswerAnalysis } from "./answer-analysis";
 import { apiErrorResponse } from "./api-errors";
 import { continueApprovedReport } from "./approval-workflow";
 import {
@@ -357,6 +358,19 @@ async function handleBatchTaskRoutes(
 ): Promise<boolean> {
 	const actorUserId = identity.id;
 	const actor = actorFromIdentity(identity);
+	const answerAnalysisRoute = routeMatch(path, /^\/api\/batches\/([^/]+)\/captures\/([^/]+)\/analysis$/);
+	if (answerAnalysisRoute) {
+		const [batchId, captureId] = answerAnalysisRoute;
+		if (request.method === "POST") {
+			json(response, 202, await enqueueAnswerAnalysis(database, batchId, captureId, actor));
+			return true;
+		}
+		if (request.method === "GET") {
+			const url = new URL(request.url ?? path, "http://local");
+			json(response, 200, await getAnswerAnalysis(database, batchId, captureId, url.searchParams.get("runId")));
+			return true;
+		}
+	}
 	const measurementRoute = routeMatch(path, /^\/api\/batches\/([^/]+)\/measurement(\/review)?$/);
 	if (measurementRoute) {
 		const [batchId, review] = measurementRoute;
