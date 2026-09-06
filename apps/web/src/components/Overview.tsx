@@ -1,12 +1,13 @@
 import { IconSettings } from "@tabler/icons-react";
 import { Alert, Skeleton, Spin, Statistic } from "antd";
 import { type ReactNode, useEffect, useState } from "react";
-import { Button } from "../access";
+import { Button, useBatch } from "../access";
 import { api } from "../api";
 import { useDelayedLoading } from "../hooks/useDelayedLoading";
 import { type BatchSummary, batchKindLabel, type Project, shortDate, type Task, type TrendResponse } from "../types";
 import { Empty, percentage, SectionTitle } from "../ui/primitives";
 import { LineTrendChart, MentionBarChart, overallMetric, overallPercent, perPlatformMention } from "./charts";
+import { Measurement } from "./Measurement";
 import { Page } from "./Page";
 import { ScopeEditor } from "./ScopeEditor";
 
@@ -96,7 +97,13 @@ export function OverviewTrendPanel({
 			</div>
 		);
 	} else if (!trends || trends.comparable.length === 0) {
-		content = <Empty compact title="暂无可比较的批次数据" detail="批次完成后自动出现。" />;
+		content = (
+			<Empty
+				compact
+				title="暂无可比较的批次数据"
+				detail="同配置的正式批次达到 V2 证据门槛后进入趋势；快审和有限结果不连接为趋势。"
+			/>
+		);
 	} else {
 		const latestComparable = trends.comparable.at(-1);
 		content = (
@@ -147,6 +154,10 @@ export function OverviewTrendPanel({
 export function Overview({ project, refresh }: { project: Project; refresh(): Promise<void> }) {
 	const latest = project.batches[0];
 	const latestId = latest?.id;
+	const { batch: latestBatch, setSelected } = useBatch(project, latestId ?? null);
+	useEffect(() => {
+		setSelected(latestId ?? null);
+	}, [latestId, setSelected]);
 	const [editingScope, setEditingScope] = useState(false);
 	const [trends, setTrends] = useState<TrendResponse | null>(null);
 	const [trendsLoading, setTrendsLoading] = useState(false);
@@ -199,8 +210,8 @@ export function Overview({ project, refresh }: { project: Project; refresh(): Pr
 						</div>
 					))}
 				</div>
-			) : trends ? (
-				<OverviewKpis trends={trends} tasks={project.tasks} />
+			) : latestBatch ? (
+				<Measurement key={latestBatch.id} batch={latestBatch} />
 			) : null}
 			<OverviewTrendPanel latest={latest} trends={trends} loading={showTrendsLoading} />
 			{editingScope && <ScopeEditor project={project} onClose={() => setEditingScope(false)} refresh={refresh} />}

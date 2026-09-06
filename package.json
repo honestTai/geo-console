@@ -16,8 +16,8 @@
 		"check-types": "turbo check-types",
 		"check-drift": "node scripts/check-skill-drift.mjs",
 		"test": "turbo test",
-		"lint": "biome check --diagnostic-level=error --config-path=biome.json apps/log-service/src apps/web/src apps/web/vite.config.ts apps/worker/src packages/core/src packages/evidence/src packages/logging/src packages/metrics/src packages/search-providers/src scripts/geo.ts scripts/desktop-update-manifest.mjs scripts/stage-desktop-update.mjs",
-		"lint:fix": "biome check --write --diagnostic-level=error --config-path=biome.json apps/log-service/src apps/web/src apps/web/vite.config.ts apps/worker/src packages/core/src packages/evidence/src packages/logging/src packages/metrics/src packages/search-providers/src scripts/geo.ts scripts/desktop-update-manifest.mjs scripts/stage-desktop-update.mjs",
+		"lint": "biome check --diagnostic-level=error --config-path=biome.json apps/log-service/src apps/web/src apps/web/vite.config.ts apps/worker/src packages/authorization/src packages/core/src packages/evidence/src packages/logging/src packages/metrics/src packages/search-providers/src scripts/geo.ts scripts/desktop-update-manifest.mjs scripts/stage-desktop-update.mjs",
+		"lint:fix": "biome check --write --diagnostic-level=error --config-path=biome.json apps/log-service/src apps/web/src apps/web/vite.config.ts apps/worker/src packages/authorization/src packages/core/src packages/evidence/src packages/logging/src packages/metrics/src packages/search-providers/src scripts/geo.ts scripts/desktop-update-manifest.mjs scripts/stage-desktop-update.mjs",
 		"license-check": "node scripts/check-licenses.mjs"
 	},
 	"devDependencies": {

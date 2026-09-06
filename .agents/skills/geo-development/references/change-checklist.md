@@ -26,7 +26,7 @@
 
 ## API、身份与 UI
 
-- API 输入继续用 Zod 校验；写请求进入审计日志；角色规则保持 admin/analyst/viewer。
+- API 输入继续用 Zod 校验；写请求进入审计日志；运行时授权使用动态权限/策略；admin/analyst/viewer 仅为可扩展默认模板，不能夹带 system_only 权限。
 - 认证变更覆盖生产环境 bootstrap、12 位密码下限、HttpOnly/Strict/Secure Cookie 和停用用户会话撤销。
 - UI 覆盖真实 API 的 loading、empty、partial、queued、failed、permission 和 read-only 状态，不加入演示数据兜底。
 - 手工检查工作台主流程、长中文/英文内容、桌面和 390px 移动宽度；确认工具栏、表格、弹窗和底部导航不重叠。
@@ -54,3 +54,6 @@ corepack pnpm lint
 corepack pnpm license-check
 docker compose config --quiet
 ```
+## 测试环境隔离
+
+Worker Vitest 通过 `apps/worker/vitest.config.ts` 在应用导入前加载 `src/test-support/environment.ts`：每个测试文件使用独立临时 GEO_DATA_DIR 和随机测试主密钥，缺失凭据由空文件返回 null，不回退到用户真实钥匙串。不得移除该隔离后依靠本机配置“跑绿”，不得在测试中连接继承的外部 DATABASE_URL 或写入默认业务目录；需要模型凭据的用例显式提供测试夹具。回归应包含一次 `corepack pnpm test --force`，避免旧缓存掩盖环境依赖。

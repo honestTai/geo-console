@@ -105,7 +105,21 @@ export function ProjectHome({
 			) : (
 				<div className="project-grid">
 					{projects.map((project) => (
-						<Card key={project.id} className="project-home-card" hoverable onClick={() => onOpen(project.id)}>
+						<Card
+							key={project.id}
+							className="project-home-card"
+							hoverable
+							role="button"
+							tabIndex={0}
+							aria-label={`打开客户 ${project.name}`}
+							onClick={() => onOpen(project.id)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter" || event.key === " ") {
+									event.preventDefault();
+									onOpen(project.id);
+								}
+							}}
+						>
 							<div className="project-home-card-head">
 								<Tag>{project.status === "active" ? "运行中" : "待建档"}</Tag>
 								<IconChevronRight className="card-arrow" size={20} />
@@ -131,7 +145,19 @@ export function ProjectHome({
 						</Card>
 					))}
 					{canCreate && (
-						<Card className="project-home-card project-home-card-new" onClick={onCreate}>
+						<Card
+							className="project-home-card project-home-card-new"
+							role="button"
+							tabIndex={0}
+							aria-label="新建客户"
+							onClick={onCreate}
+							onKeyDown={(event) => {
+								if (event.key === "Enter" || event.key === " ") {
+									event.preventDefault();
+									onCreate();
+								}
+							}}
+						>
 							<IconPlus size={30} strokeWidth={1.6} />
 							<Typography.Text strong>新建客户</Typography.Text>
 							<Typography.Text type="secondary">录入客户与官网，开始真实采集</Typography.Text>

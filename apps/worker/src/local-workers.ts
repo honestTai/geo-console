@@ -11,11 +11,13 @@ import {
 } from "./agent-jobs";
 import { flushCaptureLogs, startCloudRunner } from "./cloud-runner";
 import { flushReportLogs, queueScheduledReportSnapshots, runOneReportJob } from "./report-snapshots";
+import { startSemanticRuntime } from "./semantic-runtime";
 
 export async function startLocalWorkers(database: Database): Promise<() => Promise<void>> {
 	const logger = new StructuredLogger("local-worker-coordinator");
 	await recoverOrphanedAgentRuns(database);
 	const stopCapture = startCloudRunner(database);
+	const stopSemantic = startSemanticRuntime(database);
 	const agentOwner = `local-agent:${process.pid}:${randomUUID()}`;
 	const reportOwner = `local-report:${process.pid}:${randomUUID()}`;
 	let activeAgentJobs = 0;
@@ -60,6 +62,7 @@ export async function startLocalWorkers(database: Database): Promise<() => Promi
 		metadata: { capture: true, agent: true, report: true },
 	});
 	return async () => {
+		await stopSemantic();
 		clearInterval(agentTimer);
 		clearInterval(reportTimer);
 		stopCapture();

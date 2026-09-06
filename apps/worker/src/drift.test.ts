@@ -60,7 +60,7 @@ async function insertCapture(
 }
 
 describe("漂移告警", () => {
-	it("没有成功回答的平台不产生告警；有回答且真正下降的平台照常告警", async () => {
+	it("Capture 完成不再直接生成 V1 点估计告警，等待 V2 配对统计", async () => {
 		const database = openMemoryDatabase();
 		try {
 			await migrateDatabase(database);
@@ -119,7 +119,7 @@ describe("漂移告警", () => {
 				)
 			).rows;
 			expect(alerts.every((alert) => alert.provider_id === "kimi_api")).toBe(true);
-			expect(alerts).toContainEqual({ provider_id: "kimi_api", metric: "brandMentionRate", severity: "high" });
+			expect(alerts).toEqual([]);
 		} finally {
 			await database.close();
 		}

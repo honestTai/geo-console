@@ -1,9 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import { lookup } from "node:dns/promises";
 import { join } from "node:path";
 import type { Database, WebsiteAuditResult } from "@geo/core";
 import { load } from "cheerio";
 import { putArtifact } from "./object-store";
+import { assertPublicUrl, fetchPublicText } from "./public-http";
 
 export type CrawledPage = {
 	id: string;
@@ -15,18 +15,6 @@ export type CrawledPage = {
 	contentHash: string;
 };
 
-const isPrivateAddress = (address: string): boolean =>
-	/^(127\.|10\.|192\.168\.|169\.254\.|0\.|::1$|fc|fd|fe80)/i.test(address) ||
-	/^172\.(1[6-9]|2\d|3[01])\./.test(address);
-
-async function assertPublicUrl(value: string): Promise<URL> {
-	const url = new URL(value);
-	if (!["http:", "https:"].includes(url.protocol)) throw new Error("官网只支持 HTTP 或 HTTPS");
-	const addresses = await lookup(url.hostname, { all: true });
-	if (addresses.some(({ address }) => isPrivateAddress(address))) throw new Error("不能抓取本机或内网地址");
-	return url;
-}
-
 /** 站内页面并发抓取数：对客户官网保持礼貌，同时让建档不再逐页串行等 15 秒超时。 */
 const CRAWL_CONCURRENCY = 4;
 const auditUserAgent = "GEOConsole/0.1 (+website evidence audit)";
@@ -37,25 +25,8 @@ async function fetchText(
 	url: URL,
 	timeoutMs = 15_000,
 	userAgent = auditUserAgent,
-): Promise<{ body: string; contentType: string }> {
-	let current = url;
-	for (let redirect = 0; redirect <= 5; redirect += 1) {
-		await assertPublicUrl(current.href);
-		const response = await fetch(current, {
-			signal: AbortSignal.timeout(timeoutMs),
-			headers: { "user-agent": userAgent },
-			redirect: "manual",
-		});
-		if (response.status >= 300 && response.status < 400) {
-			const location = response.headers.get("location");
-			if (!location) throw new Error(`${current.href} 返回无地址重定向`);
-			current = new URL(location, current);
-			continue;
-		}
-		if (!response.ok) throw new Error(`${current.href} 返回 HTTP ${response.status}`);
-		return { body: await response.text(), contentType: response.headers.get("content-type") ?? "" };
-	}
-	throw new Error(`${url.href} 重定向次数过多`);
+): Promise<{ body: string; contentType: string; finalUrl: string }> {
+	return fetchPublicText(url, timeoutMs, userAgent);
 }
 
 type ProbeResult = {
@@ -77,7 +48,14 @@ function readableError(error: unknown): string {
 async function probeText(url: URL, userAgent = auditUserAgent): Promise<ProbeResult> {
 	try {
 		const value = await fetchText(url, 15_000, userAgent);
-		return { ok: true, status: 200, url: url.href, body: value.body, contentType: value.contentType, error: null };
+		return {
+			ok: true,
+			status: 200,
+			url: value.finalUrl,
+			body: value.body,
+			contentType: value.contentType,
+			error: null,
+		};
 	} catch (error) {
 		const message = readableError(error);
 		const status = Number(message.match(/HTTP (\d{3})/)?.[1] ?? Number.NaN);
@@ -561,9 +539,9 @@ export async function crawlWebsite(
 	const urls = await discoverUrls(root, Math.min(100, Math.max(1, limit)), userAgent);
 	const pages: CrawledPage[] = [];
 	const crawlOne = async (url: URL): Promise<CrawledPage | null> => {
-		const { body, contentType } = await fetchText(url, 15_000, userAgent);
+		const { body, contentType, finalUrl } = await fetchText(url, 15_000, userAgent);
 		if (!contentType.includes("html")) return null;
-		const page = pageFromHtml(url, body);
+		const page = pageFromHtml(new URL(finalUrl), body);
 		if (!page.text) return null;
 		const artifactKey = join("websites", projectId, `${page.id}.html`);
 		await putArtifact(artifactKey, body, "text/html; charset=utf-8");

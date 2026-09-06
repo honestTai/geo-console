@@ -14,7 +14,7 @@ import {
 	type SearchProviderAdapter,
 } from "@geo/search-providers";
 import { z } from "zod";
-import { parseJsonColumn } from "./utils";
+import { HttpInputError, parseJsonColumn } from "./utils";
 
 type ProviderDefinition = Omit<ProviderConfig, "apiKey" | "secondaryApiKey"> & {
 	label: string;
@@ -89,7 +89,8 @@ export async function ensureProviderConfigs(database: Database, organizationId?:
 				`INSERT INTO provider_configs
 				 (id,organization_id,provider_id,enabled,model,endpoint,protocol,search_strategy,adapter_version)
 				 VALUES ($1,$2,$3,false,$4,$5,$6,$7::jsonb,$8)
-				 ON CONFLICT (organization_id,provider_id) DO NOTHING`,
+				 ON CONFLICT (organization_id,provider_id) DO UPDATE SET adapter_version=EXCLUDED.adapter_version
+				 WHERE provider_configs.adapter_version IS DISTINCT FROM EXCLUDED.adapter_version`,
 				[
 					randomUUID(),
 					organization.id,
@@ -122,7 +123,8 @@ export async function saveProviderConfig(
 ): Promise<void> {
 	const data = updateSchema.parse(input);
 	const definition = providerDefinitions[providerId];
-	if (providerId === "yuanbao_hunyuan" && !data.secondaryEndpoint) throw new Error("元宝组合口径必须配置混元端点");
+	if (providerId === "yuanbao_hunyuan" && !data.secondaryEndpoint)
+		throw new HttpInputError("元宝组合口径必须配置混元端点", 409);
 	if (data.apiKey) await writeEncryptedCredential(database, definition.credentialKey, data.apiKey, organizationId);
 	if (data.secondaryApiKey && definition.secondaryCredentialKey)
 		await writeEncryptedCredential(database, definition.secondaryCredentialKey, data.secondaryApiKey, organizationId);
@@ -131,7 +133,7 @@ export async function saveProviderConfig(
 		const secondary = definition.secondaryCredentialKey
 			? await readEncryptedCredential(database, definition.secondaryCredentialKey, organizationId)
 			: "not-required";
-		if (!primary || !secondary) throw new Error("启用平台前必须配置所需 API 密钥");
+		if (!primary || !secondary) throw new HttpInputError("启用平台前必须配置所需 API 密钥", 409);
 	}
 	await database.query(
 		`UPDATE provider_configs SET enabled=$2,model=$3,endpoint=$4,
@@ -207,10 +209,10 @@ export async function buildProviderAdapter(
 			[organizationId, providerId],
 		)
 	).rows[0];
-	if (!row) throw new Error(`平台 ${providerId} 尚未初始化`);
+	if (!row) throw new HttpInputError(`平台 ${providerId} 尚未初始化`, 409);
 	const definition = providerDefinitions[providerId];
 	const apiKey = await readEncryptedCredential(database, definition.credentialKey, organizationId);
-	if (!apiKey) throw new Error(`${definition.label} 尚未配置 API 密钥`);
+	if (!apiKey) throw new HttpInputError(`${definition.label} 尚未配置 API 密钥`, 409);
 	const strategy =
 		frozen?.searchStrategy ??
 		parseJsonColumn<Record<string, unknown>>(row.search_strategy as string | Record<string, unknown>);

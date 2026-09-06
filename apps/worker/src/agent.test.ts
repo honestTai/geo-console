@@ -89,15 +89,21 @@ describe("HRouter Agent 领域工具边界", () => {
 					}),
 				],
 			);
+			await database.query(
+				`INSERT INTO agent_sessions(id,organization_id,project_id,title,execution_actor) VALUES('session','default','project','测试会话','{"kind":"local"}')`,
+			);
+			await database.query(
+				`UPDATE agent_runs SET execution_actor='{"kind":"local"}',session_id='session' WHERE id='run'`,
+			);
 			// 手动审批与协调器自动审批可能同时到达：状态守卫保证只有一次进入物化，其余以明确错误失败。
 			const outcomes = await Promise.allSettled([
-				approveAgentRun(database, "run", null),
-				approveAgentRun(database, "run", null, "workbench"),
+				approveAgentRun(database, "run", null, "manual", null, { kind: "local" }),
+				approveAgentRun(database, "run", null, "workbench", "session"),
 			]);
 			expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
 			const rejected = outcomes.find((outcome) => outcome.status === "rejected") as PromiseRejectedResult;
 			expect(String(rejected.reason)).toContain("已被其他操作处理");
-			await expect(approveAgentRun(database, "run", null)).rejects.toThrow("已处理");
+			await expect(approveAgentRun(database, "run", null, "manual", null, { kind: "local" })).rejects.toThrow("已处理");
 			expect((await database.query("SELECT id FROM audit_logs WHERE action='agent.approve'")).rows).toHaveLength(1);
 			const prompts = (
 				await database.query<{ question: string; approved: boolean; position: number; persona: string | null }>(
@@ -166,7 +172,7 @@ describe("HRouter Agent 领域工具边界", () => {
 				`INSERT INTO agent_runs (id,project_id,purpose,status,model,prompt_version,evidence_ids,draft) VALUES ('run','project','content_brief','awaiting_approval','gpt-test','test','["evidence"]'::jsonb,$1::jsonb)`,
 				[JSON.stringify(sink.value)],
 			);
-			await approveAgentRun(database, "run");
+			await approveAgentRun(database, "run", null, "manual", null, { kind: "local" });
 			const task = (
 				await database.query<{ content_brief: string; draft_content: string }>(
 					"SELECT content_brief,draft_content FROM remediation_tasks WHERE id='task'",
@@ -245,6 +251,15 @@ describe("HRouter Agent 领域工具边界", () => {
 				evidenceIds: ["capture"],
 				draftJson: JSON.stringify(draft(["https://review.example/1"])),
 			} as never);
+			await database.query(
+				`UPDATE query_captures SET sources='[{"url":"https://review.example/1","isCitation":false}]' WHERE id='capture'`,
+			);
+			await expect(
+				submit?.execute("uncited", {
+					evidenceIds: ["capture"],
+					draftJson: JSON.stringify(draft(["https://review.example/1"])),
+				} as never),
+			).rejects.toThrow("不属于对应回答证据");
 			expect(sink.value).toMatchObject({ reputation: { overall: "negative" } });
 		} finally {
 			await database.close();

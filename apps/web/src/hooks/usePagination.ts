@@ -1,44 +1,57 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { DEFAULT_PAGE_SIZE, type Paginated } from "../types";
 
-type UsePaginatedOptions = {
-	pageSize?: number;
-	onError?: (reason: unknown) => void;
-};
-
+type UsePaginatedOptions = { pageSize?: number; onError?: (reason: unknown) => void };
 export function usePaginated<T>(
 	fetcher: (page: number, pageSize: number) => Promise<Paginated<T>>,
 	deps: unknown[],
 	{ pageSize = DEFAULT_PAGE_SIZE, onError }: UsePaginatedOptions = {},
 ) {
 	const [state, setState] = useState<Paginated<T>>({ items: [], page: 1, pageSize, total: 0, totalPages: 1 });
-	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<unknown>(null);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: fetcher is recreated by callers each render; adding it would refire the effect every render. Callers pass its varying values through deps instead.
+	const [loading, setLoading] = useState(false),
+		[error, setError] = useState<unknown>(null);
+	const version = useRef(0),
+		fetcherRef = useRef(fetcher),
+		onErrorRef = useRef(onError),
+		currentPage = useRef(1);
+	fetcherRef.current = fetcher;
+	onErrorRef.current = onError;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: Callers explicitly supply query identity through deps; refs keep callbacks current without refiring on each render.
 	const load = useCallback(
-		async (page = state.page) => {
+		async (page = currentPage.current) => {
+			const request = ++version.current;
 			setLoading(true);
+			setError(null);
 			try {
-				setState(await fetcher(page, state.pageSize));
+				const result = await fetcherRef.current(page, state.pageSize);
+				if (request !== version.current) return;
+				currentPage.current = result.page;
+				setState(result);
+			} catch (reason) {
+				if (request === version.current) {
+					setError(reason);
+					setState((current) => ({ ...current, items: [] }));
+					onErrorRef.current?.(reason);
+				}
+				throw reason;
 			} finally {
-				setLoading(false);
+				if (request === version.current) setLoading(false);
 			}
 		},
-		[state.page, state.pageSize, ...deps],
+		[state.pageSize, ...deps],
 	);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: onError is read at call time; adding it would refire the effect whenever callers pass a new inline callback.
 	useEffect(() => {
-		void load().catch((reason: unknown) => {
-			setError(reason);
-			if (onError) onError(reason);
-			else setState((current) => ({ ...current, items: [] }));
-		});
+		currentPage.current = 1;
+		void load(1).catch(() => undefined);
+		return () => {
+			version.current += 1;
+		};
 	}, [load]);
 	return {
 		...state,
 		items: state.items,
-		setPage: (page: number) => void load(page),
-		setPageSize: (nextPageSize: number) => setState((current) => ({ ...current, page: 1, pageSize: nextPageSize })),
+		setPage: (page: number) => void load(page).catch(() => undefined),
+		setPageSize: (size: number) => setState((current) => ({ ...current, page: 1, pageSize: size })),
 		reload: load,
 		loading,
 		error,

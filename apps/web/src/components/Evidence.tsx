@@ -31,16 +31,18 @@ import {
 	shortDate,
 } from "../ui/primitives";
 import "./Evidence.css";
+import { Measurement } from "./Measurement";
 import { Page } from "./Page";
 
 export { answerInline, FormattedAnswer };
 
 const PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
-type EvidenceKind = "captures" | "web_search";
+type EvidenceKind = "captures" | "web_search" | "semantic";
 const KIND_OPTIONS = [
 	{ label: "AI 回答", value: "captures" },
 	{ label: "联网搜索", value: "web_search" },
+	{ label: "V2 语义审核", value: "semantic" },
 ];
 
 /** 判定提及时用的品牌口径：客户品牌 id 就是项目 id（与指标口径一致），竞品取批次冻结配置。 */
@@ -139,7 +141,8 @@ export function Evidence({
 			"采样次数",
 			"状态",
 			"回答",
-			"引用URL",
+			"最终引用URL",
+			"检索或浏览来源URL",
 			"平台检索拆解",
 			"原始响应",
 			"模型",
@@ -156,7 +159,14 @@ export function Evidence({
 			capture.attempt,
 			capture.status,
 			capture.answerText,
-			capture.sources.map((source) => source.url).join("\n"),
+			capture.sources
+				.filter((source) => source.isCitation)
+				.map((source) => source.url)
+				.join("\n"),
+			capture.sources
+				.filter((source) => !source.isCitation)
+				.map((source) => source.url)
+				.join("\n"),
 			capture.queryFanOut.join("\n"),
 			capture.evidence.rawResponseObjectKey
 				? `/artifacts/${capture.evidence.rawResponseObjectKey}`
@@ -179,6 +189,20 @@ export function Evidence({
 	const kindSwitch = (
 		<Segmented options={KIND_OPTIONS} value={kind} onChange={(value) => setKind(value as EvidenceKind)} />
 	);
+	if (kind === "semantic")
+		return (
+			<Page breadcrumb={project.name} eyebrow="证据中心" title="V2 语义观察与人工审核">
+				<FilterBar>
+					{kindSwitch}
+					<BatchPicker project={project} selected={selected} setSelected={setSelected} />
+				</FilterBar>
+				{batch ? (
+					<Measurement key={batch.id} batch={batch} review />
+				) : (
+					<Empty title="请选择已有采集批次" detail="完成真实 API 采集后可查看和审核语义观察。" />
+				)}
+			</Page>
+		);
 	if (kind === "web_search")
 		return (
 			<Page
@@ -480,10 +504,13 @@ function RawEvidencePanel({ capture }: { capture: Capture }) {
 		<>
 			{capture.sources.length > 0 && (
 				<div className="sources">
-					<b>引用来源</b>
+					<b>观察来源（最终引用与检索浏览分开标记）</b>
 					{capture.sources.map((source) => (
 						<a href={source.url} target="_blank" rel="noreferrer" key={`${source.position}-${source.url}`}>
 							{source.position}. {source.title ?? source.domain}
+							<Tag color={source.isCitation ? "green" : undefined}>
+								{source.isCitation ? "最终回答引用" : "检索/浏览，未引用"}
+							</Tag>
 						</a>
 					))}
 				</div>
@@ -523,7 +550,7 @@ export function EvidenceDetail({ capture, brands }: { capture: Capture; brands: 
 	if (hasRawEvidence(capture))
 		panels.push({
 			key: "raw",
-			label: `引用来源与平台检索拆解（来源 ${capture.sources.length} 条）`,
+			label: `来源与检索过程（观察 ${capture.sources.length} 条 · 最终引用 ${capture.sources.filter((source) => source.isCitation).length} 条）`,
 			children: <RawEvidencePanel capture={capture} />,
 		});
 	return (
@@ -564,7 +591,9 @@ export function EvidenceDetail({ capture, brands }: { capture: Capture; brands: 
 				<span className="ed-tags">
 					{mention.mentioned ? `提及位置 ${mention.positions.join("、")}` : "未提及"}
 					{mention.competitors.length > 0 ? ` · 同时出现竞品 ${mention.competitors.join("、")}` : ""}
-					{capture.sources.length > 0 ? ` · 引用来源 ${capture.sources.length} 条` : ""}
+					{capture.sources.length > 0
+						? ` · 观察来源 ${capture.sources.length} 条，最终引用 ${capture.sources.filter((source) => source.isCitation).length} 条`
+						: ""}
 					{capture.evidence.rawResponseObjectKey || capture.evidence.screenshotObjectKey ? " · 原文已存证" : ""}
 				</span>
 			</div>

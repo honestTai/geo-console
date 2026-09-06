@@ -15,6 +15,10 @@ describe("真实归因 CSV", () => {
 				fileName: "ga4.csv",
 				csv: "date,landing page,sessions,users\n20260829,https://example.com/a,12,8\n",
 			};
+			await expect(
+				importAttributionCsv(database, "project", { ...input, csv: "date,sessions\n2026-02-31,1\n" }),
+			).rejects.toMatchObject({ status: 400 });
+			expect((await database.query("SELECT id FROM attribution_imports")).rows).toHaveLength(0);
 			const imported = await importAttributionCsv(database, "project", input);
 			expect(imported.events).toBe(2);
 			const result = await getAttribution(database, "project", { page: 1, pageSize: 20, offset: 0, search: null });

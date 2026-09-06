@@ -113,3 +113,7 @@ sudo geo-console upgrade /tmp/geo-console-<release>.run
 - 部署窗口结束后按明确文件名清理 `/tmp` 的 `.run`/checksum，不使用 glob。
 
 桌面客户端继续使用独立 Tauri 签名发布链，不进入服务器 bundle。协议变更按“服务器 migration/API 先上线并验证，签名客户端后发布”的顺序执行；客户端回滚只替换签名包，不回滚数据库。
+
+## 2026-09-06 跨架构与 checksum 修正
+
+artifact Dockerfile 的 Node/corepack 在 BUILDPLATFORM 原生运行，pnpm 用显式目标 OS/CPU/libc 与 ignore-scripts 安装锁定依赖。必须在目标服务器临时隔离容器/恢复测试库验证 tsx 原生执行、迁移和重复启动，不依靠 QEMU 成功假设。输出路径绝对化；checksum 空值或失败直接终止。清理测试恢复库，保留原实例成对备份，普通发布不改固定运行时 base。

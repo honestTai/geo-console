@@ -1,6 +1,6 @@
 import { IconPlus, IconTrash } from "@tabler/icons-react";
 import { Alert, App, Checkbox, Input, List, Popconfirm, Switch, Table, Tabs, Tree, Typography } from "antd";
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../access";
 import { api, post, put } from "../api";
 import {
@@ -13,6 +13,7 @@ import {
 	type UserIdentity,
 } from "../types";
 import { Pagination } from "../ui/primitives";
+import { AuthorizationConfiguration } from "./AuthorizationConfiguration";
 import { Page } from "./Page";
 import "./RbacManagement.css";
 
@@ -107,6 +108,7 @@ export function PermissionChecklist({
 	}, [permissions]);
 	const allKeys = permissions.map((permission) => permission.key);
 	const selectedSet = new Set(selected.filter((key) => allKeys.includes(key)));
+	const dormantKeys = selected.filter((key) => !allKeys.includes(key));
 	// 分组节点：全部子项选中时勾选。
 	const checkedKeys = [
 		...selectedSet,
@@ -144,7 +146,7 @@ export function PermissionChecklist({
 			apply(key, checked);
 			if (checked) for (const child of childrenOf.get(key) ?? []) next.add(child);
 		}
-		onChange(allKeys.filter((item) => next.has(item)));
+		onChange([...dormantKeys, ...allKeys.filter((item) => next.has(item))]);
 	}
 	const total = allKeys.length;
 	return (
@@ -152,8 +154,9 @@ export function PermissionChecklist({
 			<div className="permission-tree-toolbar">
 				<span>
 					已选 {selectedSet.size}/{total}
+					{dormantKeys.length ? ` · ${dormantKeys.length} 项权限被机构上限暂时禁用，保留角色配置` : ""}
 				</span>
-				<Button variant="link" size="small" onClick={() => onChange(allKeys)}>
+				<Button variant="link" size="small" onClick={() => onChange([...dormantKeys, ...allKeys])}>
 					全选
 				</Button>
 				<Button variant="link" size="small" onClick={() => onChange([])}>
@@ -177,9 +180,9 @@ export function PermissionChecklist({
 	);
 }
 
-export function RbacManagement({ user }: { user: UserIdentity }) {
+export function RbacManagement({ user, onOpenMembers }: { user: UserIdentity; onOpenMembers?: () => void }) {
 	const { message } = App.useApp();
-	const [tab, setTab] = useState<"organization" | "roles" | "users">("organization");
+	const [tab, setTab] = useState<"organization" | "roles" | "users" | "configuration">("organization");
 	const [permissions, setPermissions] = useState<PermissionRecord[]>([]);
 	const [organizationKeys, setOrganizationKeys] = useState<string[]>([]);
 	const [rolesPage, setRolesPage] = useState<Paginated<RoleRecord>>({
@@ -221,6 +224,7 @@ export function RbacManagement({ user }: { user: UserIdentity }) {
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
+	const currentPages = useRef({ roles: 1, users: 1, projects: 1 });
 	const loadCatalog = useCallback(async () => {
 		const result = await api<{ permissions: PermissionRecord[]; organizationPermissionKeys: string[] }>(
 			"/api/rbac/catalog",
@@ -229,27 +233,30 @@ export function RbacManagement({ user }: { user: UserIdentity }) {
 		setOrganizationKeys(result.organizationPermissionKeys);
 	}, []);
 	const loadRoles = useCallback(
-		async (page = rolesPage.page) => {
+		async (page = currentPages.current.roles) => {
 			const result = await api<Paginated<RoleRecord>>(`/api/rbac/roles?page=${page}&pageSize=${rolesPage.pageSize}`);
+			currentPages.current.roles = result.page;
 			setRolesPage(result);
 		},
-		[rolesPage.page, rolesPage.pageSize],
+		[rolesPage.pageSize],
 	);
 	const loadUsers = useCallback(
-		async (page = usersPage.page) => {
+		async (page = currentPages.current.users) => {
 			const result = await api<Paginated<ManagedUser>>(`/api/users?page=${page}&pageSize=${usersPage.pageSize}`);
+			currentPages.current.users = result.page;
 			setUsersPage(result);
 		},
-		[usersPage.page, usersPage.pageSize],
+		[usersPage.pageSize],
 	);
 	const loadProjectsForScope = useCallback(
-		async (page = projectsPage.page) => {
+		async (page = currentPages.current.projects) => {
 			const result = await api<Paginated<ProjectSummary>>(
 				`/api/projects?page=${page}&pageSize=${projectsPage.pageSize}`,
 			);
+			currentPages.current.projects = result.page;
 			setProjectsPage(result);
 		},
-		[projectsPage.page, projectsPage.pageSize],
+		[projectsPage.pageSize],
 	);
 	const reload = useCallback(async () => {
 		setError(null);
@@ -348,6 +355,11 @@ export function RbacManagement({ user }: { user: UserIdentity }) {
 				onChange={(key) => setTab(key as typeof tab)}
 				items={[
 					{
+						key: "configuration",
+						label: "授权引擎",
+						children: <AuthorizationConfiguration permissions={permissions} onChanged={reload} />,
+					},
+					{
 						key: "organization",
 						label: "机构授权",
 						children: (
@@ -427,7 +439,14 @@ export function RbacManagement({ user }: { user: UserIdentity }) {
 											</List.Item>
 										)}
 									/>
-									<Pagination {...rolesPage} onPage={(page) => void loadRoles(page)} />
+									<Pagination
+										{...rolesPage}
+										onPage={(page) =>
+											void loadRoles(page).catch((reason) =>
+												setError(reason instanceof Error ? reason.message : "角色加载失败"),
+											)
+										}
+									/>
 								</section>
 								<section className="role-editor">
 									<h3>{roleDraft.id ? "编辑角色" : "新建角色"}</h3>
@@ -460,7 +479,14 @@ export function RbacManagement({ user }: { user: UserIdentity }) {
 						children: (
 							<div className="rbac-split">
 								<section className="rbac-list">
-									<h3>机构用户</h3>
+									<header>
+										<h3>机构用户</h3>
+										{onOpenMembers && (
+											<Button variant="secondary" size="small" onClick={onOpenMembers}>
+												添加 / 恢复成员
+											</Button>
+										)}
+									</header>
 									<List
 										size="small"
 										className="rbac-role-list"
@@ -477,7 +503,14 @@ export function RbacManagement({ user }: { user: UserIdentity }) {
 											</List.Item>
 										)}
 									/>
-									<Pagination {...usersPage} onPage={(page) => void loadUsers(page)} />
+									<Pagination
+										{...usersPage}
+										onPage={(page) =>
+											void loadUsers(page).catch((reason) =>
+												setError(reason instanceof Error ? reason.message : "成员加载失败"),
+											)
+										}
+									/>
 								</section>
 								<section className="role-editor">
 									<h3>{selectedUser ? `${selectedUser.display_name} 的访问范围` : "选择一个用户"}</h3>
@@ -487,8 +520,21 @@ export function RbacManagement({ user }: { user: UserIdentity }) {
 											<Checkbox.Group
 												className="permission-checkboxes"
 												value={userRoleIds}
-												onChange={(keys) => setUserRoleIds(keys as string[])}
+												onChange={(keys) =>
+													setUserRoleIds((current) => [
+														...current.filter((id) => !rolesPage.items.some((role) => role.id === id)),
+														...(keys as string[]),
+													])
+												}
 												options={rolesPage.items.map((role) => ({ value: role.id, label: role.name }))}
+											/>
+											<Pagination
+												{...rolesPage}
+												onPage={(page) =>
+													void loadRoles(page).catch((reason) =>
+														setError(reason instanceof Error ? reason.message : "角色加载失败"),
+													)
+												}
 											/>
 											<div className="scope-toggle">
 												<span>可访问机构下全部客户</span>
@@ -506,11 +552,19 @@ export function RbacManagement({ user }: { user: UserIdentity }) {
 															{ title: "域名", dataIndex: "domain" },
 														]}
 														rowSelection={{
+															preserveSelectedRowKeys: true,
 															selectedRowKeys: projectIds,
 															onChange: (keys) => setProjectIds(keys as string[]),
 														}}
 													/>
-													<Pagination {...projectsPage} onPage={(page) => void loadProjectsForScope(page)} />
+													<Pagination
+														{...projectsPage}
+														onPage={(page) =>
+															void loadProjectsForScope(page).catch((reason) =>
+																setError(reason instanceof Error ? reason.message : "客户加载失败"),
+															)
+														}
+													/>
 												</>
 											)}
 											<Button busy={busy} onClick={() => void saveUserAccess()}>

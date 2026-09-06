@@ -24,7 +24,9 @@ description: Develop or review GEO Console application code, including the Web/A
 - `query_captures`、Provider 原始响应、网页快照和报告快照是证据。只追加，不覆盖或“修正”；重新解析只生成派生结果或新批次。
 - 批次创建时冻结客户、竞品、Prompt、平台、重复次数、时间窗及完整 Provider 契约。复测必须逐字段复用正式基线 `config`；任何配置变化都创建新基线。
 - Provider 失败必须保留为该 Provider 的真实状态，不得切换模型、平台或用合成结果补齐。来源或 Fan-out 不可见时保留 `unavailable`，不是空数组代表的 0。
-- 指标保持确定性：品牌率只以成功回答为分母；总览按有效平台等权；失败平台进入覆盖率/失败率，不以零分拉低品牌率；未知费用保持 `null`。
+- 指标仅使用 V2 MetricSnapshot：原子语义必须经原文与品牌白名单校验，先问题等权再达标平台等权。采集/解析/问题覆盖独立，正式漂移必须有共同问题配对区间；禁止 V1 首次提及排名回退，未知费用保持 `null`。实现细节见 `references/domain-contracts.md` 与 `docs/visibility-measurement-v2.md`。
+- 授权扩展统一使用 `packages/authorization` 和 Worker `authorization/`；单 SQL 主体、credential_version 会话、显式异步执行者及逐工具策略不得绕过，细节见 `docs/rbac-v2.md`。
+- 成员管理必须在服务端事务内限制可授予角色/客户范围，不能以 members.manage 间接提升权限；默认角色用稳定 system_key，机构授权上限不删除角色定义。账号生命周期与前端状态规则见 domain-contracts/frontend。
 - HRouter Agent 只能读取当前项目的领域数据并提交待审批结构化草稿。不得增加 Bash、任意文件、任意 SQL 或开放 HTTP；审批时重新校验证据、Prompt、任务和项目归属。
 - 网站抓取必须继续阻止私网、Loopback、非 HTTP(S) 和重定向后的内网目标。抓取失败表示证据不足，不能推断页面没有内容。
 - 报告先冻结 payload 与 SHA-256，再异步生成 PDF。只有批准的 Agent 草稿能进入正式业务记录或报告叙述。
@@ -54,3 +56,5 @@ corepack pnpm lint
 ```
 
 依赖或许可发生变化时还要运行 `corepack pnpm license-check`。交付说明应列出变更的契约、migration、测试结果和未验证的真实 Provider/浏览器/数据库条件。
+
+- Responses 采集必须区分最终回答、推理/中间消息与工具来源；只能把最终 annotation/明确引用链接标为 isCitation。协议变化提升 ADAPTER_VERSION，旧证据只读、新建批次验证，详见 full-audit-2026-09-06.md。

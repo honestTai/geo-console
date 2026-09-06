@@ -1,6 +1,6 @@
 import type { FrozenBatchConfig, WebsiteAuditResult } from "@geo/core";
 import type { QueryCapture } from "@geo/evidence";
-import type { OverallVisibilityMetrics, VisibilityMetrics } from "@geo/metrics";
+import { mean, type OverallVisibilityMetrics, recommendationRankMedian, type VisibilityMetrics } from "@geo/metrics";
 
 type BatchMetrics = {
 	perPlatform: Record<string, VisibilityMetrics>;
@@ -45,11 +45,11 @@ export type ReportAnalysis = {
 		tags: string[];
 		completeSamples: number;
 		plannedSamples: number;
-		targetMentionRate: number;
-		firstRecommendationRate: number;
+		targetMentionRate: number | null;
+		firstRecommendationRate: number | null;
 		bestTargetPosition: number | null;
 		sourceCount: number;
-		competitors: Array<{ id: string; name: string; mentionRate: number; bestPosition: number | null }>;
+		competitors: Array<{ id: string; name: string; mentionRate: number | null; bestPosition: number | null }>;
 		captures: Array<{
 			captureId: string;
 			platform: string;
@@ -143,7 +143,11 @@ export function buildEvidenceIndex(
 			attempt: capture.attempt,
 			status: capture.status,
 			capturedAt: capture.capturedAt,
-			sourceUrls: [...new Set(capture.sources.map((source) => stripTrackingFragment(source.url)))].slice(0, 12),
+			sourceUrls: [
+				...new Set(
+					capture.sources.filter((source) => source.isCitation).map((source) => stripTrackingFragment(source.url)),
+				),
+			].slice(0, 12),
 			url: null,
 			title: null,
 		});
@@ -201,14 +205,7 @@ const normalizeDomain = (value: string): string =>
 		.trim()
 		.toLowerCase()
 		.replace(/^www\./, "");
-const percentage = (value: number): string => `${Math.round(value * 100)}%`;
-
-function bestPosition(captures: QueryCapture[], brandId: string): number | null {
-	const positions = captures.flatMap((capture) =>
-		capture.brandMatches.filter((match) => match.brandId === brandId).map((match) => match.position),
-	);
-	return positions.length ? Math.min(...positions) : null;
-}
+const percentage = (value: number | null): string => (value === null ? "不可用" : `${Math.round(value * 100)}%`);
 
 /** 回答里的 Markdown 标记（加粗、链接、表格竖线）不是品牌描述的一部分，摘录时去掉。 */
 export function stripInlineMarkdown(value: string): string {
@@ -281,6 +278,7 @@ function buildSourceDomains(captures: QueryCapture[], config: FrozenBatchConfig)
 	for (const capture of captures) {
 		if (capture.status !== "complete") continue;
 		for (const source of capture.sources) {
+			if (!source.isCitation) continue;
 			const domain = normalizeDomain(source.domain);
 			const current = domains.get(domain) ?? { citationCount: 0, prompts: new Set<string>(), urls: new Map() };
 			current.citationCount += 1;
@@ -336,7 +334,10 @@ export function buildDeterministicFindings(input: {
 	websiteAudit: { id: string; result: WebsiteAuditResult } | null;
 	webEvidence?: DiagnosisWebEvidence[];
 }): ReportFinding[] {
-	const { projectId, config, captures, metrics, websiteAudit, webEvidence = [] } = input;
+	const { config, captures, metrics, websiteAudit, webEvidence = [] } = input;
+	const promptMetrics = Object.values(metrics.perPlatform)
+		.flatMap((p) => p.prompts ?? [])
+		.filter((p) => p.eligible);
 	const complete = captures.filter((capture) => capture.status === "complete");
 	const findings: ReportFinding[] = [];
 	if (metrics.failedSamples > 0) {
@@ -351,10 +352,14 @@ export function buildDeterministicFindings(input: {
 			recommendation: "先处理登录、验证、限流或页面契约问题，再按相同冻结配置补建新批次。",
 		});
 	}
-	if (complete.length && metrics.overall.brandMentionRate >= 0.6) {
-		const evidenceIds = complete
-			.filter((capture) => capture.brandMatches.some((match) => match.brandId === projectId))
-			.map((capture) => capture.captureId);
+	if (
+		metrics.overall.status === "ready" &&
+		metrics.overall.brandMentionRate !== null &&
+		metrics.overall.brandMentionRate >= 0.6
+	) {
+		const evidenceIds = [
+			...new Set(promptMetrics.filter((p) => (p.brandMentionRate ?? 0) > 0).flatMap((p) => p.evidenceIds)),
+		];
 		findings.push({
 			category: "可见度优势",
 			title: "品牌已建立可验证的 AI 可见度",
@@ -365,27 +370,26 @@ export function buildDeterministicFindings(input: {
 			recommendation: "保留当前被反复提及的品牌名称、产品定位和事实表述，并在复测中持续观察。",
 		});
 	}
-	const weakCaptures = complete.filter((capture) => {
-		const position = bestPosition([capture], projectId);
-		return position === null || position > 1;
-	});
-	if (weakCaptures.length) {
-		const questions = [...new Set(weakCaptures.map((capture) => capture.prompt))];
+	const weakPrompts = promptMetrics.filter((p) => p.recommendationRate !== null && p.recommendationRate < 1);
+	if (weakPrompts.length)
 		findings.push({
 			category: "问题机会",
-			title: "重点购买问题仍存在推荐位置差距",
-			detail: `${weakCaptures.length} 个有效回答中品牌未居首或未出现，涉及：${questions.slice(0, 5).join("；")}。该结论只描述观测差距，不推断平台黑盒因果。`,
+			title: "部分问题的正向推荐覆盖仍有空间",
+			detail: `${weakPrompts.length} 个平台/问题的有效重复中并非每次都有正向推荐；这是 V2 问题级结果，不表示固定排名。`,
 			confidence: 1,
-			evidenceIds: weakCaptures.map((capture) => capture.captureId),
-			targetPromptIds: [...new Set(weakCaptures.map((capture) => capture.promptId))],
-			recommendation: "为这些问题分别建设可公开验证的选购页，补充适用人群、选择条件、比较维度、事实来源和常见问题。",
+			evidenceIds: [...new Set(weakPrompts.flatMap((p) => p.evidenceIds))],
+			targetPromptIds: [...new Set(weakPrompts.map((p) => p.promptId))],
+			recommendation: "对照语义证据补充可核验的适用条件、事实来源和相关内容，再同条件复测。",
 		});
-	}
+
 	const owned = normalizeDomain(config.project.domain);
 	const withOwnedCitation = complete.filter((capture) =>
 		capture.sources.some((source) => normalizeDomain(source.domain) === owned && source.isCitation),
 	);
-	if (complete.length && withOwnedCitation.length === 0) {
+	if (
+		complete.some((c) => c.captureMode === "llm_search_api" && c.sourceVisibility !== "unavailable") &&
+		withOwnedCitation.length === 0
+	) {
 		const withSources = complete.filter((capture) => capture.sources.length > 0);
 		findings.push({
 			category: "信源差距",
@@ -398,24 +402,22 @@ export function buildDeterministicFindings(input: {
 				"修复官网可访问性与结构化信息，为核心购买问题建立独立可索引页面，并争取可信第三方页面引用同一组可核验事实。",
 		});
 	}
-	const outranked = complete.filter((capture) => {
-		const target = bestPosition([capture], projectId);
-		return config.competitors.some((competitor) => {
-			const position = bestPosition([capture], competitor.id);
-			return position !== null && (target === null || position < target);
-		});
-	});
-	if (outranked.length) {
+	const competitorAhead = promptMetrics.filter(
+		(p) =>
+			p.brandMentionRate !== null &&
+			Object.values(p.competitorMentionRates).some((rate) => rate !== null && rate > p.brandMentionRate!),
+	);
+	if (competitorAhead.length)
 		findings.push({
 			category: "竞品压力",
-			title: "竞品在部分问题中排在客户品牌之前",
-			detail: `${outranked.length} 个有效回答出现至少一个已确认竞品位置领先。需要逐问题比较回答用到的描述与引用来源，而不是做全站泛化改写。`,
+			title: "竞品在部分问题中的提及概率更高",
+			detail: `${competitorAhead.length} 个平台/问题中竞品提及率高于客户；提及不是推荐名次，不推断因果。`,
 			confidence: 1,
-			evidenceIds: outranked.map((capture) => capture.captureId),
-			targetPromptIds: [...new Set(outranked.map((capture) => capture.promptId))],
-			recommendation: "打开对应证据，整理竞品被推荐时出现的可验证维度，再将客户真实具备的差异化事实补到相关页面。",
+			evidenceIds: [...new Set(competitorAhead.flatMap((p) => p.evidenceIds))],
+			targetPromptIds: [...new Set(competitorAhead.map((p) => p.promptId))],
+			recommendation: "阅读对应原文和引用来源，比较可核验事实，并用同一测量契约复测。",
 		});
-	}
+
 	if (websiteAudit) {
 		const material = websiteAudit.result.checks.filter(
 			(check) => check.status === "fail" || (check.status === "warning" && check.weight >= 6),
@@ -486,8 +488,10 @@ export function buildReportAnalysis(input: {
 	const promptRows = input.config.prompts.map((prompt) => {
 		const captures = input.captures.filter((capture) => capture.promptId === prompt.id);
 		const valid = captures.filter((capture) => capture.status === "complete");
-		const targetMentioned = valid.filter((capture) => bestPosition([capture], input.projectId) !== null);
-		const targetFirst = valid.filter((capture) => bestPosition([capture], input.projectId) === 1);
+		const measured = Object.values(input.metrics.perPlatform)
+			.flatMap((p) => p.prompts ?? [])
+			.filter((p) => p.promptId === prompt.id && p.eligible);
+
 		return {
 			promptId: prompt.id,
 			question: prompt.question,
@@ -495,17 +499,16 @@ export function buildReportAnalysis(input: {
 			tags: prompt.tags,
 			completeSamples: valid.length,
 			plannedSamples: input.config.platforms.length * input.config.repeats,
-			targetMentionRate: valid.length ? targetMentioned.length / valid.length : 0,
-			firstRecommendationRate: valid.length ? targetFirst.length / valid.length : 0,
-			bestTargetPosition: bestPosition(valid, input.projectId),
+			targetMentionRate: mean(measured.map((p) => p.brandMentionRate)),
+			firstRecommendationRate: mean(measured.map((p) => p.firstRecommendationRate)),
+			bestTargetPosition: recommendationRankMedian(measured),
 			sourceCount: valid.reduce((sum, capture) => sum + capture.sources.length, 0),
 			competitors: input.config.competitors.map((competitor) => {
-				const mentioned = valid.filter((capture) => bestPosition([capture], competitor.id) !== null);
 				return {
 					id: competitor.id,
 					name: competitor.name,
-					mentionRate: valid.length ? mentioned.length / valid.length : 0,
-					bestPosition: bestPosition(valid, competitor.id),
+					mentionRate: mean(measured.map((p) => p.competitorMentionRates[competitor.id] ?? null)),
+					bestPosition: null,
 				};
 			}),
 			captures: captures.map((capture) => ({
@@ -513,7 +516,7 @@ export function buildReportAnalysis(input: {
 				platform: capture.engine,
 				attempt: capture.attempt,
 				status: capture.status,
-				targetPosition: bestPosition([capture], input.projectId),
+				targetPosition: null,
 				sourceCount: capture.sources.length,
 				screenshotKey:
 					capture.captureMode === "consumer_surface"
@@ -523,16 +526,17 @@ export function buildReportAnalysis(input: {
 		};
 	});
 	const validRatio = input.metrics.expectedSamples ? input.metrics.validSamples / input.metrics.expectedSamples : 0;
-	const evidenceLevel = validRatio >= 0.8 && input.metrics.validSamples >= 5 ? "高" : validRatio >= 0.5 ? "中" : "低";
-	const averagePosition = input.metrics.overall.averageMentionPosition;
+	const evidenceLevel =
+		input.metrics.overall.status === "ready" ? "高" : input.metrics.overall.status === "limited" ? "中" : "低";
+	const averagePosition = input.metrics.overall.medianRecommendationRank;
 	const webEvidence = input.webEvidence ?? [];
 	return {
 		generatedAt: new Date().toISOString(),
 		executive: {
 			headline: `${input.config.project.name} AI 可见度基线：提及率 ${percentage(input.metrics.overall.brandMentionRate)}，官网引用率 ${input.metrics.overall.citationRate === null ? "不可用" : percentage(input.metrics.overall.citationRate)}`,
-			summary: `本批次获得 ${input.metrics.validSamples}/${input.metrics.expectedSamples} 个有效联网 API 回答。品牌首位推荐率 ${percentage(input.metrics.overall.firstRecommendationRate)}${averagePosition === null ? "，暂无可计算位置" : `，出现时平均位置 ${averagePosition.toFixed(1)}`}。报告同时保留平台差异、竞品位置、引用来源、数据覆盖率和失败样本；API 回答不描述为消费端 App 回答。`,
+			summary: `本批次获得 ${input.metrics.validSamples}/${input.metrics.expectedSamples} 个有效联网 API 回答。品牌首位推荐率 ${percentage(input.metrics.overall.firstRecommendationRate)}${averagePosition === null ? "，暂无可计算位置" : `，明确推荐名次中位数 ${averagePosition.toFixed(1)}`}。报告同时保留平台差异、竞品位置、引用来源、数据覆盖率和失败样本；API 回答不描述为消费端 App 回答。`,
 			evidenceLevel,
-			validityNote: `证据等级${evidenceLevel}：有效率 ${percentage(validRatio)}；结果是指定时间、账号、地区和问题集下的真实采样，不等于平台长期固定排名。`,
+			validityNote: `V2 可报告状态 ${input.metrics.overall.status}：采集覆盖 ${percentage(validRatio)}、解析覆盖 ${percentage(input.metrics.overall.parseCoverage)}、问题覆盖 ${percentage(input.metrics.overall.promptCoverage)}；结果是指定时间、账号、地区和问题集下的真实采样，不等于平台长期固定排名。提及率 95% 区间：${input.metrics.overall.confidenceIntervals?.brandMentionRate?.map((v) => percentage(v)).join(" – ") ?? "样本不足"}。`,
 		},
 		promptRows,
 		sourceDomains: buildSourceDomains(complete, input.config),

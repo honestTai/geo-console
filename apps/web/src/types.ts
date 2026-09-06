@@ -154,6 +154,8 @@ export type BatchSummary = {
 	compare_to_batch_id: string | null;
 };
 export type Project = ProjectSummary & {
+	organization_id?: string;
+	enabledPlatforms?: ProviderId[];
 	aliases: string[];
 	profile: Record<string, unknown> | null;
 	competitors: Competitor[];
@@ -241,19 +243,41 @@ export type Capture = {
 	capturedAt: string;
 };
 export type PlatformMetrics = {
+	status?: "ready" | "limited" | "unavailable";
+	parseCoverage?: number | null;
+	promptCoverage?: number;
+	eligiblePromptCount?: number;
+	plannedPromptCount?: number;
+	recommendationRate?: number | null;
+	explicitRecommendationRate?: number | null;
+	confidenceIntervals?: Record<string, [number, number] | null>;
 	totalCaptures: number;
 	answeredCaptures: number;
-	answerCoverage: number;
-	brandMentionRate: number;
-	firstRecommendationRate: number;
+	captureCoverage: number;
+	brandMentionRate: number | null;
+	firstRecommendationRate: number | null;
 	citationRate: number | null;
-	averageMentionPosition: number | null;
-	brandShareOfVoice?: number;
-	repeatConsistency?: number | null;
+	medianRecommendationRank: number | null;
+	monitoredBrandShare?: number | null;
+	pairwiseAgreement?: number | null;
 	sourceCoverage?: number | null;
-	competitorMentionRates: Record<string, number>;
+	competitorMentionRates: Record<string, number | null>;
 };
 export type Batch = BatchSummary & {
+	pairedComparison?: Array<{
+		provider_id: string;
+		metric: string;
+		result: {
+			status?: "ready" | "limited" | "unavailable";
+			previous: number | null;
+			current: number | null;
+			delta: number | null;
+			interval: [number, number] | null;
+			severity: string;
+			promptIds: string[];
+		};
+	}>;
+	measurement?: { runId: string | null; snapshotId: string | null; status: string; captureContractCurrent?: boolean };
 	project_id: string;
 	config: {
 		project: { name: string; domain: string };
@@ -265,7 +289,15 @@ export type Batch = BatchSummary & {
 	captures: Capture[];
 	metrics: {
 		perPlatform: Record<string, PlatformMetrics>;
-		overall: Record<string, number | null>;
+		overall: Record<string, unknown> & {
+			brandMentionRate: number | null;
+			firstRecommendationRate: number | null;
+			citationRate: number | null;
+			recommendationRate?: number | null;
+			explicitRecommendationRate?: number | null;
+			status?: "ready" | "limited" | "unavailable";
+			confidenceIntervals?: Record<string, [number, number] | null>;
+		};
 		validSamples: number;
 		failedSamples: number;
 		expectedSamples: number;
@@ -281,8 +313,8 @@ export type ReportAnalysis = {
 		tags: string[];
 		completeSamples: number;
 		plannedSamples: number;
-		targetMentionRate: number;
-		firstRecommendationRate: number;
+		targetMentionRate: number | null;
+		firstRecommendationRate: number | null;
 		bestTargetPosition: number | null;
 		sourceCount: number;
 		competitors: Array<{ id: string; name: string; mentionRate: number; bestPosition: number | null }>;
@@ -317,6 +349,7 @@ export type ReportAnalysis = {
 	websiteAudit: { id: string; result: WebsiteAuditResult } | null;
 };
 export type ReportPayload = {
+	metricSnapshotId?: string | null;
 	analysis: ReportAnalysis;
 	findings: Finding[];
 	tasks: Task[];
@@ -590,6 +623,8 @@ export type ReportShare = {
 	created_by_email: string | null;
 };
 export type ReportWorkflowState =
+	| "analysis_pending"
+	| "analysis_unavailable"
 	| "narrative_queued"
 	| "narrative_running"
 	| "narrative_approval"
@@ -781,6 +816,9 @@ export type LibraryQuestion = {
 	created_at: string;
 };
 export type PermissionRecord = {
+	enabled?: boolean;
+	built_in?: boolean;
+	navigation_key?: string | null;
 	key: string;
 	kind: "page" | "action";
 	group_label: string;
@@ -792,6 +830,7 @@ export type PermissionRecord = {
 };
 
 export type RoleRecord = {
+	system_key?: "admin" | "analyst" | "viewer" | null;
 	id: string;
 	name: string;
 	description: string | null;
@@ -800,6 +839,7 @@ export type RoleRecord = {
 	permission_keys: string[];
 };
 export type ManagedUser = {
+	can_manage?: boolean;
 	id: string;
 	email: string;
 	display_name: string;

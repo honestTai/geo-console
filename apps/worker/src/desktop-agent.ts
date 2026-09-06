@@ -4,6 +4,7 @@ import type { ServerResponse } from "node:http";
 import type { AgentMessage, AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import { type Database, type DesktopAgentTrigger, readEncryptedCredential } from "@geo/core";
 import { z } from "zod";
+import { authorizeWorkbench } from "./authorization/execution";
 import { getHRouterConfig } from "./hrouter";
 import { AccessDeniedError } from "./rbac";
 import { parseJsonColumn, sha256, stableJson } from "./utils";
@@ -100,6 +101,7 @@ async function assertDesktopRun(
 	input: { runId: string; clientId: string },
 	actor: DesktopActor,
 ): Promise<WorkbenchSession> {
+	await authorizeWorkbench(database, sessionId);
 	const session = await loadSession(database, sessionId);
 	assertDesktopOwner(session, actor);
 	if (
@@ -186,6 +188,7 @@ export async function claimDesktopTurn(
 	actor: DesktopActor,
 ): Promise<DesktopAgentRuntime> {
 	const { clientId } = z.object({ clientId: clientIdSchema }).parse(input);
+	await authorizeWorkbench(database, sessionId);
 	const current = await loadSession(database, sessionId);
 	assertDesktopOwner(current, actor);
 	const config = await getHRouterConfig(database, current.organization_id);
@@ -641,59 +644,79 @@ export async function relayDesktopAgentResponse(
 	if (!apiKey || !model) throw new Error("请先配置 HRouter API Key 与 GPT 模型");
 	const searches = await sessionSearchCount(database, sessionId);
 	const tools = await desktopTools(database, session);
-	const upstream = await (dependencies.fetch ?? globalThis.fetch)(`${config.baseUrl.replace(/\/$/, "")}/responses`, {
-		method: "POST",
-		signal,
-		headers: {
-			authorization: `Bearer ${apiKey}`,
-			"content-type": "application/json",
-			"x-session-id": sessionId,
-			"x-client-request-id": sessionId,
-		},
-		body: JSON.stringify({
-			model,
-			instructions: `${WORKBENCH_SYSTEM_PROMPT}${webSearchPromptNote(session, searches)}`,
-			input: body.input,
-			tools: responseTools(tools),
-			tool_choice: "auto",
-			parallel_tool_calls: true,
-			reasoning: { effort: session.thinking_level ?? config.thinkingLevel, summary: "auto" },
-			include: ["reasoning.encrypted_content"],
-			max_output_tokens: 12_000,
-			prompt_cache_key: sessionId,
-			stream: true,
-			store: false,
-		}),
-	});
-	response.writeHead(upstream.status, {
-		"content-type": upstream.headers.get("content-type") ?? "text/event-stream; charset=utf-8",
-		"cache-control": "no-cache, no-transform",
-		connection: "keep-alive",
-		"x-accel-buffering": "no",
-	});
-	response.flushHeaders();
-	if (!upstream.body) {
-		response.end();
-		return;
-	}
-	const decoder = new TextDecoder();
-	let lineBuffer = "";
-	let usage: { input: number; output: number; total: number } | null = null;
+	const revocation = new AbortController();
+	let authorizationError: unknown;
+	let checking = false;
+	const monitor = setInterval(() => {
+		if (checking) return;
+		checking = true;
+		void authorizeWorkbench(database, sessionId)
+			.catch((error) => {
+				authorizationError = error;
+				revocation.abort(error);
+			})
+			.finally(() => {
+				checking = false;
+			});
+	}, 1000);
 	try {
-		for await (const chunk of upstream.body) {
-			if (response.destroyed) break;
-			if (!response.write(chunk)) await once(response, "drain");
-			lineBuffer += decoder.decode(chunk, { stream: true });
-			const lines = lineBuffer.split(/\r?\n/);
-			lineBuffer = lines.pop() ?? "";
-			for (const line of lines) usage = readUsageEvent(line) ?? usage;
+		const upstream = await (dependencies.fetch ?? globalThis.fetch)(`${config.baseUrl.replace(/\/$/, "")}/responses`, {
+			method: "POST",
+			signal: signal ? AbortSignal.any([signal, revocation.signal]) : revocation.signal,
+			headers: {
+				authorization: `Bearer ${apiKey}`,
+				"content-type": "application/json",
+				"x-session-id": sessionId,
+				"x-client-request-id": sessionId,
+			},
+			body: JSON.stringify({
+				model,
+				instructions: `${WORKBENCH_SYSTEM_PROMPT}${webSearchPromptNote(session, searches)}`,
+				input: body.input,
+				tools: responseTools(tools),
+				tool_choice: "auto",
+				parallel_tool_calls: true,
+				reasoning: { effort: session.thinking_level ?? config.thinkingLevel, summary: "auto" },
+				include: ["reasoning.encrypted_content"],
+				max_output_tokens: 12_000,
+				prompt_cache_key: sessionId,
+				stream: true,
+				store: false,
+			}),
+		});
+		response.writeHead(upstream.status, {
+			"content-type": upstream.headers.get("content-type") ?? "text/event-stream; charset=utf-8",
+			"cache-control": "no-cache, no-transform",
+			connection: "keep-alive",
+			"x-accel-buffering": "no",
+		});
+		response.flushHeaders();
+		if (!upstream.body) {
+			response.end();
+			return;
 		}
-		lineBuffer += decoder.decode();
-		for (const line of lineBuffer.split(/\r?\n/)) usage = readUsageEvent(line) ?? usage;
+		const decoder = new TextDecoder();
+		let lineBuffer = "";
+		let usage: { input: number; output: number; total: number } | null = null;
+		try {
+			for await (const chunk of upstream.body) {
+				if (response.destroyed) break;
+				if (authorizationError) throw authorizationError;
+				if (!response.write(chunk)) await once(response, "drain");
+				lineBuffer += decoder.decode(chunk, { stream: true });
+				const lines = lineBuffer.split(/\r?\n/);
+				lineBuffer = lines.pop() ?? "";
+				for (const line of lines) usage = readUsageEvent(line) ?? usage;
+			}
+			lineBuffer += decoder.decode();
+			for (const line of lineBuffer.split(/\r?\n/)) usage = readUsageEvent(line) ?? usage;
+		} finally {
+			if (!response.destroyed) response.end();
+		}
+		if (usage) await recordRelayUsage(database, session, usage);
 	} finally {
-		if (!response.destroyed) response.end();
+		clearInterval(monitor);
 	}
-	if (usage) await recordRelayUsage(database, session, usage);
 }
 
 export function desktopAgentRuntimeLimits() {

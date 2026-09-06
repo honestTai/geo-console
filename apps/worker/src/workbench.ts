@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { Agent, type AgentMessage, type AgentTool } from "@earendil-works/pi-agent-core";
 import { contentText, Type } from "@earendil-works/pi-ai";
+import type { ExecutionActor } from "@geo/authorization";
 import {
 	type AgentSessionPlanStep,
 	type AgentSessionStatus,
@@ -32,21 +33,25 @@ import {
 	toolResult,
 } from "./agent";
 import { generateArticlesForBatch } from "./articles";
+import { AccessDeniedError as AuthorizationDenied, authorizeAction } from "./authorization";
+import { authorizeWorkbench, authorizeWorkbenchTool, parseActor } from "./authorization/execution";
 import { getHRouterConfig } from "./hrouter";
 import { listLibraryQuestions } from "./knowledge-base";
+import { currentMeasurement } from "./measurement";
 import { type Paginated, type PaginationInput, paginated } from "./pagination";
 import { providerDefinitions } from "./providers";
 import { AccessDeniedError } from "./rbac";
 import type { EvidenceIndexEntry } from "./report";
 import { advanceReportWorkflow, getReportPdfStatus } from "./report-snapshots";
 import { auditProject, confirmProject, createBatch, createTasksFromFindings, diagnoseBatch, getBatch } from "./service";
-import { parseJsonColumn } from "./utils";
+import { HttpInputError, parseJsonColumn } from "./utils";
 import { createWebSearchTool, WEB_SEARCH_LIMITS } from "./web-search";
 
 export const workbenchLogger = new StructuredLogger("workbench");
 const SESSION_PROMPT_VERSION = "geo-workbench.desktop.v1";
 
 export type SessionRow = {
+	execution_actor: ExecutionActor;
 	id: string;
 	organization_id: string;
 	project_id: string;
@@ -167,7 +172,7 @@ export type WorkbenchSession = ReturnType<typeof parseSession>;
 
 export async function loadSession(database: Database, sessionId: string): Promise<WorkbenchSession> {
 	const row = (await database.query<SessionRow>("SELECT * FROM agent_sessions WHERE id=$1", [sessionId])).rows[0];
-	if (!row) throw new Error("AI 工作台会话不存在");
+	if (!row) throw new HttpInputError("AI 工作台会话不存在", 404);
 	return parseSession(row);
 }
 
@@ -194,7 +199,7 @@ export async function appendEvent(
 				[sessionId],
 			)
 		).rows[0];
-		if (!session) throw new Error("AI 工作台会话不存在");
+		if (!session) throw new HttpInputError("AI 工作台会话不存在", 404);
 		const inserted = (
 			await transaction.query<{ seq: number }>(
 				`INSERT INTO agent_session_events (id,session_id,seq,type,payload,client_event_id)
@@ -243,7 +248,7 @@ export async function createSession(
 	projectId: string,
 	input: unknown,
 	createdBy: string | null,
-	options: { desktopClient?: boolean } = {},
+	options: { desktopClient?: boolean; actor?: ExecutionActor } = {},
 ): Promise<{ id: string }> {
 	const data = createSessionSchema.parse(input);
 	const executionTarget = data.executionTarget ?? "server";
@@ -255,16 +260,19 @@ export async function createSession(
 			[projectId],
 		)
 	).rows[0];
-	if (!project) throw new Error("客户项目不存在");
+	if (!project) throw new HttpInputError("客户项目不存在", 404);
+	const actor =
+		options.actor ?? (createdBy ? { kind: "user" as const, userId: createdBy } : { kind: "unassigned" as const });
+	await authorizeAction(database, actor, "workbench.execute", { organizationId: project.organization_id, projectId });
 	const config = await getHRouterConfig(database, project.organization_id);
 	const model = data.model ?? config.model;
-	if (!config.configured || !model) throw new Error("请先在平台设置中配置 HRouter API Key 与 GPT 模型");
+	if (!config.configured || !model) throw new HttpInputError("请先在平台设置中配置 HRouter API Key 与 GPT 模型", 409);
 	const id = randomUUID();
 	const title = data.title ?? (data.message ? data.message.slice(0, 40) : `${project.name} · 新会话`);
 	await database.query(
 		`INSERT INTO agent_sessions
-		 (id,organization_id,project_id,title,status,auto_approve,model,thinking_level,web_search_enabled,execution_target,created_by)
-		 VALUES ($1,$2,$3,$4,'idle',$5,$6,$7,$8,$9,$10)`,
+		 (id,organization_id,project_id,title,status,auto_approve,model,thinking_level,web_search_enabled,execution_target,created_by,execution_actor)
+		 VALUES ($1,$2,$3,$4,'idle',$5,$6,$7,$8,$9,$10,$11::jsonb)`,
 		[
 			id,
 			project.organization_id,
@@ -276,6 +284,7 @@ export async function createSession(
 			data.webSearchEnabled ?? true,
 			executionTarget,
 			createdBy,
+			JSON.stringify(actor),
 		],
 	);
 	await appendEvent(database, id, "session_created", {
@@ -394,7 +403,7 @@ export async function updateSessionSettings(database: Database, sessionId: strin
 			data.webSearchEnabled ?? null,
 		],
 	);
-	if (result.affectedRows !== 1) throw new Error("AI 工作台会话不存在");
+	if (result.affectedRows !== 1) throw new HttpInputError("AI 工作台会话不存在", 404);
 	await appendEvent(database, sessionId, "settings_changed", data);
 }
 
@@ -405,14 +414,21 @@ export async function sendMessage(
 	options: { desktopClient?: boolean } = {},
 ): Promise<{ queued: true }> {
 	const { message } = messageSchema.parse(input);
+	if (
+		(await database.query("SELECT id FROM agent_sessions WHERE id=$1 AND cancelled_at IS NOT NULL", [sessionId])).rows
+			.length
+	)
+		throw new HttpInputError("会话已终止，请新建会话", 409);
 	const session = await loadSession(database, sessionId);
-	if (session.status === "running") throw new Error("Agent 正在执行，请等待本回合结束后再发送");
-	if (session.status === "waiting_user") throw new Error("Agent 正在等待你回答上一个问题，请先回答");
+	if (session.status === "running") throw new HttpInputError("Agent 正在执行，请等待本回合结束后再发送", 409);
+	if (session.status === "waiting_user") throw new HttpInputError("Agent 正在等待你回答上一个问题，请先回答", 409);
 	if (session.execution_target === "desktop" && !options.desktopClient)
 		throw new Error("该会话在桌面端运行，请使用 ZZ Geo 桌面客户端继续");
-	await database.query("UPDATE agent_sessions SET status='running',error_message=NULL,updated_at=now() WHERE id=$1", [
-		sessionId,
-	]);
+	const updated = await database.query(
+		"UPDATE agent_sessions SET status='running',error_message=NULL,updated_at=now() WHERE id=$1 AND status NOT IN ('running','waiting_user') AND cancelled_at IS NULL",
+		[sessionId],
+	);
+	if (!updated.affectedRows) throw new HttpInputError("会话状态已变化，请刷新后重试", 409);
 	await appendEvent(database, sessionId, "user_message", { text: message });
 	await scheduleSessionTurn(database, session, { sessionId, trigger: "user", message });
 	return { queued: true };
@@ -431,6 +447,7 @@ async function applyScopeProposal(
 	data: ProposalAnswer & { questions: NonNullable<ProposalAnswer["questions"]> },
 	actor: AnswerActor,
 ): Promise<{ promptCount: number; competitorCount: number; libraryAdded: number; libraryLinked: number }> {
+	await authorizeWorkbenchTool(database, session.id, "propose_questions");
 	const projectId = session.project_id;
 	const [project, approvedCompetitors] = await Promise.all([
 		database.query<{ aliases: unknown; name: string }>("SELECT aliases,name FROM projects WHERE id=$1", [projectId]),
@@ -492,7 +509,8 @@ export async function answerQuestion(
 ): Promise<{ queued: true; applied?: boolean; promptCount?: number; libraryAdded?: number }> {
 	const data = answerSchema.parse(input);
 	const session = await loadSession(database, sessionId);
-	if (session.status !== "waiting_user" || session.waiting?.kind !== "user") throw new Error("当前没有待回答的问题");
+	if (session.status !== "waiting_user" || session.waiting?.kind !== "user")
+		throw new HttpInputError("当前没有待回答的问题", 409);
 	if (session.execution_target === "desktop" && !actor.desktopClient)
 		throw new Error("该会话在桌面端运行，请使用 ZZ Geo 桌面客户端回答");
 	const proposal = session.waiting.proposal ?? null;
@@ -551,7 +569,7 @@ export async function answerQuestion(
 		...(data.selected?.length ? [`选择：${data.selected.join("；")}`] : []),
 		...(data.answer ? [data.answer] : []),
 	];
-	if (!parts.length) throw new Error("请至少选择一项或输入回答");
+	if (!parts.length) throw new HttpInputError("请至少选择一项或输入回答", 400);
 	const answer = parts.join("\n");
 	await database.query("UPDATE agent_sessions SET status='running',updated_at=now() WHERE id=$1", [sessionId]);
 	await appendEvent(database, sessionId, "user_answer", { text: answer, selected: data.selected ?? [] });
@@ -561,13 +579,17 @@ export async function answerQuestion(
 
 export async function cancelSession(database: Database, sessionId: string): Promise<void> {
 	const result = await database.query(
-		`UPDATE agent_sessions SET status='failed',waiting=NULL,error_message='用户已终止会话',
+		`UPDATE agent_sessions SET status='failed',waiting=NULL,error_message='用户已终止会话',cancelled_at=now(),
 		 desktop_pending_trigger=NULL,desktop_pending_message=NULL,desktop_turn_start_index=NULL,
 		 desktop_run_id=NULL,desktop_client_id=NULL,desktop_lease_expires_at=NULL,updated_at=now()
 		 WHERE id=$1 AND status IN ('running','waiting_user','waiting_job','idle')`,
 		[sessionId],
 	);
-	if (result.affectedRows !== 1) throw new Error("会话已结束或不存在");
+	if (result.affectedRows !== 1) throw new HttpInputError("会话已结束或不存在", 404);
+	await database.query(
+		"UPDATE jobs SET status='failed',lease_owner=NULL,lease_expires_at=NULL,last_error='用户已终止会话',updated_at=now() WHERE type='agent_session_turn' AND payload->>'sessionId'=$1 AND status IN ('pending','leased')",
+		[sessionId],
+	);
 	await appendEvent(database, sessionId, "session_cancelled", {});
 }
 
@@ -592,6 +614,8 @@ const purposeLabels: Record<string, string> = {
 };
 
 const reportStateLabels: Record<string, string> = {
+	analysis_pending: "正在进行 V2 语义解析",
+	analysis_unavailable: "V2 证据不足，需审核或重新解析",
 	narrative_queued: "叙述排队中",
 	narrative_running: "叙述生成中",
 	narrative_approval: "叙述待审批",
@@ -751,10 +775,10 @@ export async function createWorkbenchTools(
 	};
 	const ensureBatch = async (batchId: string) => {
 		const batch = await getBatch(database, batchId);
-		if (!batch || String(batch.project_id) !== projectId) throw new Error("批次不存在或不属于当前客户");
+		if (!batch || String(batch.project_id) !== projectId) throw new HttpInputError("批次不存在或不属于当前客户", 404);
 		return batch;
 	};
-	return [
+	const tools: AgentTool[] = [
 		{
 			name: "read_project_context",
 			label: "读取客户项目",
@@ -951,15 +975,17 @@ export async function createWorkbenchTools(
 					(item.evidenceIds ?? []).filter((id) => !allowedEvidence.has(id)),
 				);
 				if (unknownEvidence.length)
-					throw new Error(`候选引用了未知或越权证据：${[...new Set(unknownEvidence)].join("、")}`);
+					throw new HttpInputError(`候选引用了未知或越权证据：${[...new Set(unknownEvidence)].join("、")}`, 400);
 				const unknownPrompts = input.questions.flatMap((item) =>
 					item.id && !knownPromptIds.has(item.id) ? [item.id] : [],
 				);
-				if (unknownPrompts.length) throw new Error(`候选引用了不存在的问题 id：${unknownPrompts.join("、")}`);
+				if (unknownPrompts.length)
+					throw new HttpInputError(`候选引用了不存在的问题 id：${unknownPrompts.join("、")}`, 404);
 				const unknownLibrary = input.questions.flatMap((item) =>
 					item.libraryQuestionId && !knownLibraryIds.has(item.libraryQuestionId) ? [item.libraryQuestionId] : [],
 				);
-				if (unknownLibrary.length) throw new Error(`候选引用了不存在的知识库问题：${unknownLibrary.join("、")}`);
+				if (unknownLibrary.length)
+					throw new HttpInputError(`候选引用了不存在的知识库问题：${unknownLibrary.join("、")}`, 404);
 				const seen = new Set<string>();
 				const questions: ScopeProposalQuestion[] = [];
 				for (const item of input.questions) {
@@ -1046,7 +1072,7 @@ export async function createWorkbenchTools(
 							[organizationId],
 						)
 					).rows.map((row) => row.provider_id);
-				if (!platforms.length) throw new Error("当前机构没有启用任何监测平台，请先在平台设置中启用");
+				if (!platforms.length) throw new HttpInputError("当前机构没有启用任何监测平台，请先在平台设置中启用", 409);
 				const result = await createBatch(database, projectId, {
 					kind: input.kind,
 					platforms,
@@ -1113,8 +1139,12 @@ export async function createWorkbenchTools(
 				let stepKey = kind === "batch" ? "batch" : kind === "report" ? "report" : `run:${id}`;
 				if (kind === "batch") {
 					const batch = await ensureBatch(id);
-					if (["complete", "partial"].includes(String(batch.status)))
-						return toolResult({ alreadyDone: true, status: batch.status });
+					const analysis = batch.measurement as { status?: string } | undefined;
+					if (
+						["complete", "partial"].includes(String(batch.status)) &&
+						!["queued", "running"].includes(analysis?.status ?? "")
+					)
+						return toolResult({ alreadyDone: true, status: batch.status, analysisStatus: analysis?.status });
 				}
 				if (kind === "agent_run") {
 					const run = (
@@ -1123,7 +1153,7 @@ export async function createWorkbenchTools(
 							[id],
 						)
 					).rows[0];
-					if (!run || run.project_id !== projectId) throw new Error("Agent 运行不存在或不属于当前客户");
+					if (!run || run.project_id !== projectId) throw new HttpInputError("Agent 运行不存在或不属于当前客户", 404);
 					if (["approved", "rejected", "failed"].includes(run.status))
 						return toolResult({ alreadyDone: true, status: run.status });
 					if (REPORT_WORKFLOW_PURPOSES.has(run.purpose)) stepKey = "report";
@@ -1135,7 +1165,7 @@ export async function createWorkbenchTools(
 							[id],
 						)
 					).rows[0];
-					if (!report || report.project_id !== projectId) throw new Error("报告不存在或不属于当前客户");
+					if (!report || report.project_id !== projectId) throw new HttpInputError("报告不存在或不属于当前客户", 404);
 					if (report.pdf_artifact_key) return toolResult({ alreadyDone: true, status: "ready" });
 				}
 				return waitFor({ kind, id, label, toolCallId }, stepKey, label);
@@ -1265,6 +1295,7 @@ export async function createWorkbenchTools(
 				await ensureBatch(batchId);
 				const result = await advanceReportWorkflow(database, batchId, {
 					createdBy: session.created_by,
+					actor: parseActor(session.execution_actor),
 					allowRetry: true,
 					restart: Boolean(restart),
 				});
@@ -1327,9 +1358,18 @@ export async function createWorkbenchTools(
 			},
 		},
 	];
+	return tools.map((tool) => ({
+		...tool,
+		execute: async (...args) => {
+			await authorizeWorkbenchTool(database, session.id, tool.name);
+			return tool.execute(...args);
+		},
+	}));
 }
 
 export const WORKBENCH_SYSTEM_PROMPT = `你是 ZZ Geo 的 AI 工作台 Agent，负责替用户把 GEO 监测流程一口气跑完。你通过工具操作系统，所有工具只作用于当前客户项目。
+
+当前只使用 V2 指标。正式结论至少 10 个有效问题、80% 问题覆盖、90% 解析覆盖并通过区间宽度门槛；快审仅为时点有限结果。必须同时等采集与语义解析完成。遇到 analysis_unavailable 必须告知用户到证据中心审核/重新解析，不得反复调用报告工具，也不得用正文出现顺序算推荐率。
 
 监测问题的唯一写入方式是 propose_questions：把最终列表（含要保留的已有问题）交给用户在表格里勾选、修改后确认，系统会在用户确认后自动写入范围；你不能、也不需要自己写入。不要用 ask_user 罗列问题让用户选。
 
@@ -1370,11 +1410,17 @@ export async function executeSessionTurn(
 ): Promise<void> {
 	const session = await loadSession(database, sessionId);
 	if (session.execution_target === "desktop") return;
+	if (
+		(await database.query("SELECT id FROM agent_sessions WHERE id=$1 AND cancelled_at IS NOT NULL", [sessionId])).rows
+			.length
+	)
+		return;
 	if (["done", "failed"].includes(session.status) && trigger !== "user") return;
+	await authorizeWorkbench(database, sessionId);
 	const config = await getHRouterConfig(database, session.organization_id);
 	const apiKey = await readEncryptedCredential(database, "hrouter_api_key", session.organization_id);
 	const model = session.model ?? config.model;
-	if (!model || !apiKey) throw new Error("请先配置 HRouter API Key 与 GPT 模型");
+	if (!model || !apiKey) throw new HttpInputError("请先配置 HRouter API Key 与 GPT 模型", 409);
 	const control: TurnControl = {
 		waiting: null,
 		finished: null,
@@ -1391,14 +1437,16 @@ export async function executeSessionTurn(
 	const emit = async (type: string, payload: Record<string, unknown>) => {
 		await appendEvent(database, sessionId, type, payload);
 	};
-	await database.query(
-		"UPDATE agent_sessions SET status='running',waiting=NULL,last_turn_at=now(),updated_at=now() WHERE id=$1",
+	const started = await database.query(
+		"UPDATE agent_sessions SET status='running',waiting=NULL,last_turn_at=now(),updated_at=now() WHERE id=$1 AND cancelled_at IS NULL RETURNING id",
 		[sessionId],
 	);
+	if (!started.rows.length) return;
 	const priorWaiting = session.waiting;
 	const sessionSearches = await countSessionSearches(database, sessionId);
 	const tools = await createWorkbenchTools(database, session, control, persistControl, emit, { sessionSearches });
 	const allowedToolNames = new Set(tools.map((tool) => tool.name));
+	let authorizationError: Error | null = null;
 	const agent = new Agent({
 		initialState: {
 			systemPrompt: `${WORKBENCH_SYSTEM_PROMPT}${webSearchPromptNote(session, sessionSearches)}`,
@@ -1411,13 +1459,28 @@ export async function executeSessionTurn(
 		getApiKey: (provider) => (provider === "hrouter" ? apiKey : undefined),
 		sessionId: session.id,
 		toolExecution: "parallel",
-		beforeToolCall: async ({ toolCall }) =>
-			allowedToolNames.has(toolCall.name)
+		beforeToolCall: async ({ toolCall }) => {
+			try {
+				await authorizeWorkbench(database, sessionId);
+			} catch (error) {
+				authorizationError = error instanceof Error ? error : new AuthorizationDenied("执行权限已失效");
+				return { block: true, reason: authorizationError.message, terminate: true };
+			}
+			return allowedToolNames.has(toolCall.name)
 				? undefined
-				: { block: true, reason: "工具不在 AI 工作台白名单中", terminate: true },
+				: { block: true, reason: "工具不在白名单中", terminate: true };
+		},
 		shouldStopAfterTurn: () => control.waiting !== null || control.finished !== null,
 	});
 	let streamedText = "";
+	const cancelTimer = setInterval(
+		() =>
+			void authorizeWorkbench(database, sessionId).catch((error) => {
+				authorizationError = error instanceof Error ? error : new AuthorizationDenied("执行权限已失效");
+				agent.abort();
+			}),
+		1000,
+	);
 	let lastFlush = 0;
 	let assistantSeq = 0;
 	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: One subscriber maps every agent event type to a persisted session event.
@@ -1492,6 +1555,8 @@ export async function executeSessionTurn(
 		} else {
 			await agent.prompt(message ?? "请继续。");
 		}
+		if (authorizationError) throw authorizationError;
+		await authorizeWorkbench(database, sessionId);
 		// 只统计本回合新增的 assistant 消息：transcript 每回合都会恢复历史，按全量累加会把旧回合的 Token 重复记进费用。
 		const turnAssistants = agent.state.messages
 			.slice(session.transcript.length)
@@ -1515,7 +1580,7 @@ export async function executeSessionTurn(
 		else if (control.waiting) status = "waiting_job";
 		await database.query(
 			`UPDATE agent_sessions SET status=$2,waiting=$3::jsonb,transcript=$4::jsonb,plan=$5::jsonb,current_batch_id=$6,
-			 usage=$7::jsonb,error_message=NULL,updated_at=now() WHERE id=$1`,
+			 usage=$7::jsonb,error_message=NULL,updated_at=now() WHERE id=$1 AND cancelled_at IS NULL`,
 			[
 				sessionId,
 				status,
@@ -1546,7 +1611,7 @@ export async function executeSessionTurn(
 	} catch (error) {
 		const detail = error instanceof Error ? error.message.slice(0, 2000) : "Agent 执行失败";
 		await database.query(
-			"UPDATE agent_sessions SET status='failed',waiting=NULL,transcript=$2::jsonb,error_message=$3,updated_at=now() WHERE id=$1",
+			"UPDATE agent_sessions SET status='failed',waiting=NULL,transcript=$2::jsonb,error_message=$3,updated_at=now() WHERE id=$1 AND cancelled_at IS NULL",
 			[sessionId, JSON.stringify(agent.state.messages), detail],
 		);
 		await emit("error", { message: detail });
@@ -1556,6 +1621,8 @@ export async function executeSessionTurn(
 			traceId: sessionId,
 		});
 		throw error;
+	} finally {
+		clearInterval(cancelTimer);
 	}
 }
 
@@ -1654,7 +1721,8 @@ export async function resumeWaitingSessions(database: Database): Promise<number>
 		}>(
 			`SELECT r.id,r.purpose,r.session_id,r.batch_id,s.created_by FROM agent_runs r
 			 JOIN agent_sessions s ON s.id=r.session_id
-			 WHERE r.status='awaiting_approval' AND s.auto_approve=true AND s.status<>'failed'`,
+			 WHERE r.status='awaiting_approval' AND s.auto_approve=true AND s.status<>'failed'
+			 AND r.purpose NOT IN ('report_narrative','quality_review')`,
 		)
 	).rows;
 	for (const run of pendingRuns) {
@@ -1708,6 +1776,15 @@ export async function resumeWaitingSessions(database: Database): Promise<number>
 		)
 	).rows;
 	for (const session of waitingSessions) {
+		try {
+			await authorizeWorkbench(database, session.id);
+		} catch (error) {
+			await database.query(
+				"UPDATE agent_sessions SET status='failed',waiting=NULL,error_message=$2,updated_at=now() WHERE id=$1",
+				[session.id, error instanceof Error ? error.message : "执行授权失效"],
+			);
+			continue;
+		}
 		const waiting = parseJsonColumn<AgentSessionWaiting>(session.waiting as string | AgentSessionWaiting);
 		if (waiting.kind === "user") continue;
 		const plan = parseJsonColumn<AgentSessionPlanStep[]>(session.plan as string | AgentSessionPlanStep[]);
@@ -1720,6 +1797,8 @@ export async function resumeWaitingSessions(database: Database): Promise<number>
 				await database.query<{ status: string }>("SELECT status FROM experiment_batches WHERE id=$1", [waiting.id])
 			).rows[0];
 			if (batch && ["complete", "partial"].includes(batch.status)) {
+				const measurement = await currentMeasurement(database, waiting.id);
+				if (["queued", "running"].includes(measurement.status)) continue;
 				summary = await describeBatch(database, waiting.id);
 				outcome =
 					batch.status === "partial"
@@ -1745,7 +1824,11 @@ export async function resumeWaitingSessions(database: Database): Promise<number>
 								status: "failed",
 								detail: (run.error_message ?? (run.status === "rejected" ? "草稿已拒绝" : "运行失败")).slice(0, 120),
 							};
-			} else if (run && run.status === "awaiting_approval" && !session.auto_approve) {
+			} else if (
+				run &&
+				run.status === "awaiting_approval" &&
+				(!session.auto_approve || REPORT_WORKFLOW_PURPOSES.has(run.purpose))
+			) {
 				// 手动模式：把审批交还用户。
 				await database.query(
 					"UPDATE agent_sessions SET status='waiting_user',waiting=$2::jsonb,updated_at=now() WHERE id=$1",

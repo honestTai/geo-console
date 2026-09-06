@@ -40,7 +40,7 @@ export const captureFailureCodeSchema = z.enum([
 export const capabilityVisibilitySchema = z.enum(["available", "partial", "unavailable"]);
 
 export const citationSourceSchema = z.object({
-	url: z.url(),
+	url: z.url().refine((value) => ["http:", "https:"].includes(new URL(value).protocol), "引用来源只允许 HTTP(S)"),
 	domain: z.string().min(1),
 	title: z.string().trim().min(1).nullable(),
 	position: z.int().positive(),
@@ -126,6 +126,7 @@ const queryCaptureV2BaseSchema = z.object({
 	schemaVersion: z.literal("geo.query-capture.v2"),
 	captureId: z.string().min(1),
 	jobId: z.string().min(1),
+	sampleKey: z.string().min(1).optional(),
 	projectId: z.string().min(1),
 	promptId: z.string().min(1),
 	prompt: z.string().trim().min(1),

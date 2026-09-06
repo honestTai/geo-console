@@ -178,10 +178,11 @@ start_stack() {
 	wait_for_service log-service 120
 	dc up -d api
 	wait_for_service api 180
-	dc up -d capture-worker agent-worker report-worker web
+	dc up -d capture-worker agent-worker report-worker semantic-worker web
 	wait_for_service capture-worker 60
 	wait_for_service agent-worker 60
 	wait_for_service report-worker 60
+	wait_for_service semantic-worker 60
 	wait_for_service web 60
 	dc up -d caddy
 	wait_for_service caddy 60
@@ -192,7 +193,7 @@ start_stack() {
 }
 
 stop_application_services() {
-	dc stop caddy capture-worker agent-worker report-worker api log-service web || true
+	dc stop caddy capture-worker agent-worker report-worker semantic-worker api log-service web || true
 }
 
 show_status() {
@@ -206,7 +207,7 @@ show_status() {
 
 doctor() {
 	dc config --quiet
-	for service in postgres log-service api capture-worker agent-worker report-worker web caddy; do
+	for service in postgres log-service api capture-worker agent-worker report-worker semantic-worker web caddy; do
 		local state=""
 		state="$(service_state "$service" 2>/dev/null || true)"
 		[[ "$state" == "healthy" || "$state" == "running" ]] || fail "$service is not healthy: ${state:-missing}"

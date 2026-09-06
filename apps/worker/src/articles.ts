@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
+import type { ExecutionActor } from "@geo/authorization";
 import type { Database, OptimizationArticleStatus } from "@geo/core";
 import { z } from "zod";
 import { enqueueAgentDraft } from "./agent";
 import { type Paginated, type PaginationInput, paginated } from "./pagination";
-import { parseJsonColumn } from "./utils";
+import { HttpInputError, parseJsonColumn } from "./utils";
 
 export type ArticleRecommendation = {
 	index: number;
@@ -44,11 +45,11 @@ export async function approvedRecommendations(
 export async function generateArticlesForBatch(
 	database: Database,
 	batchId: string,
-	options: { sessionId?: string | null; onlyMissing?: boolean } = {},
+	options: { sessionId?: string | null; onlyMissing?: boolean; actor?: ExecutionActor } = {},
 ): Promise<{ narrativeRunId: string; queued: Array<{ runId: string; recommendationIndex: number; title: string }> }> {
 	const approved = await approvedRecommendations(database, batchId);
-	if (!approved) throw new Error("生成优化文章前必须先批准该批次的报告叙述");
-	if (!approved.recommendations.length) throw new Error("报告叙述中没有 GEO 优化建议，无法生成文章");
+	if (!approved) throw new HttpInputError("生成优化文章前必须先批准该批次的报告叙述", 409);
+	if (!approved.recommendations.length) throw new HttpInputError("报告叙述中没有 GEO 优化建议，无法生成文章", 409);
 	const existing = new Set(
 		(
 			await database.query<{ recommendation_index: number }>(
@@ -81,6 +82,7 @@ export async function generateArticlesForBatch(
 			batchId,
 			purpose: "optimization_article",
 			sessionId: options.sessionId ?? null,
+			actor: options.actor,
 			targetRef: { narrativeRunId: approved.narrativeRunId, recommendationIndex: recommendation.index },
 		});
 		queued.push({ runId: run.id, recommendationIndex: recommendation.index, title: recommendation.title });
@@ -161,15 +163,19 @@ export async function updateArticle(database: Database, articleId: string, input
 			data.publishedUrl ?? null,
 		],
 	);
-	if (result.affectedRows !== 1) throw new Error("优化文章不存在");
+	if (result.affectedRows !== 1) throw new HttpInputError("优化文章不存在", 404);
 }
 
 export async function deleteArticle(database: Database, articleId: string): Promise<void> {
 	const result = await database.query("DELETE FROM optimization_articles WHERE id=$1", [articleId]);
-	if (result.affectedRows !== 1) throw new Error("优化文章不存在");
+	if (result.affectedRows !== 1) throw new HttpInputError("优化文章不存在", 404);
 }
 
-export async function regenerateArticle(database: Database, articleId: string): Promise<{ runId: string }> {
+export async function regenerateArticle(
+	database: Database,
+	articleId: string,
+	actor?: ExecutionActor,
+): Promise<{ runId: string }> {
 	const article = (
 		await database.query<{
 			project_id: string;
@@ -180,12 +186,13 @@ export async function regenerateArticle(database: Database, articleId: string): 
 			articleId,
 		])
 	).rows[0];
-	if (!article) throw new Error("优化文章不存在");
-	if (!article.batch_id || !article.narrative_run_id) throw new Error("该文章缺少来源报告，无法重新生成");
+	if (!article) throw new HttpInputError("优化文章不存在", 404);
+	if (!article.batch_id || !article.narrative_run_id) throw new HttpInputError("该文章缺少来源报告，无法重新生成", 409);
 	const run = await enqueueAgentDraft(database, {
 		projectId: article.project_id,
 		batchId: article.batch_id,
 		purpose: "optimization_article",
+		actor,
 		targetRef: { narrativeRunId: article.narrative_run_id, recommendationIndex: article.recommendation_index },
 	});
 	return { runId: run.id };

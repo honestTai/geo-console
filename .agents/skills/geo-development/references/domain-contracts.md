@@ -15,7 +15,7 @@
 - 可比性是规范化后的完整 config 相等（`areBatchConfigsComparable` 与 JSON 一样忽略 undefined 键），不是只比较平台和模型。旧批次继续保留创建时范围。
 - 复测复制基线冻结配置；基线任一 Provider 的 `adapterVersion` 与当前 `ADAPTER_VERSION` 不一致时 `createBatch` 拒绝创建复测。
 - 周期监测（`processDueSchedules`）到期时先用 `buildBaselineConfig` 按当前范围与平台配置构造候选配置，与最近 `complete/partial` 基线可比才创建 retest，否则创建 baseline；创建失败写 `monitoring_schedules.last_error/last_error_at/failure_count` 并记 `schedule.batch_failed` 日志，一小时后重试；成功或重新保存计划时清零。`saveMonitoringSchedule` 在周期变化时按 `last_run_at + 新周期` 重算 `next_run_at`（已到期立即可运行）。
-- Capture job 默认最多 3 次，租约 5 分钟并每分钟续期；Agent job 最多 2 次、租约 15 分钟，Worker 每 250ms 领取一次且最多并行两个 I/O 型任务，浏览器兼容的 `agent_session_turn` 优先于后台 `agent_draft`；桌面会话不创建该 job。PDF job 默认 3 次、租约 5 分钟。失败重试延迟 30 秒。
+- Semantic job 默认最多 2 次、租约 5 分钟并每 30 秒续期，由独立/本机组合 Semantic Worker 执行；所有非 Capture 的耗尽租约由 `sweepTerminalLeases` 清扫。Capture job 默认最多 3 次，租约 5 分钟并每分钟续期；Agent job 最多 2 次、租约 15 分钟，Worker 每 250ms 领取一次且最多并行两个 I/O 型任务，浏览器兼容的 `agent_session_turn` 优先于后台 `agent_draft`；桌面会话不创建该 job。PDF job 默认 3 次、租约 5 分钟。失败重试延迟 30 秒。
 - 过期租约可由其他 Worker 领取。Capture 执行抛错必须经 `failJob`（未用尽重试回 `pending`，否则 `failed`）并 `refreshBatchStatus`；`failExpiredCaptureJobs`/`sweepExpiredCaptureJobs` 每分钟把租约过期且 `attempts>=max_attempts` 的任务标为 `failed` 并刷新批次。不要把尚未生成证据的任务直接改为 complete。
 
 ## Provider
@@ -30,15 +30,18 @@ Provider 的实时默认值以 `apps/worker/src/providers.ts` 为准：
 
 批次执行使用冻结值，不跟随 Settings 的后续修改。当前 worker 不支持冻结 adapter version 时应记录 `protocol_changed`，而不是用当前版本强跑。
 
-## 指标
+## 指标 V2（唯一运行口径）
 
-- `answeredCaptures` 仅含 `status=complete` 且 answer 非空。
-- 品牌提及、首位、声量、位置和竞品提及率以成功回答为分母。
-- 总览按 `answeredCaptures > 0` 的平台等权；失败平台单独影响 `dataCoverage` 和 `failureRate`。
-- 来源指标只使用来源可观测的成功回答。没有可观测来源时 citation/source rate 是 `null`。
-- 重复一致性只在同 Prompt 有多次成功回答时计算，否则为 `null`。
-- Provider 未返回明确金额时 `costMicros` 保持 `null`；可汇总 Token/请求数，但不能虚构价格。
-- 漂移告警（`detectDriftAlerts`）跳过基线或复测中 `answeredCaptures=0` 的平台：失败平台的 0 不是指标值，不产生告警。
+- 契约与校验以 `packages/evidence/src/semantic.ts` 为准；公式以 `packages/metrics/src/visibility.ts` 为准；异步落库与快照读取以 `apps/worker/src/measurement.ts` 为准。详见 `docs/visibility-measurement-v2.md`。
+- V1 指标已停用。成功 Capture 不等于有效语义观察；未知、冲突、无原文依据不能进入品牌分母。原始证据不可更新。
+- 先问题内汇总有效重复，再问题等权，最后达标平台等权。三类覆盖独立，失败/未配置/来源不可见保持 null。
+- 正式默认最低有效重复 ceil(repeats*2/3)、问题覆盖 80%、解析覆盖 90%、至少 10 个有效问题、初始品牌/推荐区间宽度不超过 0.5。门槛、2000 次 bootstrap、种子和策略版本全部冻结；它们仍需人工标注集校准。
+- 首位推荐仅来自证据校验的明确推荐列表；against 不计推荐。品牌出现份额不是文本声量，推荐名次用中位数，重复稳定性用两两一致率。
+- Semantic Worker 没有工具、联网、文件或 SQL 能力。每条任务最多两次技术尝试、每次首轮加至多一次独立复核；只追加观察，当前选择唯一。人工审核重新验证原文与项目并写审计。
+- Capture 完成和语义分析完成独立。只有 Worker 生成 MetricSnapshot；GET 不计算旧指标、不调用模型。报告、诊断、整改和漂移绑定快照。
+- 正式漂移只比较同配置和测量契约的 ready baseline/retest，使用共同有效问题的配对差值与 95% 区间；10/20 个百分点下降且区间上界<0 才告警，其余仅观察。
+- 报告叙述和质量检查不能被工作台自动批准绕过。旧指标快照上的草稿不能在新版本下审批。
+- 费用未知仍为 null；未启用 App 不生成配对分数或占位数据。
 
 ## Agent 与审批
 
@@ -76,7 +79,7 @@ Provider 的实时默认值以 `apps/worker/src/providers.ts` 为准：
 - 分享 token 只在创建时返回明文，数据库保存 SHA-256；读取必须未过期且未撤销。
 - Provider/HRouter Key 由 AES-256-GCM 信封加密，AAD 包含 organization 与 credential key。主密钥丢失会使数据库凭据不可恢复。
 - 用户归属一个 organization；有效授权为机构权限上限与用户多角色权限并集的交集，数据范围再限制为机构下全部客户或明确指定客户。页面和 API 策略来自数据库资源目录，未登记 API 默认拒绝。历史 admin/analyst/viewer 只用于迁移默认角色，不参与运行时判断。
-- 数据库最多存在一个 `is_super_admin=true` 用户。超管始终拥有全部页面和功能，但业务资源仍按当前活动机构过滤；超管可封禁机构，封禁立即撤销该机构非超管会话并阻止后续登录。
+- 数据库最多存在一个 `is_super_admin=true` 用户。超管可绕过角色权限条件，但不能绕过停用策略、封禁业务机构和活动机构过滤；超管可封禁机构，封禁立即撤销该机构非超管会话并阻止后续登录。
 - Provider/HRouter 配置、加密凭据和问题知识库按 organization 隔离。环境变量凭据只为 `default` 机构提供 bootstrap fallback，不能泄漏给其他租户。
 
 ## 行业问题知识库
@@ -98,3 +101,31 @@ Provider 的实时默认值以 `apps/worker/src/providers.ts` 为准：
 - API/Worker 通过 `GEO_LOG_SERVICE_URL` 与独立服务令牌批量上报。日志服务不可用不得阻断采集、Agent、报告或 API；标准输出仍是恢复兜底。
 - 客户端与日志服务都必须过滤凭据、Cookie、token、回答/网页正文和 raw response；日志内容不得成为指标、诊断或报告证据。
 - 普通机构管理员只能查询/导出/清理当前机构运行日志；系统日志仅超管可见。保留清理只删除 `service_logs`，同时写业务审计与新的 retention operation log。
+
+
+## 成员授权与默认角色（2026-09-06）
+
+- 创建用户的 HTTP 入口必须传 authenticated actor；事务内重读 actor，只能授予自己已有的权限和客户子集。`members.manage` 不能绕过 `rbac.manage` 创建更高权限账号，也不能管理更高权限/范围用户。
+- 新成员默认 `all_projects=false`；必须显式授予全部或指定客户。超管有效访问仍不受该存储默认值限制。用户显式 `roleIds:[]` 表示无角色，不回退；省略 roleIds 时由稳定 `roles.system_key` 找默认角色，改名不影响身份，缺默认键需明确选择角色。
+- 同机构邮箱 trim/大小写重复为 409。停用账号通过 restore 重新启用，不能重复创建；恢复不恢复旧会话。管理员 reset 撤销全部会话；自己改密验证旧密码并保留当前会话、撤销其他会话。密码不写审计 metadata。
+- 机构授权只计算交集，不删除 `role_permissions`。重复初始化不得重授已撤销权限；角色编辑允许保留已有但暂被上限屏蔽的权限，不允许新增机构未授权项。系统超管权限不能授予机构。
+- UI 只读、权限不足、候选加载失败、重复邮箱、停用、保护账号均需显式状态；跨页选择不得丢失。后台鉴权即时生效，前端身份 15 秒/聚焦刷新。
+
+## 授权内核与持久任务身份（V2）
+
+- 主体权限/角色/客户必须由 `loadPrincipal` 的单 SQL 快照提供，不能 Promise.all 拼接不同时间的权限与范围。userId=null 不代表超管；local 仅零用户非 production。
+- 会话与用户 credential_version 必须一致；登录密码验证后锁内比较哈希，改密触发版本递增。授权变化由 org/user authz_version 记录，不能缓存旧 Principal 跨请求。
+- API、文件和动作统一 `authorization/index.ts`，解析器只在 resources 注册可信 SQL；config 不能弱化内置资源/系统边界。解释器复用 evaluateRequest。
+- 委派、候选与 can_manage 比较目标配置权限（含被机构上限屏蔽项）；成员和审批写事务内重新授权。
+- agent_sessions/runs 必须绑定 ExecutionActor；每个工作台工具有 workbench.tool.* 策略，域写权限不能被 workbench.run 代替。后台撤权/取消阻止后续工具和物化；报告仍人工审批。report-scheduler 只获报告最小权限与机构上限交集。
+- 公开分享在封禁机构期间不可读；采集证据不变。完整规则见 docs/rbac-v2.md。
+
+## Responses 最终回答与系统角色边界
+
+原始 Provider 响应不得覆盖；只有最终 assistant/output_text 可用于测量，不包含 reasoning、commentary、工具结果或未完成输出。浏览 URL 不是 citation；报告 sourceStatus=cited 必须对应 capture.sources.isCitation=true。cloud-search.v2 合同与旧版本不混算，capture-contract 拒绝旧合同重解析/审批/报告，使用新批次。成员 Principal 可批量读取但必须在一条 SQL 中保留权限/范围一致性；0022 不允许把 system_only 权限写入组织或机构角色。
+# 全功能审查补充边界（2026-09-06）
+
+- 新基线从编译时 ADAPTER_VERSION 冻结采集版本，不能信任升级前残留的平台版本；初始化只同步版本字段。证据、CSV、报告统计必须区分观察来源与 isCitation=true 的最终引用。
+- 可选 HTTP 路由捕获组不得把 undefined 解码成字符串；重解析与人工审核使用不同分支，见 http-routes.ts 及测试。
+- 审批提交成功与后续单独授权的报告生成是两项结果；approval-workflow.ts 可返回 blocked，但不能将成功审批回显为失败，不能给审批权限隐含生成权限。
+- 语义任务排队、领取和每次模型调用前复核机构封禁；暂停不能被描述为撤回已经发送的上游请求或退款。

@@ -10,6 +10,7 @@
                                          -> S3 兼容证据存储
                               Log Service :3020 -> PostgreSQL service_logs
                               Capture Worker -> 五家联网 API
+                              Semantic Worker -> 严格原子语义 -> MetricSnapshot V2
 桌面 Tauri -> 本地 Pi Agent -> API 受控 Responses 代理 -> HRouter GPT
                          \-> API 业务工具 RPC -> PostgreSQL / Workers
                               Agent Worker   -> 后台草稿、定时报告、浏览器调试回合
@@ -33,7 +34,7 @@ Tauri 2 桌面客户端是所有用户的正式产品：正式版嵌入 Web 构�
 - `packages/core`：PGlite/PostgreSQL 共用迁移、Schema、租约、信封加密和批次可比性。
 - `packages/logging`：跨进程日志类型、脱敏、批量缓冲、内部服务客户端和 Trace ID 关联。
 
-每个用户归属一个机构。授权链路是机构权限上限 -> 机构自定义角色 -> 用户多角色权限并集 -> 全部客户或指定客户范围；历史管理员、分析师和只读字段只用于迁移默认角色，不参与运行时授权。页面导航来自 `permissions`，API 方法与路径模板来自 `permission_routes`，未登记 API 默认拒绝。系统只能有一个超管账号；超管拥有全部资源权限并可切换、授权、封禁或解封机构，但切换后业务数据仍严格限制在活动机构，机构内再按客户范围过滤。证据文件下载同样校验活动机构和客户归属，不仅依赖对象 key。
+每个用户归属一个机构。授权链路是机构权限上限 -> 机构自定义角色 -> 用户多角色权限并集 -> 全部客户或指定客户范围；历史管理员、分析师和只读字段只用于迁移默认角色，不参与运行时授权。页面导航来自 `permissions`，API、文件、后台动作和逐工具策略来自 `authorization_policies`（`permission_routes` 仅用于迁移），未登记 API 默认拒绝。系统只能有一个超管账号；超管可绕过角色权限条件并可切换、授权、封禁或解封机构，但不能绕过停用策略和封禁业务机构，但切换后业务数据仍严格限制在活动机构，机构内再按客户范围过滤。证据文件下载同样校验文件类型功能权限、活动机构和客户归属，不仅依赖对象 key。
 
 旧 `consumer_surface` 证据仍可只读查看。新批次只创建 `llm_search_api` v2 证据；两种口径不会进入同一个冻结批次或趋势比较。每个新批次冻结端点、模型、协议、搜索策略、搜索工具和适配器版本，Capture Worker 只读取该冻结契约；缺少完整契约的历史基线不能用于新复测。
 
@@ -124,3 +125,27 @@ DeepSeek、Kimi、豆包和通义是官方联网 API 结果。元宝平台固定
 - 所有写 API、Agent 审批和成员变更进入审计日志。
 - API、Capture、Agent 和 Report 通过内部令牌向 Log Service 批量发送结构化运行日志。敏感键、Bearer/API token、回答正文、网页正文和原始响应均在客户端与服务端双重脱敏。
 - `audit_logs` 是业务审计；`service_logs` 是可按机构和保留期清理的运行数据。运行日志清理不得触碰审计、Capture、网页、原始响应或报告证据。
+
+
+## 可见度 V2 与本轮安全边界（2026-09-05）
+
+指标只读 `metric_snapshots`，不再执行 V1 词法排名或在 GET 中调用 GPT。新批次原子冻结采样、Provider、Semantic 与 Metrics 契约；Capture 和 analysis 状态独立。`semantic_parse_runs/semantic_observations/semantic_selections` 管理只追加观察与当前选择，`measurement_drift_observations` 保留共同问题的配对变化和区间。报告 Agent、诊断、整改与报告绑定指标快照，重解析后的旧草稿不能批准为当前结论。完整公式、初始门槛、模型修订限制、队列协议和 API 见 `docs/visibility-measurement-v2.md`。
+
+服务器新增独立 Semantic Worker；本机与其他三个执行器共用同一个 PGlite API 进程。语义模型没有联网或业务工具；报告叙述/质检必须人工审批。HTML 原始证据隔离下载，抓取绑定已验证 IP 并记录最终 URL，整改验收核对 HTTPS/访问项及最终发布域名。登录限流、异步密码哈希、请求体限制、事务内租约校验和不可恢复的会话取消标记共同构成边界。
+
+
+## 成员/RBAC 边界修复（2026-09-06）
+
+成员管理不等于角色授权超管。`member-access.ts` 在写事务内重读操作者，限制可授予的角色权限和客户范围；创建、停用、恢复、重置密码统一执行此边界，不能通过新建高权限用户间接提权。`roles.system_key` 区分稳定默认身份与可编辑名称，显式空角色不回退，新增用户默认无客户范围。机构授权只作为有效权限的交集上限，不删除角色定义；撤权和恢复不需要重建角色。角色/用户/机构修改在组织边界串行化，删除角色与并发成员分配不能互相覆盖。
+
+前端成员只读/管理状态明确，权限身份定期刷新，分页保留跨页选择并拒绝过期响应。迁移 `0020_membership_rbac.sql` 与前后端必须同步发布。线上实测记录、清理边界和本地验证见 `docs/rbac-demo-verification-2026-09-06.md`；代码改动不代表已部署到 Demo。
+
+## 统一授权内核 V2（2026-09-06）
+
+`packages/authorization` 是不依赖 DB/HTTP 的授权语义层；Worker `authorization/` 实现单 SQL Principal、可信资源注册表、策略配置和同源解释器，`rbac.ts` 不再拥有独立运行时鉴权。登录绑定 credential_version 并在锁内复核密码，成员委派/UI 共享配置权限比较；后台执行者显式绑定并逐回合/逐工具重验。权限、功能策略与不可弱化的租户/项目/系统边界分离，超管可以在授权引擎界面管理目录和 OR/AND 条件、用版本防覆盖。新工具未登记即拒绝；workbench.run 不隐含其他域写权限。详见 `docs/rbac-v2.md`。
+
+## 全功能审查修正（2026-09-06）
+
+功能模块通过 lazy-views 注册按需载入，ViewBoundary 保留导航并处理 chunk/渲染失败；静态 hash 资源与 HTML 使用不同缓存策略，缺失脚本不再返回 HTML。成员页 Principal 批量单 SQL 替代 N+1，并保持作用域。API 用 api-errors 显式区分输入、资源、状态冲突和未知内部故障。采集协议 cloud-search.v2 只测量最终回答，浏览来源与最终引用分离；capture-contract 统一阻止旧合同进入新解析、审批和报告。0022 从组织/角色中移除不可生效的系统权限，并以数据库触发器守住此边界。完整部署/验收记录见 docs/full-audit-2026-09-06.md。
+
+新批次冻结编译时 ADAPTER_VERSION，平台初始化仅同步版本字段，不覆盖用户模型、地址、开关和凭据。证据 UI、CSV、报告引用排行榜只将 isCitation=true 计为最终引用。http-routes 保持未匹配可选组为空串，避免重解析误入审核路由。approval-workflow 把已提交审批与独立授权的后续生成分开：审批成功而推进受阻返回 approved + blocked，不回滚或伪报审批失败；语义任务在排队、领取及调用前检查机构封禁。

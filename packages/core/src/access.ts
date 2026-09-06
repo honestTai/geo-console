@@ -155,7 +155,7 @@ export const applicationPermissions = [
 	{ key: "report.share", kind: "action", group: "报告", label: "创建和撤销报告分享" },
 	{ key: "knowledge.manage", kind: "action", group: "机构管理", label: "维护问题知识库" },
 	{ key: "settings.manage", kind: "action", group: "机构管理", label: "维护模型与平台设置" },
-	{ key: "members.manage", kind: "action", group: "机构管理", label: "新增和停用成员" },
+	{ key: "members.manage", kind: "action", group: "机构管理", label: "新增、停用、恢复及重置成员密码" },
 	{ key: "logs.export", kind: "action", group: "日志", label: "导出运行日志" },
 	{ key: "logs.retention", kind: "action", group: "日志", label: "执行日志保留清理" },
 	{
@@ -182,11 +182,13 @@ export const applicationPermissionKeys = applicationPermissions.map(
 	(permission) => permission.key,
 ) as ApplicationPermission[];
 
+const tenantPermissionKeys = applicationPermissions
+	.filter((permission) => !("systemOnly" in permission && permission.systemOnly))
+	.map((permission) => permission.key);
+
 export const legacyRolePermissionPresets = {
-	admin: applicationPermissionKeys.filter(
-		(permission) => !applicationPermissions.find((item) => item.key === permission && "systemOnly" in item),
-	),
-	analyst: applicationPermissionKeys.filter(
+	admin: tenantPermissionKeys,
+	analyst: tenantPermissionKeys.filter(
 		(permission) =>
 			![
 				"page.settings",
@@ -201,11 +203,7 @@ export const legacyRolePermissionPresets = {
 				"rbac.manage",
 			].includes(permission),
 	),
-	viewer: applicationPermissionKeys.filter(
-		(permission) =>
-			permission.startsWith("page.") &&
-			!applicationPermissions.find((item) => item.key === permission && "systemOnly" in item),
-	),
+	viewer: tenantPermissionKeys.filter((permission) => permission.startsWith("page.")),
 } satisfies Record<"admin" | "analyst" | "viewer", ApplicationPermission[]>;
 
 /** 功能权限归属的菜单页面：权限配置以“菜单 → 按钮”树展示，勾选按钮时自动带上所属菜单。 */

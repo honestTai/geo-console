@@ -38,6 +38,7 @@ export const serviceLogLabels: Record<string, string> = {
 	"capture-worker": "Capture Worker",
 	"agent-worker": "Agent Worker",
 	"report-worker": "Report Worker",
+	"semantic-worker": "Semantic Worker",
 	"log-service": "Log Service",
 	"local-worker-coordinator": "Local Worker",
 };

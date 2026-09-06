@@ -1,10 +1,26 @@
+import { hasRequirements } from "@geo/authorization";
+import type { Database } from "@geo/core";
+import { findHttpPolicy } from "./authorization/policies";
+
+// Catalogue coverage only; resource/subject decisions are tested by authorization-kernel tests.
+async function authorizeDynamicRequest(
+	db: Database,
+	keys: string[],
+	systemAdmin: boolean,
+	method: string,
+	path: string,
+) {
+	const matched = await findHttpPolicy(db, method, path);
+	if (!matched || !matched.policy.enabled || (!systemAdmin && !hasRequirements(keys, matched.policy)))
+		throw new AccessDeniedError(`未授权 ${method} ${path} ${keys.join(",")}`);
+}
+
 import type { ServerResponse } from "node:http";
 import { migrateDatabase, openMemoryDatabase } from "@geo/core";
 import { describe, expect, it } from "vitest";
 import { createUser, login } from "./auth";
 import {
 	AccessDeniedError,
-	authorizeDynamicRequest,
 	createRole,
 	getDynamicNavigation,
 	listRoles,
@@ -45,6 +61,7 @@ describe("动态分层 RBAC", () => {
 					projectIds: ["project-a"],
 				},
 				organization.id,
+				{ id: null, isSuperAdmin: true, localBypass: true },
 			);
 			const access = await resolveEffectiveAccess(database, user.id, organization.id, false);
 			expect(access.permissions).toEqual(["monitor.run", "page.monitor"]);
@@ -78,6 +95,7 @@ describe("动态分层 RBAC", () => {
 				database,
 				{ email: "member@example.com", displayName: "成员", password: "a-strong-member-password" },
 				organization.id,
+				{ id: null, isSuperAdmin: true, localBypass: true },
 			);
 			const roles = await listRoles(database, organization.id, firstPage);
 			expect(roles.total).toBe(3);

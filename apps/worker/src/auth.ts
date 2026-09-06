@@ -1,11 +1,19 @@
-import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { promisify } from "node:util";
+import { decideDelegation, type Principal } from "@geo/authorization";
 import { type Database, type OrganizationRole, readSecret } from "@geo/core";
 import { z } from "zod";
+import { AccessDeniedError } from "./authorization";
+import { loadActorPrincipal, loadPrincipal, loadPrincipals, type PrincipalRecord } from "./authorization/principal";
+import { loginLimiter } from "./login-limiter";
+import { assertAssignableMember, assertManageableMember, type MemberActor, memberAuthority } from "./member-access";
 import { type Paginated, type PaginationInput, paginated } from "./pagination";
-import { resolveEffectiveAccess } from "./rbac";
+import { HttpInputError } from "./utils";
 
 export type Identity = {
+	principal: Principal;
+	authorizationRevision: string;
 	id: string | null;
 	email: string;
 	displayName: string;
@@ -26,17 +34,18 @@ export class AuthenticationError extends Error {}
 
 const hashToken = (token: string): string => createHash("sha256").update(token).digest("hex");
 
-function passwordHash(password: string): string {
+const scryptAsync = promisify(scrypt);
+async function passwordHash(password: string): Promise<string> {
 	const salt = randomBytes(16);
-	const hash = scryptSync(password, salt, 64);
+	const hash = (await scryptAsync(password, salt, 64)) as Buffer;
 	return `scrypt$${salt.toString("base64")}$${hash.toString("base64")}`;
 }
 
-function verifyPassword(password: string, encoded: string): boolean {
+async function verifyPassword(password: string, encoded: string): Promise<boolean> {
 	const [algorithm, saltValue, hashValue] = encoded.split("$");
 	if (algorithm !== "scrypt" || !saltValue || !hashValue) return false;
 	const expected = Buffer.from(hashValue, "base64");
-	const actual = scryptSync(password, Buffer.from(saltValue, "base64"), expected.length);
+	const actual = (await scryptAsync(password, Buffer.from(saltValue, "base64"), expected.length)) as Buffer;
 	return timingSafeEqual(actual, expected);
 }
 
@@ -77,137 +86,133 @@ export async function ensureBootstrapAdmin(database: Database): Promise<void> {
 	if (existing)
 		await database.query(
 			"UPDATE users SET role='admin',is_super_admin=true,password_hash=$2,disabled_at=NULL,updated_at=now() WHERE id=$1",
-			[existing.id, passwordHash(password)],
+			[existing.id, await passwordHash(password)],
 		);
 	else
 		await database.query(
 			`INSERT INTO users (id,organization_id,email,display_name,role,is_super_admin,password_hash)
 			 VALUES ($1,'default',$2,'系统超管','admin',true,$3)`,
-			[randomUUID(), email, passwordHash(password)],
+			[randomUUID(), email, await passwordHash(password)],
 		);
 }
 
-async function identityFromRow(
-	database: Database,
-	row: Record<string, unknown>,
-	activeOrganizationId?: string,
-	activeOrganizationName?: string,
-): Promise<Identity> {
-	const homeOrganizationId = String(row.organization_id);
-	const organizationId = activeOrganizationId ?? homeOrganizationId;
-	const isSuperAdmin = Boolean(row.is_super_admin);
-	const access = await resolveEffectiveAccess(database, String(row.id), organizationId, isSuperAdmin);
+function identityFromPrincipal(p: PrincipalRecord): Identity {
 	return {
-		id: String(row.id),
-		email: String(row.email),
-		displayName: String(row.display_name),
-		role: String(row.role) as OrganizationRole,
-		homeOrganizationId,
-		organizationId,
-		organizationName: activeOrganizationName ?? String(row.organization_name),
-		organizationSuspended: Boolean(row.organization_suspended_at),
-		isSuperAdmin,
+		id: p.userId,
+		email: p.email,
+		displayName: p.displayName,
+		role: p.legacyRole as OrganizationRole,
+		homeOrganizationId: p.homeOrganizationId,
+		organizationId: p.organizationId,
+		organizationName: p.organizationName,
+		organizationSuspended: p.organizationSuspended,
+		isSuperAdmin: p.systemAdmin,
 		localBypass: false,
-		...access,
+		roles: p.roles,
+		permissions: p.permissions,
+		allProjects: p.projects.all,
+		projectIds: p.projects.ids,
+		principal: p,
+		authorizationRevision: p.revision,
 	};
 }
-
 export async function authenticateRequest(database: Database, request: IncomingMessage): Promise<Identity | null> {
-	const userCount =
-		(await database.query<{ count: number }>("SELECT count(*)::int AS count FROM users")).rows[0]?.count ?? 0;
-	if (userCount === 0 && process.env.NODE_ENV !== "production") {
-		const selectedOrganization = cookieValue(request, "geo_organization");
-		const selected = selectedOrganization
-			? (
-					await database.query<{ id: string; name: string }>("SELECT id,name FROM organizations WHERE id=$1", [
-						selectedOrganization,
-					])
-				).rows[0]
-			: null;
-		return {
-			id: null,
-			email: "local@geo.local",
-			displayName: "本机超管",
-			role: "admin",
-			homeOrganizationId: "default",
-			organizationId: selected?.id ?? "default",
-			organizationName: selected?.name ?? "默认机构",
-			organizationSuspended: false,
-			isSuperAdmin: true,
-			localBypass: true,
-			...(await resolveEffectiveAccess(database, null, selected?.id ?? "default", true)),
-		};
-	}
+	const selected = cookieValue(request, "geo_organization") ?? undefined;
 	const token = sessionToken(request);
-	if (!token) return null;
-	const row = (
-		await database.query<Record<string, unknown>>(
-			`SELECT u.id,u.email,u.display_name,u.role,u.organization_id,u.is_super_admin,o.name AS organization_name,
-				 o.suspended_at AS organization_suspended_at
-				 FROM sessions s JOIN users u ON u.id=s.user_id JOIN organizations o ON o.id=u.organization_id
-				 WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND u.disabled_at IS NULL
-				 AND (u.is_super_admin=true OR o.suspended_at IS NULL)`,
-			[hashToken(token)],
-		)
-	).rows[0];
-	if (!row) return null;
-	const selectedOrganization = cookieValue(request, "geo_organization");
-	if (row.is_super_admin && selectedOrganization) {
-		const selected = (
-			await database.query<{ id: string; name: string; suspended_at: string | null }>(
-				"SELECT id,name,suspended_at FROM organizations WHERE id=$1",
-				[selectedOrganization],
-			)
-		).rows[0];
-		if (selected)
-			return identityFromRow(
-				database,
-				{ ...row, organization_suspended_at: selected.suspended_at },
-				selected.id,
-				selected.name,
-			);
+	if (token) {
+		const principal = await loadPrincipal(database, { tokenHash: hashToken(token), organizationId: selected });
+		if (principal?.active && (!principal.organizationSuspended || principal.systemAdmin))
+			return identityFromPrincipal(principal);
+		return null;
 	}
-	return identityFromRow(database, row);
+	if (process.env.NODE_ENV !== "production") {
+		const orgId = selected ?? "default";
+		const principal = await loadActorPrincipal(database, { kind: "local" }, orgId);
+		if (principal) {
+			const org = (await database.query<{ name: string }>("SELECT name FROM organizations WHERE id=$1", [orgId]))
+				.rows[0];
+			return {
+				id: null,
+				email: "local@geo",
+				displayName: "本机开发",
+				role: "admin",
+				homeOrganizationId: orgId,
+				organizationId: orgId,
+				organizationName: org.name,
+				organizationSuspended: principal.organizationSuspended,
+				isSuperAdmin: true,
+				localBypass: true,
+				roles: principal.roles,
+				permissions: principal.permissions,
+				allProjects: true,
+				projectIds: [],
+				principal,
+				authorizationRevision: principal.revision,
+			};
+		}
+	}
+	return null;
 }
 
 export async function login(
 	database: Database,
 	response: ServerResponse,
 	input: unknown,
+	address = "local",
 ): Promise<{ user: Identity; sessionToken: string }> {
 	const data = z
-		.object({ email: z.email(), password: z.string().min(1), organizationId: z.string().trim().min(1).optional() })
+		.object({
+			email: z.string().trim().email(),
+			password: z.string().min(1).max(1024),
+			organizationId: z.string().trim().min(1).optional(),
+		})
 		.parse(input);
+	loginLimiter.check(data.email, address);
 	const rows = (
-		await database.query<Record<string, unknown>>(
-			`SELECT u.id,u.email,u.display_name,u.role,u.password_hash,u.organization_id,u.is_super_admin,
-				 o.name AS organization_name,o.suspended_at AS organization_suspended_at
-				 FROM users u JOIN organizations o ON o.id=u.organization_id
-				 WHERE lower(u.email)=lower($1) AND u.disabled_at IS NULL AND ($2::text IS NULL OR u.organization_id=$2)
-				 ORDER BY u.is_super_admin DESC,u.created_at`,
+		await database.query<{ id: string; organization_id: string; password_hash: string; is_super_admin: boolean }>(
+			`SELECT id,organization_id,password_hash,is_super_admin FROM users
+  WHERE lower(email)=lower($1) AND disabled_at IS NULL AND ($2::text IS NULL OR organization_id=$2) ORDER BY is_super_admin DESC,created_at`,
 			[data.email, data.organizationId ?? null],
 		)
 	).rows;
 	if (rows.length > 1 && !data.organizationId && !rows[0]?.is_super_admin)
 		throw new AuthenticationError("该邮箱属于多个机构，请同时填写机构 ID");
-	const row = rows[0];
-	if (!row || !verifyPassword(data.password, String(row.password_hash)))
+	const candidate = rows[0];
+	if (!candidate || !(await verifyPassword(data.password, candidate.password_hash)))
 		throw new AuthenticationError("邮箱或密码错误");
-	if (!row.is_super_admin && row.organization_suspended_at)
-		throw new AuthenticationError("机构已被封禁，请联系系统超管");
 	const token = randomBytes(32).toString("base64url");
-	const expiresAt = new Date(Date.now() + 7 * 86_400_000);
-	await database.query("INSERT INTO sessions (id,user_id,token_hash,expires_at) VALUES ($1,$2,$3,$4)", [
-		randomUUID(),
-		row.id,
-		hashToken(token),
-		expiresAt.toISOString(),
-	]);
+	const user = await database.transaction(async (tx) => {
+		const org = (
+			await tx.query<{ suspended_at: string | null }>("SELECT suspended_at FROM organizations WHERE id=$1 FOR SHARE", [
+				candidate.organization_id,
+			])
+		).rows[0];
+		const current = (
+			await tx.query<{ id: string; password_hash: string; credential_version: number; is_super_admin: boolean }>(
+				"SELECT id,password_hash,credential_version,is_super_admin FROM users WHERE id=$1 AND disabled_at IS NULL FOR UPDATE",
+				[candidate.id],
+			)
+		).rows[0];
+		if (!current || current.password_hash !== candidate.password_hash)
+			throw new AuthenticationError("密码或账号状态已变化，请重新登录");
+		if (!org || (org.suspended_at && !current.is_super_admin))
+			throw new AuthenticationError("机构已被封禁，请联系系统超管");
+		await tx.query("INSERT INTO sessions(id,user_id,token_hash,expires_at,credential_version) VALUES($1,$2,$3,$4,$5)", [
+			randomUUID(),
+			current.id,
+			hashToken(token),
+			new Date(Date.now() + 7 * 86400000).toISOString(),
+			current.credential_version,
+		]);
+		const principal = await loadPrincipal(tx, { userId: current.id, tokenHash: hashToken(token) });
+		if (!principal) throw new AuthenticationError("会话创建失败");
+		return identityFromPrincipal(principal);
+	});
 	response.setHeader("set-cookie", [
-		`geo_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${7 * 86_400}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`,
-		`geo_organization=${encodeURIComponent(String(row.organization_id))}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${7 * 86_400}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`,
+		`geo_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${7 * 86400}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`,
+		`geo_organization=${encodeURIComponent(user.organizationId)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${7 * 86400}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`,
 	]);
-	return { user: await identityFromRow(database, row), sessionToken: token };
+	return { user, sessionToken: token };
 }
 
 export async function logout(database: Database, request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -228,7 +233,7 @@ export async function selectOrganization(
 	identity: Identity,
 	organizationId: string,
 ): Promise<Identity> {
-	if (!identity.isSuperAdmin) throw new AuthenticationError("只有系统超管可以切换机构");
+	if (!identity.isSuperAdmin) throw new AccessDeniedError("只有系统超管可以切换机构");
 	const organization = (
 		await database.query<{ id: string; name: string; suspended_at: string | null }>(
 			"SELECT id,name,suspended_at FROM organizations WHERE id=$1",
@@ -240,20 +245,37 @@ export async function selectOrganization(
 		"set-cookie",
 		`geo_organization=${encodeURIComponent(organization.id)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${7 * 86_400}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`,
 	);
-	return {
-		...identity,
-		organizationId: organization.id,
-		organizationName: organization.name,
-		organizationSuspended: Boolean(organization.suspended_at),
-		...(await resolveEffectiveAccess(database, identity.id, organization.id, identity.isSuperAdmin)),
-	};
+	if (identity.localBypass) {
+		const principal = await loadActorPrincipal(database, { kind: "local" }, organizationId);
+		if (!principal) throw new AuthenticationError("本机开发身份已失效");
+		return {
+			...identity,
+			organizationId,
+			homeOrganizationId: organizationId,
+			organizationName: organization.name,
+			organizationSuspended: principal.organizationSuspended,
+			principal,
+			authorizationRevision: principal.revision,
+		};
+	}
+	const principal = identity.id ? await loadPrincipal(database, { userId: identity.id, organizationId }) : null;
+	if (!principal) throw new AuthenticationError("机构切换身份已失效");
+	return identityFromPrincipal(principal);
 }
 
 export async function listUsers(
 	database: Database,
 	organizationId: string,
 	input: PaginationInput,
+	actor?: MemberActor,
 ): Promise<Paginated<Record<string, unknown>>> {
+	let authority: Awaited<ReturnType<typeof memberAuthority>> | null = null;
+	if (actor)
+		try {
+			authority = await memberAuthority(database, organizationId, actor);
+		} catch (error) {
+			if (!(error instanceof AccessDeniedError)) throw error;
+		}
 	const search = input.search ? `%${input.search}%` : null;
 	const total = Number(
 		(
@@ -272,17 +294,24 @@ export async function listUsers(
 			[organizationId, search, input.pageSize, input.offset],
 		)
 	).rows;
+	const principals = new Map(
+		(
+			await loadPrincipals(
+				database,
+				users.map((user) => String(user.id)),
+				organizationId,
+			)
+		).map((principal) => [principal.userId, principal]),
+	);
 	for (const user of users) {
-		const access = await resolveEffectiveAccess(
-			database,
-			String(user.id),
-			organizationId,
-			Boolean(user.is_super_admin),
-		);
-		user.roles = access.roles;
-		user.permission_keys = access.permissions;
-		user.project_ids = access.projectIds;
+		const target = principals.get(String(user.id));
+		user.roles = target?.roles ?? [];
+		user.permission_keys = target?.permissions ?? [];
+		user.project_ids = target?.projects.ids ?? [];
+		user.all_projects = target?.projects.all ?? false;
+		user.can_manage = Boolean(authority && target && decideDelegation(authority, target) === "allowed");
 	}
+
 	return paginated(users, total, input);
 }
 
@@ -313,67 +342,100 @@ export async function listAuditLogs(
 	return paginated(rows, total, input);
 }
 
+const memberInputSchema = z.object({
+	email: z.string().trim().email(),
+	displayName: z.string().trim().min(1).max(160),
+	role: z.enum(["admin", "analyst", "viewer"]).default("viewer"),
+	roleIds: z.array(z.string().trim().min(1)).max(50).optional(),
+	allProjects: z.boolean().default(false),
+	projectIds: z.array(z.string().trim().min(1)).max(10_000).default([]),
+	password: z.string().min(12).max(1024),
+});
+
+async function memberAudit(
+	database: Database,
+	organizationId: string,
+	actorId: string | null,
+	action: string,
+	userId: string,
+	metadata: Record<string, unknown> = {},
+) {
+	await database.query(
+		`INSERT INTO audit_logs(id,organization_id,actor_user_id,action,target_type,target_id,metadata)
+  VALUES($1,$2,$3,$4,'user',$5,$6::jsonb)`,
+		[randomUUID(), organizationId, actorId, action, userId, JSON.stringify(metadata)],
+	);
+}
+
+async function requestedMemberRoles(
+	database: Database,
+	organizationId: string,
+	data: z.infer<typeof memberInputSchema>,
+): Promise<string[]> {
+	if (data.roleIds !== undefined) return [...new Set(data.roleIds)];
+	const rows = (
+		await database.query<{ id: string }>("SELECT id FROM roles WHERE organization_id=$1 AND system_key=$2", [
+			organizationId,
+			data.role,
+		])
+	).rows;
+	if (!rows.length) throw new HttpInputError("默认角色不存在，请明确选择一个机构角色", 409);
+	return rows.map((row) => row.id);
+}
+
+async function assertNewMemberEmail(database: Database, organizationId: string, email: string): Promise<void> {
+	const existing = (
+		await database.query<{ disabled_at: string | null }>(
+			"SELECT disabled_at FROM users WHERE organization_id=$1 AND lower(email)=lower($2)",
+			[organizationId, email],
+		)
+	).rows[0];
+	if (existing)
+		throw new HttpInputError(
+			existing.disabled_at
+				? "该邮箱已有停用账号，请在成员列表中恢复，不要重复创建"
+				: "该邮箱已是本机构成员，请使用其他邮箱或调整已有成员授权",
+			409,
+		);
+}
+
 export async function createUser(
 	database: Database,
 	input: unknown,
 	organizationId = "default",
+	actor?: MemberActor,
 ): Promise<{ id: string }> {
-	const data = z
-		.object({
-			email: z.email(),
-			displayName: z.string().trim().min(1),
-			role: z.enum(["admin", "analyst", "viewer"]).default("viewer"),
-			roleIds: z.array(z.string().trim().min(1)).max(50).optional(),
-			allProjects: z.boolean().default(true),
-			projectIds: z.array(z.string().trim().min(1)).max(10_000).default([]),
-			password: z.string().min(12),
-		})
-		.parse(input);
-	const id = randomUUID();
-	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: User creation atomically validates and writes role plus project scope assignments.
-	await database.transaction(async (transaction) => {
-		await transaction.query(
-			`INSERT INTO users (id,organization_id,email,display_name,role,password_hash,all_projects)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-			[
-				id,
-				organizationId,
-				data.email.toLowerCase(),
-				data.displayName,
-				data.role,
-				passwordHash(data.password),
-				data.allProjects,
-			],
+	const data = memberInputSchema.parse(input),
+		id = randomUUID();
+	const hash = await passwordHash(data.password);
+	await database.transaction(async (tx) => {
+		// Serialize case-insensitive checks without rewriting legacy emails or silently merging accounts.
+		const org = await tx.query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE", [organizationId]);
+		if (!org.rows.length) throw new HttpInputError("机构不存在", 404);
+		if (!actor) throw new AccessDeniedError("创建成员必须明确提供已认证操作者");
+		const authority = await memberAuthority(tx, organizationId, actor);
+		await assertNewMemberEmail(tx, organizationId, data.email);
+		const roleIds = await requestedMemberRoles(tx, organizationId, data);
+		await assertAssignableMember(
+			tx,
+			organizationId,
+			{ roleIds, allProjects: data.allProjects, projectIds: data.projectIds },
+			authority,
 		);
-		const roleIds = data.roleIds?.length
-			? [...new Set(data.roleIds)]
-			: (
-					await transaction.query<{ id: string }>("SELECT id FROM roles WHERE organization_id=$1 AND name=$2 LIMIT 1", [
-						organizationId,
-						data.role === "admin" ? "机构管理员" : data.role === "analyst" ? "业务分析师" : "只读成员",
-					])
-				).rows.map((row) => row.id);
-		if (roleIds.length) {
-			const placeholders = roleIds.map((_, index) => `$${index + 2}`).join(",");
-			const validRoles = await transaction.query<{ id: string }>(
-				`SELECT id FROM roles WHERE organization_id=$1 AND id IN (${placeholders})`,
-				[organizationId, ...roleIds],
-			);
-			if (validRoles.rows.length !== roleIds.length) throw new Error("包含其他机构或不存在的角色");
-			for (const roleId of roleIds)
-				await transaction.query("INSERT INTO user_roles (user_id,role_id) VALUES ($1,$2)", [id, roleId]);
-		}
-		if (!data.allProjects && data.projectIds.length) {
-			const projectIds = [...new Set(data.projectIds)];
-			const placeholders = projectIds.map((_, index) => `$${index + 2}`).join(",");
-			const validProjects = await transaction.query<{ id: string }>(
-				`SELECT id FROM projects WHERE organization_id=$1 AND id IN (${placeholders})`,
-				[organizationId, ...projectIds],
-			);
-			if (validProjects.rows.length !== projectIds.length) throw new Error("包含其他机构或不存在的客户");
-			for (const projectId of projectIds)
-				await transaction.query("INSERT INTO user_project_access (user_id,project_id) VALUES ($1,$2)", [id, projectId]);
-		}
+		await tx.query(
+			`INSERT INTO users(id,organization_id,email,display_name,role,password_hash,all_projects) VALUES($1,$2,$3,$4,$5,$6,$7)`,
+			[id, organizationId, data.email.toLowerCase(), data.displayName, data.role, hash, data.allProjects],
+		);
+		for (const roleId of roleIds) await tx.query("INSERT INTO user_roles(user_id,role_id) VALUES($1,$2)", [id, roleId]);
+		if (!data.allProjects)
+			for (const projectId of [...new Set(data.projectIds)])
+				await tx.query("INSERT INTO user_project_access(user_id,project_id) VALUES($1,$2)", [id, projectId]);
+		if (actor)
+			await memberAudit(tx, organizationId, actor.id, "member.created", id, {
+				roleIds,
+				allProjects: data.allProjects,
+				projectIds: data.allProjects ? [] : data.projectIds,
+			});
 	});
 	return { id };
 }
@@ -383,14 +445,91 @@ export async function disableUser(
 	userId: string,
 	actorId: string | null,
 	organizationId = "default",
+	actor?: MemberActor,
 ): Promise<void> {
-	if (actorId === userId) throw new Error("不能停用当前登录管理员");
-	const result = await database.query(
-		"UPDATE users SET disabled_at=COALESCE(disabled_at,now()),updated_at=now() WHERE id=$1 AND organization_id=$2 AND is_super_admin=false",
-		[userId, organizationId],
-	);
-	if (result.affectedRows !== 1) throw new Error("用户不存在");
-	await database.query("UPDATE sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1", [userId]);
+	if (actorId === userId) throw new HttpInputError("不能停用当前登录管理员", 403);
+	await database.transaction(async (tx) => {
+		await assertManageableMember(tx, organizationId, userId, actor ?? { id: actorId, isSuperAdmin: false });
+		await tx.query(
+			"UPDATE users SET disabled_at=COALESCE(disabled_at,now()),updated_at=now() WHERE id=$1 AND organization_id=$2",
+			[userId, organizationId],
+		);
+		await tx.query("UPDATE sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1", [userId]);
+		if (actor) await memberAudit(tx, organizationId, actor.id, "member.disabled", userId);
+	});
+}
+
+export async function restoreUser(
+	database: Database,
+	organizationId: string,
+	userId: string,
+	actor: MemberActor,
+): Promise<void> {
+	await database.transaction(async (tx) => {
+		await assertManageableMember(tx, organizationId, userId, actor);
+		await tx.query("UPDATE users SET disabled_at=NULL,updated_at=now() WHERE id=$1 AND organization_id=$2", [
+			userId,
+			organizationId,
+		]);
+		// Restoring an account never revives a previously revoked token.
+		await tx.query("UPDATE sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1", [userId]);
+		await memberAudit(tx, organizationId, actor.id, "member.restored", userId);
+	});
+}
+
+export async function resetMemberPassword(
+	database: Database,
+	organizationId: string,
+	userId: string,
+	input: unknown,
+	actor: MemberActor,
+): Promise<void> {
+	const data = z.object({ password: z.string().min(12).max(1024) }).parse(input),
+		hash = await passwordHash(data.password);
+	await database.transaction(async (tx) => {
+		await assertManageableMember(tx, organizationId, userId, actor);
+		await tx.query("UPDATE users SET password_hash=$2,updated_at=now() WHERE id=$1", [userId, hash]);
+		await tx.query("UPDATE sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1", [userId]);
+		await memberAudit(tx, organizationId, actor.id, "member.password_reset", userId);
+	});
+}
+
+export async function changeOwnPassword(
+	database: Database,
+	request: IncomingMessage,
+	identity: Identity,
+	input: unknown,
+): Promise<void> {
+	if (!identity.id) throw new HttpInputError("免登录模式不能修改密码", 400);
+	const userId = identity.id;
+	loginLimiter.check(`password-change:${userId}`, `authenticated:${userId}`);
+	const data = z
+		.object({ currentPassword: z.string().min(1).max(1024), newPassword: z.string().min(12).max(1024) })
+		.parse(input);
+	const nextHash = await passwordHash(data.newPassword),
+		token = sessionToken(request);
+	await database.transaction(async (tx) => {
+		const row = (
+			await tx.query<{ password_hash: string }>(
+				"SELECT password_hash FROM users WHERE id=$1 AND disabled_at IS NULL FOR UPDATE",
+				[identity.id],
+			)
+		).rows[0];
+		if (!token || !(await loadPrincipal(tx, { userId, tokenHash: hashToken(token) })))
+			throw new AuthenticationError("当前会话已失效，请重新登录");
+		if (!row || !(await verifyPassword(data.currentPassword, row.password_hash)))
+			throw new HttpInputError("当前密码不正确", 400);
+		await tx.query("UPDATE users SET password_hash=$2,updated_at=now() WHERE id=$1", [identity.id, nextHash]);
+		await tx.query("UPDATE sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1 AND token_hash<>$2", [
+			identity.id,
+			token ? hashToken(token) : "",
+		]);
+		await tx.query(
+			"UPDATE sessions SET credential_version=(SELECT credential_version FROM users WHERE id=$1) WHERE user_id=$1 AND token_hash=$2 AND revoked_at IS NULL",
+			[userId, token ? hashToken(token) : ""],
+		);
+		await memberAudit(tx, identity.homeOrganizationId, userId, "member.password_changed", userId);
+	});
 }
 
 export async function auditRequest(

@@ -16,6 +16,7 @@ import {
 	requestReportPdf,
 	revokeReportShare,
 } from "./report-snapshots";
+import { seedMetricSnapshot } from "./test-support/measurement";
 
 describe("不可变报告快照", () => {
 	it(
@@ -150,7 +151,8 @@ describe("不可变报告快照", () => {
 					],
 				);
 
-				expect(await advanceReportWorkflow(database, "batch")).toMatchObject({
+				await seedMetricSnapshot(database, "batch");
+				expect(await advanceReportWorkflow(database, "batch", { actor: { kind: "local" } })).toMatchObject({
 					state: "documents_queued",
 					reportId: expect.any(String),
 				});
@@ -218,11 +220,14 @@ describe("不可变报告快照", () => {
 				        ('quality','project','batch','quality_review','approved','gpt-test','test',
 				         '{"summary":"有高严重度问题","verdict":"blocked","reviewedNarrativeRunId":"narrative","issues":[],"evidenceIds":[]}'::jsonb,now()-interval '1 minute',now()-interval '1 minute')`,
 			);
-			expect(await advanceReportWorkflow(database, "batch", { allowRetry: false })).toMatchObject({
+			await seedMetricSnapshot(database, "batch");
+			expect(
+				await advanceReportWorkflow(database, "batch", { actor: { kind: "local" }, allowRetry: false }),
+			).toMatchObject({
 				state: "quality_blocked",
 				runId: "quality",
 			});
-			const retried = await advanceReportWorkflow(database, "batch", { allowRetry: true });
+			const retried = await advanceReportWorkflow(database, "batch", { actor: { kind: "local" }, allowRetry: true });
 			expect(retried.state).toBe("narrative_queued");
 			const runs = (
 				await database.query<{ purpose: string; status: string }>(
@@ -231,7 +236,9 @@ describe("不可变报告快照", () => {
 			).rows;
 			expect(runs).toEqual([{ purpose: "report_narrative", status: "queued" }]);
 			// 新叙述在途：再次推进（包括定时扫描）只报告叙述状态，不会再排质检或冻结旧叙述。
-			expect(await advanceReportWorkflow(database, "batch", { allowRetry: true })).toMatchObject({
+			expect(
+				await advanceReportWorkflow(database, "batch", { actor: { kind: "local" }, allowRetry: true }),
+			).toMatchObject({
 				state: "narrative_queued",
 				runId: retried.runId,
 			});

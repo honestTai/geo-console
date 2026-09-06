@@ -1090,7 +1090,7 @@ export function Workbench({
 							]}
 						/>
 					</span>
-					<Tooltip title="开启后草稿生成即自动批准并写入审计；关闭则每一步都等你审批">
+					<Tooltip title="开启后自动批准普通草稿并写审计；报告叙述和质检仍须人工审批">
 						<span className="wb-setting">
 							<Switch
 								size="small"
@@ -1143,7 +1143,7 @@ export function Workbench({
 						{session.execution_target === "desktop" && <Tag>桌面执行</Tag>}
 					</div>
 					<Space className="wb-head-settings" size={12} wrap>
-						<Tooltip title="草稿生成后不再等待人工点批准；每次自动批准都会写入审计日志">
+						<Tooltip title="普通草稿可自动批准并写入审计；报告叙述和质检不会绕过人工审批">
 							<span className="wb-setting">
 								<Switch
 									size="small"

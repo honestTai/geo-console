@@ -150,6 +150,7 @@ export async function runOneCloudCapture(database: Database): Promise<boolean> {
 			schemaVersion: "geo.query-capture.v2",
 			captureId,
 			jobId: job.id,
+			sampleKey: job.payload.sampleKey,
 			projectId: job.payload.projectId,
 			promptId: job.payload.promptId,
 			prompt: job.payload.prompt,

@@ -1,12 +1,17 @@
+import type { ExecutionActor } from "@geo/authorization";
+import type { FrozenMeasurementContract } from "@geo/evidence";
 import { sql } from "drizzle-orm";
 import {
+	type AnyPgColumn,
 	bigint,
 	boolean,
+	check,
 	index,
 	integer,
 	jsonb,
 	pgEnum,
 	pgTable,
+	primaryKey,
 	real,
 	text,
 	timestamp,
@@ -45,6 +50,7 @@ export type CapabilityVisibility = "available" | "partial" | "unavailable";
 
 export const organizations = pgTable("organizations", {
 	id: id("id"),
+	authzVersion: integer("authz_version").notNull().default(0),
 	name: text("name").notNull(),
 	suspendedAt: timestamp("suspended_at", { withTimezone: true }),
 	suspendedReason: text("suspended_reason"),
@@ -229,6 +235,7 @@ export const websiteAudits = pgTable(
 );
 
 export type FrozenBatchConfig = {
+	measurement?: FrozenMeasurementContract;
 	project: {
 		name: string;
 		domain: string;
@@ -295,6 +302,7 @@ export const collectorNodes = pgTable("collector_nodes", {
 });
 
 export type CaptureJobPayload = {
+	sampleKey?: string;
 	projectId: string;
 	batchId: string;
 	promptId: string;
@@ -388,7 +396,12 @@ export type AgentSessionPlanStep = {
 	detail?: string | null;
 };
 
-export type JobPayload = CaptureJobPayload | AgentJobPayload | AgentSessionTurnPayload | { reportId: string };
+export type JobPayload =
+	| CaptureJobPayload
+	| AgentJobPayload
+	| AgentSessionTurnPayload
+	| { reportId: string }
+	| { runId: string; captureId: string };
 
 export const jobs = pgTable(
 	"jobs",
@@ -406,13 +419,19 @@ export const jobs = pgTable(
 		createdAt,
 		updatedAt,
 	},
-	(table) => [index("jobs_claim_idx").on(table.status, table.availableAt, table.leaseExpiresAt)],
+	(table) => [
+		index("jobs_claim_idx").on(table.status, table.availableAt, table.leaseExpiresAt),
+		uniqueIndex("semantic_job_key")
+			.on(sql`(${table.payload}->>'runId')`, sql`(${table.payload}->>'captureId')`)
+			.where(sql`${table.type}='semantic_parse'`),
+	],
 );
 
 export const queryCaptures = pgTable(
 	"query_captures",
 	{
 		id: id("id"),
+		sampleKey: text("sample_key"),
 		jobId: text("job_id")
 			.notNull()
 			.references(() => jobs.id),
@@ -458,6 +477,7 @@ export const queryCaptures = pgTable(
 	},
 	(table) => [
 		uniqueIndex("captures_job_unique").on(table.jobId),
+		uniqueIndex("capture_sample_key_idx").on(table.sampleKey).where(sql`${table.sampleKey} IS NOT NULL`),
 		index("captures_batch_platform_idx").on(table.batchId, table.platform),
 	],
 );
@@ -466,6 +486,7 @@ export const diagnosisFindings = pgTable(
 	"diagnosis_findings",
 	{
 		id: id("id"),
+		metricSnapshotId: text("metric_snapshot_id").references((): AnyPgColumn => metricSnapshots.id),
 		projectId: text("project_id")
 			.notNull()
 			.references(() => projects.id, { onDelete: "cascade" }),
@@ -488,6 +509,7 @@ export const remediationTasks = pgTable(
 	"remediation_tasks",
 	{
 		id: id("id"),
+		metricSnapshotId: text("metric_snapshot_id").references((): AnyPgColumn => metricSnapshots.id),
 		projectId: text("project_id")
 			.notNull()
 			.references(() => projects.id, { onDelete: "cascade" }),
@@ -652,6 +674,8 @@ export const users = pgTable(
 	"users",
 	{
 		id: id("id"),
+		credentialVersion: integer("credential_version").notNull().default(0),
+		authzVersion: integer("authz_version").notNull().default(0),
 		organizationId: text("organization_id")
 			.notNull()
 			.default("default")
@@ -660,7 +684,7 @@ export const users = pgTable(
 		displayName: text("display_name").notNull(),
 		role: text("role").$type<OrganizationRole>().notNull(),
 		isSuperAdmin: boolean("is_super_admin").notNull().default(false),
-		allProjects: boolean("all_projects").notNull().default(true),
+		allProjects: boolean("all_projects").notNull().default(false),
 		passwordHash: text("password_hash").notNull(),
 		disabledAt: timestamp("disabled_at", { withTimezone: true }),
 		createdAt,
@@ -676,6 +700,9 @@ export type PermissionKind = "page" | "action";
 
 export const permissions = pgTable("permissions", {
 	key: text("key").primaryKey(),
+	enabled: boolean("enabled").notNull().default(true),
+	builtIn: boolean("built_in").notNull().default(false),
+	parentKey: text("parent_key").references((): AnyPgColumn => permissions.key),
 	kind: text("kind").$type<PermissionKind>().notNull(),
 	groupLabel: text("group_label").notNull(),
 	label: text("label").notNull(),
@@ -728,10 +755,20 @@ export const roles = pgTable(
 		name: text("name").notNull(),
 		description: text("description"),
 		isSystem: boolean("is_system").notNull().default(false),
+		systemKey: text("system_key").$type<"admin" | "analyst" | "viewer" | null>(),
 		createdAt,
 		updatedAt,
 	},
-	(table) => [uniqueIndex("roles_organization_name_unique").on(table.organizationId, table.name)],
+	(table) => [
+		uniqueIndex("roles_organization_name_unique").on(table.organizationId, table.name),
+		uniqueIndex("roles_organization_system_key_unique")
+			.on(table.organizationId, table.systemKey)
+			.where(sql`${table.systemKey} IS NOT NULL`),
+		check(
+			"roles_system_key_check",
+			sql`${table.systemKey} IS NULL OR ${table.systemKey} IN ('admin','analyst','viewer')`,
+		),
+	],
 );
 
 export const rolePermissions = pgTable(
@@ -783,6 +820,7 @@ export const sessions = pgTable(
 	"sessions",
 	{
 		id: id("id"),
+		credentialVersion: integer("credential_version").notNull().default(0),
 		userId: text("user_id")
 			.notNull()
 			.references(() => users.id, { onDelete: "cascade" }),
@@ -843,6 +881,9 @@ export const agentRuns = pgTable(
 	"agent_runs",
 	{
 		id: id("id"),
+		executionActor: jsonb("execution_actor").$type<ExecutionActor>().notNull().default({ kind: "unassigned" }),
+		metricSnapshotId: text("metric_snapshot_id").references((): AnyPgColumn => metricSnapshots.id),
+		baselineMetricSnapshotId: text("baseline_metric_snapshot_id").references((): AnyPgColumn => metricSnapshots.id),
 		organizationId: text("organization_id")
 			.notNull()
 			.default("default")
@@ -877,6 +918,8 @@ export const agentSessions = pgTable(
 	"agent_sessions",
 	{
 		id: id("id"),
+		executionActor: jsonb("execution_actor").$type<ExecutionActor>().notNull().default({ kind: "unassigned" }),
+		cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
 		organizationId: text("organization_id")
 			.notNull()
 			.default("default")
@@ -1087,6 +1130,8 @@ export const driftAlerts = pgTable(
 	"drift_alerts",
 	{
 		id: id("id"),
+		metricSnapshotId: text("metric_snapshot_id").references((): AnyPgColumn => metricSnapshots.id),
+		baselineMetricSnapshotId: text("baseline_metric_snapshot_id").references((): AnyPgColumn => metricSnapshots.id),
 		projectId: text("project_id")
 			.notNull()
 			.references(() => projects.id, { onDelete: "cascade" }),
@@ -1120,4 +1165,148 @@ export const projectCosts = pgTable(
 		occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
 	},
 	(table) => [index("project_costs_project_idx").on(table.projectId, table.occurredAt)],
+);
+
+export const semanticParseRuns = pgTable(
+	"semantic_parse_runs",
+	{
+		id: id("id"),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id),
+		batchId: text("batch_id")
+			.notNull()
+			.references(() => experimentBatches.id),
+		contract: jsonb("contract").$type<FrozenMeasurementContract>().notNull(),
+		contractHash: text("contract_hash").notNull(),
+		status: text("status").notNull().default("queued"),
+		currentMetricId: text("current_metric_id").references((): AnyPgColumn => metricSnapshots.id),
+		errorMessage: text("error_message"),
+		createdBy: text("created_by").references(() => users.id),
+		createdAt,
+		updatedAt,
+		completedAt: timestamp("completed_at", { withTimezone: true }),
+	},
+	(t) => [
+		index("semantic_runs_batch_idx").on(t.batchId, t.createdAt),
+		check("semantic_parse_runs_status_check", sql`${t.status} IN ('queued','running','ready','partial','failed')`),
+	],
+);
+
+export const semanticObservations = pgTable(
+	"semantic_observations",
+	{
+		id: id("id"),
+		runId: text("run_id")
+			.notNull()
+			.references(() => semanticParseRuns.id),
+		captureId: text("capture_id")
+			.notNull()
+			.references(() => queryCaptures.id),
+		contractHash: text("contract_hash").notNull(),
+		passKind: text("pass_kind").notNull(),
+		status: text("status").notNull(),
+		observation: jsonb("observation"),
+		validation: jsonb("validation").notNull(),
+		rawArtifactKey: text("raw_artifact_key"),
+		usage: jsonb("usage"),
+		costMicros: bigint("cost_micros", { mode: "number" }),
+		reviewedBy: text("reviewed_by").references(() => users.id),
+		createdAt,
+	},
+	(t) => [
+		index("semantic_observations_capture_idx").on(t.runId, t.captureId),
+		check("semantic_observations_status_check", sql`${t.status} IN ('valid','needs_review','failed')`),
+		check("semantic_observations_pass_kind_check", sql`${t.passKind} IN ('primary','review','human')`),
+	],
+);
+
+export const semanticSelections = pgTable(
+	"semantic_selections",
+	{
+		runId: text("run_id")
+			.notNull()
+			.references(() => semanticParseRuns.id),
+		captureId: text("capture_id")
+			.notNull()
+			.references(() => queryCaptures.id),
+		observationId: text("observation_id")
+			.notNull()
+			.references(() => semanticObservations.id),
+	},
+	(t) => [primaryKey({ columns: [t.runId, t.captureId] })],
+);
+
+export const metricSnapshots = pgTable(
+	"metric_snapshots",
+	{
+		id: id("id"),
+		runId: text("run_id")
+			.notNull()
+			.references(() => semanticParseRuns.id),
+		batchId: text("batch_id")
+			.notNull()
+			.references(() => experimentBatches.id),
+		algorithmVersion: text("algorithm_version").notNull(),
+		contractHash: text("contract_hash").notNull(),
+		inputHash: text("input_hash").notNull(),
+		payload: jsonb("payload").notNull(),
+		payloadHash: text("payload_hash").notNull(),
+		status: text("status").notNull(),
+		createdAt,
+	},
+	(t) => [
+		uniqueIndex("metric_snapshots_run_input_idx").on(t.runId, t.inputHash),
+		check("metric_snapshots_status_check", sql`${t.status} IN ('ready','limited','unavailable')`),
+	],
+);
+
+export const measurementDriftObservations = pgTable(
+	"measurement_drift_observations",
+	{
+		id: id("id"),
+		baselineMetricId: text("baseline_metric_id")
+			.notNull()
+			.references(() => metricSnapshots.id),
+		metricId: text("metric_id")
+			.notNull()
+			.references(() => metricSnapshots.id),
+		providerId: text("provider_id").notNull(),
+		metric: text("metric").notNull(),
+		result: jsonb("result").notNull(),
+		createdAt,
+	},
+	(t) => [uniqueIndex("measurement_drift_pair_idx").on(t.baselineMetricId, t.metricId, t.providerId, t.metric)],
+);
+
+export const authorizationPolicies = pgTable(
+	"authorization_policies",
+	{
+		id: id("id"),
+		policyKey: text("policy_key").notNull().unique(),
+		kind: text("kind").$type<"http" | "artifact" | "execution">().notNull(),
+		label: text("label").notNull(),
+		httpMethod: text("http_method"),
+		pathPattern: text("path_pattern"),
+		anyOf: jsonb("any_of").$type<string[]>().notNull().default([]),
+		allOf: jsonb("all_of").$type<string[]>().notNull().default([]),
+		resourceType: text("resource_type").notNull().default("organization"),
+		resourceParam: text("resource_param"),
+		scope: text("scope").$type<"organization" | "project" | "system">().notNull(),
+		ownerOnly: boolean("owner_only").notNull().default(false),
+		systemOnly: boolean("system_only").notNull().default(false),
+		allowSuspended: boolean("allow_suspended").notNull().default(false),
+		enabled: boolean("enabled").notNull().default(true),
+		builtIn: boolean("built_in").notNull().default(false),
+		version: integer("version").notNull().default(1),
+		createdAt,
+		updatedAt,
+	},
+	(table) => [
+		uniqueIndex("authorization_policies_http_unique").on(table.httpMethod, table.pathPattern),
+		index("authorization_policies_kind_idx").on(table.kind, table.httpMethod),
+	],
 );

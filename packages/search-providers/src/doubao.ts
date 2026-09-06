@@ -1,15 +1,13 @@
 import {
 	ADAPTER_VERSION,
-	citationSource,
 	classifyProviderError,
 	connectionFromError,
-	dedupeSources,
 	defaultDependencies,
 	joinUrl,
 	matchBrands,
 	outputText,
-	recursiveUrls,
 	requestJson,
+	responseSearchEvidence,
 	usageFrom,
 } from "./common";
 import type {
@@ -70,16 +68,8 @@ export class DoubaoSearchAdapter implements SearchProviderAdapter {
 			);
 			rawResponse = response.body;
 			const answerText = outputText(response.body);
-			const urls = recursiveUrls(response.body);
-			const output = Array.isArray(response.body.output) ? response.body.output : [];
-			const searchCalls = output.filter(
-				(item) => item && typeof item === "object" && String((item as { type?: unknown }).type).includes("web_search"),
-			);
-			const queryFanOut = searchCalls.flatMap((item) => {
-				const action = (item as { action?: Record<string, unknown> }).action;
-				return typeof action?.query === "string" ? [action.query] : [];
-			});
-			if (searchCalls.length === 0 && urls.length === 0)
+			const { searchTriggered, sources, queryFanOut } = responseSearchEvidence(response.body);
+			if (!searchTriggered)
 				return this.failure(
 					"search_not_triggered",
 					"search_not_triggered",
@@ -102,9 +92,9 @@ export class DoubaoSearchAdapter implements SearchProviderAdapter {
 				status: "complete",
 				answerText,
 				brandMatches: matchBrands(answerText, input.brands),
-				sources: dedupeSources(urls.map((item, index) => citationSource(item.url, index + 1, item.title, true))),
+				sources,
 				queryFanOut,
-				sourceVisibility: urls.length ? "available" : "unavailable",
+				sourceVisibility: sources.length ? "available" : "unavailable",
 				fanoutVisibility: queryFanOut.length ? "partial" : "unavailable",
 				model: this.config.model,
 				protocol: this.config.protocol,
