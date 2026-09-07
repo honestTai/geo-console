@@ -121,6 +121,15 @@ function fixture(outcomes: boolean[][]): VisibilityMetricInput {
 	};
 }
 describe("V2 确定性指标", () => {
+	it("未提供官网时引用相关指标不可用，不把缺失官网当作零引用", () => {
+		const input = fixture([[true, true, true]]);
+		input.targetDomains = [];
+		for (const capture of input.captures) capture.sourceVisibility = "available";
+		const result = calculateVisibilityMetrics(input);
+		expect(result.citationRate).toBeNull();
+		expect(result.sourcePresenceRate).toBeNull();
+		expect(result.brandMentionRate).toBe(1);
+	});
 	it("问题等权，不让三次成功问题压过两次成功问题", () => {
 		const result = calculateVisibilityMetrics(
 			fixture([

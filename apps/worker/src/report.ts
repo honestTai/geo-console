@@ -387,6 +387,7 @@ export function buildDeterministicFindings(input: {
 		capture.sources.some((source) => normalizeDomain(source.domain) === owned && source.isCitation),
 	);
 	if (
+		owned &&
 		complete.some((c) => c.captureMode === "llm_search_api" && c.sourceVisibility !== "unavailable") &&
 		withOwnedCitation.length === 0
 	) {
@@ -426,7 +427,7 @@ export function buildDeterministicFindings(input: {
 			findings.push({
 				category: "官网技术基础",
 				title: "官网存在影响读取与引用的技术缺口",
-				detail: `官网审计 ${websiteAudit.result.score}/100，需处理：${material.map((check) => `${check.label}（${check.detail}）`).join("；")}。`,
+				detail: `官网审计 ${websiteAudit.result.score === null ? "未形成可评分证据" : `${websiteAudit.result.score}/100`}，需处理：${material.map((check) => `${check.label}（${check.detail}）`).join("；")}。`,
 				confidence: 1,
 				evidenceIds: [websiteAudit.id],
 				targetPromptIds: [],

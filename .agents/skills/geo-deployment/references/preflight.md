@@ -1,5 +1,7 @@
 # GEO Console Deployment Preflight
 
+官网选填/审计证据发布：确认目标与备份后在明确授权库执行 migration 0024，同步 Web/API/Capture/Agent/Report。API 与 Agent 需能启动既有 Chromium；验证受控脚本取证、阻止内网/API/实时连接、中文 PDF、artifact 项目隔离和空官网。没有新端口/服务/包依赖。回滚不得恢复 NOT NULL 来破坏无官网客户；旧版不理解 null 与新证据时应暂停回滚或使用兼容版本，保留全部对象。详见 `docs/website-audit-and-capture-recovery.md`。
+
 发布完整回答辅助解读须同步 API/Web 和 migration 0023（新建/明确授权库），确认 Semantic Worker 可消费 `answer_analysis`。不新增生产 Python、端口或 Compose 服务；Python 仅为可选离线评测。备份包含 answer_analysis_runs/attempts；回滚前停止新建并排空在途任务，保留新增表，旧版不处理该 job。见 `docs/answer-analysis.md`。
 
 ## 目标与授权

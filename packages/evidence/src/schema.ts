@@ -33,6 +33,7 @@ export const captureFailureCodeSchema = z.enum([
 	"model_unavailable",
 	"protocol_changed",
 	"provider_timeout",
+	"quota_exceeded",
 	"provider_error",
 	"unknown",
 ]);

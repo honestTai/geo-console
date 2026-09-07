@@ -316,7 +316,7 @@ export function EvidenceRef({
 					</span>
 				</Tooltip>
 			);
-		const clickable = (entry.kind === "capture" || entry.kind === "web_search") && onOpen;
+		const clickable = ["capture", "web_search", "audit", "snapshot"].includes(entry.kind) && onOpen;
 		const body = (
 			<span className="evidence-ref">
 				<b>[{evidenceRefBadge(entry)}]</b>

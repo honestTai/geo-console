@@ -1,5 +1,7 @@
 # GEO Console Project Map
 
+客户/官网/额度链：`project-profile.ts` + migration 0024 → `ProjectProfileEditor` / Onboarding / Overview；`capture-progress.ts` → cloud-runner/service → Monitoring；`crawler.ts` → `website-discovery.ts`（XML 类型、嵌套、限额）、`public-http.ts`（DNS 固定与压缩上限）、`website-screenshot.ts`（受控浏览器）、`website-report.ts` / `report-branding.ts`（审计与最终报告）。`website-evidence.ts` + authorization/resources → WebsiteEvidenceViewer / AuditEvidenceDrawer，让历史审计/快照引用可打开且跨项目不可读。操作与兼容说明见 `docs/website-audit-and-capture-recovery.md`。
+
 完整回答辅助解读：evidence `answer-analysis.ts` → worker `answer-analysis-model.ts` / `answer-analysis.ts` → Semantic Worker 独立槽 → Web `AnswerAnalysis` / `ui/answer-analysis` / `useAnswerAnalysis`（EvidenceDetail 装配）。Core migration 0023 保存独立运行/尝试及授权，GET 不调用模型，POST 固定异步身份。与 measurement/metrics 解耦，不改正式排名。`tools/answer-analysis-eval` 是可选 Python 离线标注评测；详情见 `docs/answer-analysis.md`。
 
 ## 工具链

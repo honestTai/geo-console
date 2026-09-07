@@ -63,6 +63,7 @@ import { currentMeasurement, reparseMeasurement, reviewSemanticObservation } fro
 import { listMemberOptions } from "./member-access";
 import { artifactSafetyHeaders, checkObjectStore, readArtifact } from "./object-store";
 import { parsePagination } from "./pagination";
+import { updateProjectProfile } from "./project-profile";
 import {
 	ensureProviderConfigs,
 	getProviderSettings,
@@ -122,6 +123,7 @@ import { applyServiceLogRetention, getServiceLogs, getServiceLogsCsv } from "./s
 import { canAccessProject, createOrganization, listOrganizations, setOrganizationStatus } from "./tenancy";
 import { HttpInputError, json, readJson } from "./utils";
 import { getWebSearchTestStatus, listWebSearchEvidencePage, testWebSearch } from "./web-search";
+import { getWebsiteEvidence } from "./website-evidence";
 import {
 	answerQuestion,
 	cancelSession,
@@ -204,6 +206,15 @@ async function handleProjectRoutes(
 			) ?? true
 		);
 	const project = routeMatch(path, /^\/api\/projects\/([^/]+)$/);
+	const websiteEvidence = routeMatch(path, /^\/api\/projects\/([^/]+)\/website-evidence\/([^/]+)$/);
+	if (websiteEvidence && request.method === "GET") {
+		json(response, 200, await getWebsiteEvidence(database, websiteEvidence[0], websiteEvidence[1]));
+		return true;
+	}
+	if (project && request.method === "PUT") {
+		json(response, 200, await updateProjectProfile(database, project[0], await readJson(request)));
+		return true;
+	}
 	if (project && request.method === "GET") {
 		const value = await getProject(database, project[0]);
 		if (value) {

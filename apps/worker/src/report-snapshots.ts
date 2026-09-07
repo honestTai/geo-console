@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { access } from "node:fs/promises";
 import type { ExecutionActor } from "@geo/authorization";
-import { areBatchConfigsComparable, type Database, type ReportType } from "@geo/core";
+import { areBatchConfigsComparable, type Database, type ReportType, type WebsiteAuditResult } from "@geo/core";
 import type { QueryCapture } from "@geo/evidence";
 import { StructuredLogger, safeErrorMessage } from "@geo/logging";
 import { rateKeys } from "@geo/metrics";
@@ -19,13 +19,15 @@ import {
 	taskStatusLabel,
 } from "./labels";
 import { currentMeasurement, readPairedComparisons } from "./measurement";
-import { artifactExists, putArtifact } from "./object-store";
+import { artifactExists, putArtifact, readArtifact } from "./object-store";
 import { type Paginated, type PaginationInput, paginated } from "./pagination";
 import { providerDefinitions } from "./providers";
 import { sweepTerminalLeases } from "./queue-recovery";
 import { type EvidenceIndexEntry, evidencePlatformLabel, stripTrackingFragment } from "./report";
+import { customerBlock, reportBrandStyles, reportLogo, reportWatermark } from "./report-branding";
 import { getBatch, getBatchReport } from "./service";
 import { HttpInputError, parseJsonColumn, sha256, stableJson } from "./utils";
+import { websiteAuditSection } from "./website-report";
 
 const reportTypeSchema = z.enum(["quick_audit", "remediation", "retest"]);
 const reportLogger = new StructuredLogger("report-worker");
@@ -355,6 +357,7 @@ async function createReportSnapshotLocked(
 	const createdAt = new Date().toISOString();
 	const payload = {
 		schemaVersion: "geo.report-snapshot.v2",
+		renderContract: { brand: "ZZGEO", templateVersion: "zzgeo.report.v3" },
 		metricSnapshotId: measurement.snapshotId,
 		reportType,
 		createdAt,
@@ -505,7 +508,7 @@ function pairedResultsHtml(value: unknown): string {
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Report sections intentionally mirror the immutable document contract.
-export function renderReportHtml(snapshot: Record<string, unknown>): string {
+function renderReportBody(snapshot: Record<string, unknown>): string {
 	const payload = snapshot.payload as Record<string, unknown>;
 	const report = payload.report as {
 		analysis?: {
@@ -578,6 +581,29 @@ export function renderReportHtml(snapshot: Record<string, unknown>): string {
 		</main></body></html>`;
 }
 
+/** Branding and customer details come from the frozen batch, never from today's mutable customer profile. */
+export function renderReportHtml(snapshot: Record<string, unknown>, auditScreenshot?: string): string {
+	const payload = snapshot.payload as {
+		batch?: { config?: { project?: Record<string, unknown> } };
+		report?: { analysis?: { websiteAudit?: { result: WebsiteAuditResult } | null } };
+	};
+	const customer = payload.batch?.config?.project ?? {};
+	const audit = payload.report?.analysis?.websiteAudit;
+	const auditSection = audit
+		? websiteAuditSection(audit.result, auditScreenshot)
+		: `<section class="section" id="website-audit"><h2>官网审计</h2><p>${customer.domain ? "本报告没有对应的官网审计证据，不能推断官网存在或不存在技术问题。" : "客户未提供官网，本项不适用，官网引用率不可用（不记为 0）；其他 AI 监测结果仍独立成立。"}</p></section>`;
+	return renderReportBody(snapshot)
+		.replace("</style>", `${reportBrandStyles}</style>`)
+		.replace("<body><main>", `<body>${reportWatermark(String(customer.name ?? ""))}<main class="zz-content">`)
+		.replace('<section class="cover">', `<section class="cover">${reportLogo}`)
+		.replace(
+			'<section class="kpis">',
+			`${customerBlock(customer, String(snapshot.created_at ?? ""))}<section class="kpis">`,
+		)
+		.replace('<section class="section" id="remediation">', `${auditSection}<section class="section" id="remediation">`)
+		.replace('<a href="#remediation">', '<a href="#website-audit">5.1 官网技术诊断与证据</a><a href="#remediation">');
+}
+
 export async function generateReportPdf(database: Database, reportId: string): Promise<{ artifactKey: string }> {
 	const snapshot = await getReportSnapshot(database, reportId);
 	if (!snapshot) throw new HttpInputError("报告快照不存在", 404);
@@ -593,15 +619,36 @@ export async function generateReportPdf(database: Database, reportId: string): P
 	const executablePath = await reportBrowserExecutable();
 	const browser = await chromium.launch({ headless: true, executablePath });
 	try {
-		const page = await browser.newPage();
-		await page.setContent(renderReportHtml(snapshot), { waitUntil: "networkidle" });
+		const context = await browser.newContext({ javaScriptEnabled: false, serviceWorkers: "block" });
+		await context.route("**/*", (route) => route.abort());
+		const page = await context.newPage();
+		const payload = snapshot.payload as {
+			batch?: { config?: { project?: { name?: string } } };
+			report?: { analysis?: { websiteAudit?: { result: WebsiteAuditResult } } };
+		};
+		const screenshot = payload.report?.analysis?.websiteAudit?.result.evidence?.find(
+			(item) => item.kind === "screenshot" && item.objectKey,
+		);
+		let screenshotData: string | undefined;
+		if (screenshot?.objectKey)
+			try {
+				const asset = await readArtifact(screenshot.objectKey);
+				if (
+					asset.contentType === "image/png" &&
+					createHash("sha256").update(asset.body).digest("hex") === screenshot.contentHash
+				)
+					screenshotData = `data:image/png;base64,${Buffer.from(asset.body).toString("base64")}`;
+			} catch {
+				/* Missing screenshot is disclosed in the report; never fetch the live site to replace evidence. */
+			}
+		await page.setContent(renderReportHtml(snapshot, screenshotData), { waitUntil: "load", timeout: 15_000 });
 		const pdf = await page.pdf({
 			format: "A4",
 			printBackground: true,
 			displayHeaderFooter: true,
-			headerTemplate: `<div style="font-size:8px;width:100%;padding:0 14mm;color:#66716d">${escapeHtml(snapshot.title)}</div>`,
+			headerTemplate: `<div style="font-size:8px;width:100%;padding:0 14mm;color:#66716d">ZZGEO · ${escapeHtml(payload.batch?.config?.project?.name ?? snapshot.title)}</div>`,
 			footerTemplate:
-				'<div style="font-size:8px;width:100%;padding:0 14mm;text-align:right;color:#66716d"><span class="pageNumber"></span> / <span class="totalPages"></span></div>',
+				'<div style="font-size:8px;width:100%;padding:0 14mm;text-align:right;color:#66716d">ZZGEO · <span class="pageNumber"></span> / <span class="totalPages"></span></div>',
 			margin: { top: "20mm", right: "14mm", bottom: "18mm", left: "14mm" },
 		});
 		await putArtifact(artifactKey, pdf, "application/pdf");

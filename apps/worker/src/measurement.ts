@@ -476,7 +476,7 @@ export async function finalizeMeasurements(database: Database): Promise<void> {
 							observations,
 							promptIds: config.prompts.map((p) => p.id),
 							targetBrandId: run.project_id,
-							targetDomains: [config.project.domain],
+							targetDomains: config.project.domain ? [config.project.domain] : [],
 							brands: brandsFor(run.project_id, config),
 							contract,
 						}),

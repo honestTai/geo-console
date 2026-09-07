@@ -12,6 +12,7 @@ import {
 } from "@geo/core";
 import { StructuredLogger, safeErrorMessage } from "@geo/logging";
 import { ADAPTER_VERSION, type ProviderCaptureResult } from "@geo/search-providers";
+import { settleBlockedCaptureJobs } from "./capture-progress";
 import { putArtifact } from "./object-store";
 import { buildProviderAdapter, providerDefinitions } from "./providers";
 import { refreshBatchStatus, storeCloudCapture } from "./service";
@@ -201,6 +202,10 @@ export async function runOneCloudCapture(database: Database): Promise<boolean> {
 		};
 		if (result.status === "complete") captureLogger.info("capture.completed", "联网采集完成", context);
 		else captureLogger.warn("capture.provider_failed", "联网采集返回失败状态", context);
+		if (result.failureCode === "quota_exceeded") {
+			await settleBlockedCaptureJobs(database, job.payload.batchId);
+			await refreshBatchStatus(database, job.payload.batchId);
+		}
 		return true;
 	} catch (error) {
 		const context = {
@@ -228,13 +233,20 @@ export async function runOneCloudCapture(database: Database): Promise<boolean> {
  * 否则批次永远停在“采集中”。返回本轮收敛的批次数。
  */
 export async function sweepExpiredCaptureJobs(database: Database): Promise<number> {
-	const batchIds = await failExpiredCaptureJobs(database);
+	const quotaBatchIds = new Set(await settleBlockedCaptureJobs(database));
+	const batchIds = [...new Set([...(await failExpiredCaptureJobs(database)), ...quotaBatchIds])];
 	for (const batchId of batchIds) {
 		await refreshBatchStatus(database, batchId);
-		captureLogger.warn("capture.stale_jobs_failed", "过期租约任务已标记失败，批次状态已刷新", {
-			traceId: batchId,
-			metadata: { batchId },
-		});
+		captureLogger.warn(
+			quotaBatchIds.has(batchId) ? "capture.quota_jobs_stopped" : "capture.stale_jobs_failed",
+			quotaBatchIds.has(batchId)
+				? "余额或额度不足的平台未执行任务已停止，既有证据保留，批次状态已刷新"
+				: "过期租约任务已标记失败，批次状态已刷新",
+			{
+				traceId: batchId,
+				metadata: { batchId },
+			},
+		);
 	}
 	return batchIds.length;
 }

@@ -40,3 +40,31 @@
 .audit-check-card > .ant-tag {
 	align-self: start;
 }
+
+.audit-toolbar .ant-select {
+	min-width: 240px;
+	max-width: 100%;
+	flex: 1;
+}
+.audit-evidence-detail {
+	overflow-wrap: anywhere;
+}
+.audit-evidence-detail article {
+	border-top: 1px solid var(--line);
+	padding: 16px 0;
+}
+.audit-evidence-detail pre {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	max-height: 350px;
+	overflow: auto;
+	background: var(--bg);
+	padding: 12px;
+}
+.audit-check-body .ant-btn {
+	white-space: normal;
+	height: auto;
+	text-align: left;
+	padding-left: 0;
+	justify-content: start;
+}

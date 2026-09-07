@@ -53,6 +53,13 @@ export async function requestJson(
 	return { body: body as Record<string, unknown>, requestId, latencyMs };
 }
 
+function isQuotaError(error: ProviderRequestError, detail: string): boolean {
+	return (
+		error.statusCode === 402 ||
+		(error.statusCode === 429 && /insufficient_quota|quota_exceeded|insufficient.balance/.test(detail))
+	);
+}
+
 export function classifyProviderError(error: unknown): {
 	status: CaptureStatus;
 	failureCode: CaptureFailureCode;
@@ -62,7 +69,13 @@ export function classifyProviderError(error: unknown): {
 		return { status: "timeout", failureCode: "provider_timeout", message: "供应商请求超时" };
 	}
 	if (error instanceof ProviderRequestError) {
-		const errorDetail = JSON.stringify(error.body).toLowerCase();
+		const errorDetail = JSON.stringify(error.body ?? {}).toLowerCase();
+		if (isQuotaError(error, errorDetail))
+			return {
+				status: "failed",
+				failureCode: "quota_exceeded",
+				message: "供应商余额或额度不足，请充值或调整额度后手动重新运行；本次失败证据已保留",
+			};
 		if (error.statusCode === 401 || error.statusCode === 403)
 			return { status: "auth_required", failureCode: "authentication_failed", message: error.message };
 		if (error.statusCode === 429)

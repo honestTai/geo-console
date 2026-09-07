@@ -361,7 +361,13 @@ function MetricCard({ platform, metrics }: { platform: string; metrics: Platform
 			</header>
 			<div className="metric-hero">
 				<b>{unavailable ? "不可用" : percentage(metrics.brandMentionRate)}</b>
-				<span>{unavailable ? "该平台本批次没有成功回答，不进入品牌率分母" : "品牌提及率"}</span>
+				<span>
+					{unavailable
+						? metrics.answeredCaptures > 0
+							? "已有回答，但语义解析或问题覆盖不足，暂不展示品牌率"
+							: "该平台本批次没有成功回答，不进入品牌率分母"
+						: "品牌提及率"}
+				</span>
 			</div>
 			<dl>
 				{rows.map((row) => (
