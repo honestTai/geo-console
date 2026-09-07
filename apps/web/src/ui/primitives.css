@@ -298,3 +298,20 @@
 	color: var(--ink-3);
 	font-size: 13px;
 }
+.metric-help-button {
+	appearance: none;
+	border: 0;
+	background: none;
+	color: inherit;
+	font: inherit;
+	text-align: inherit;
+	padding: 0;
+	cursor: help;
+}
+.metric-help-button:focus-visible {
+	outline: 2px solid #128352;
+	outline-offset: 3px;
+}
+.measurement-explanation {
+	margin: 24px 0;
+}

@@ -72,6 +72,9 @@ importers:
       '@geo/evidence':
         specifier: workspace:*
         version: link:../../packages/evidence
+      '@geo/metrics':
+        specifier: workspace:*
+        version: link:../../packages/metrics
       '@tabler/icons-react':
         specifier: ^3.46.0
         version: 3.46.0(react@19.2.8)

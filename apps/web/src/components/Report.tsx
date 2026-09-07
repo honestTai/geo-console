@@ -47,6 +47,7 @@ import {
 	sourceLabels,
 	taskStatusLabel,
 } from "../types";
+import { MetricLabel } from "../ui/MetricLabel";
 import { useWorkspaceNavigation } from "../ui/navigation";
 import {
 	BatchPicker,
@@ -65,6 +66,7 @@ import {
 } from "../ui/primitives";
 import { AgentDraftContent, agentPurposeLabel, agentRunDuration, agentRunPhase, agentToolLabels } from "./AgentDraft";
 import { BatchMetrics, ComparisonDeltaChart, platformUnavailable } from "./charts";
+import { MeasurementExplanation } from "./MeasurementExplanation";
 import { Page } from "./Page";
 import "./Report.css";
 
@@ -93,21 +95,29 @@ export function ReportExecutiveOverview({
 				</div>
 			</div>
 			<p className="validity-note">{analysis.executive.validityNote}</p>
+			<MeasurementExplanation
+				explanation={
+					batch.measurement && ["queued", "running"].includes(batch.measurement.status)
+						? null
+						: (batch.metricExplanation ?? analysis.readerGuide)
+				}
+				batchId={batch.id}
+			/>
 			<div className="ds-darkstrip">
 				<div className="dm">
-					<span>品牌提及率</span>
+					<MetricLabel metric="brandMentionRate" />
 					<b>{percentage(overall.brandMentionRate as number | undefined)}</b>
 				</div>
 				<div className="dm">
-					<span>首位推荐率</span>
+					<MetricLabel metric="firstRecommendationRate" />
 					<b>{percentage(overall.firstRecommendationRate as number | undefined)}</b>
 				</div>
 				<div className="dm">
-					<span>官网引用率</span>
+					<MetricLabel metric="citationRate" />
 					<b>{percentage(overall.citationRate as number | undefined)}</b>
 				</div>
 				<div className="dm">
-					<span>明确推荐名次中位数</span>
+					<MetricLabel metric="medianRecommendationRank" />
 					<b>
 						{typeof overall.medianRecommendationRank === "number" ? overall.medianRecommendationRank.toFixed(1) : "-"}
 					</b>
@@ -301,35 +311,55 @@ const promptMatrixColumns: TableProps<PromptMatrixRow>["columns"] = [
 		),
 	},
 	{
-		title: "客户位置",
+		title: <MetricLabel metric="medianRecommendationRank" label="本题推荐名次中位数" />,
 		key: "position",
 		width: 96,
 		render: (_: unknown, row: PromptMatrixRow) => (
 			<span className={`rank rank-${row.bestTargetPosition ?? "none"}`}>
-				{row.bestTargetPosition ? `第 ${row.bestTargetPosition}` : "未出现"}
+				{row.bestTargetPosition ? `第 ${row.bestTargetPosition}` : "无明确推荐名次"}
 			</span>
 		),
 	},
 	{
-		title: "提及 / 首位",
+		title: (
+			<>
+				<MetricLabel metric="brandMentionRate" label="提及" /> /{" "}
+				<MetricLabel metric="firstRecommendationRate" label="首位" />
+			</>
+		),
 		key: "rates",
 		width: 130,
 		render: (_: unknown, row: PromptMatrixRow) =>
 			`${percentage(row.targetMentionRate)} / ${percentage(row.firstRecommendationRate)}`,
 	},
 	{
-		title: "竞品位置",
+		title: <MetricLabel metric="brandMentionRate" label="竞品提及情况" />,
 		key: "competitors",
 		render: (_: unknown, row: PromptMatrixRow) =>
 			row.competitors.map((competitor) => (
 				<span className="competitor-rank" key={competitor.id}>
-					{competitor.name}：{competitor.bestPosition ? `第 ${competitor.bestPosition}` : "未出现"}
+					{competitor.name}：{percentage(competitor.mentionRate)}（未计算推荐名次）
 				</span>
 			)),
 	},
-	{ title: "观察来源", key: "sourceCount", dataIndex: "sourceCount", width: 90 },
 	{
-		title: "样本",
+		title: (
+			<MetricLabel
+				label="来源记录数"
+				help={{
+					label: "来源记录数",
+					meaning: "本题成功回答中返回的来源条目，包括最终引用和仅搜索记录。",
+					formula: "本题各成功回答的来源条目数之和，同一网址在不同回答中出现会重复计数。",
+					caution: "不是引用回答数，也不是独立网站数；请打开原回答区分最终引用。",
+				}}
+			/>
+		),
+		key: "sourceCount",
+		dataIndex: "sourceCount",
+		width: 90,
+	},
+	{
+		title: <MetricLabel metric="captureCoverage" label="成功 / 计划" />,
 		key: "samples",
 		width: 80,
 		render: (_: unknown, row: PromptMatrixRow) => `${row.completeSamples}/${row.plannedSamples}`,
@@ -350,6 +380,7 @@ const topicCoverageColumns: TableProps<TopicCoverageRow>["columns"] = [
 			row.terms.map((term) => (
 				<span className="coverage-state" key={term.term}>
 					{term.term}：{term.customerEvidenceIds.length ? `${term.customerEvidenceIds.length} 页` : "未检出"}
+					<EvidenceRef ids={term.customerEvidenceIds} index={[]} />
 				</span>
 			)),
 	},
@@ -360,6 +391,7 @@ const topicCoverageColumns: TableProps<TopicCoverageRow>["columns"] = [
 			row.terms.map((term) => (
 				<span className="coverage-state" key={term.term}>
 					{term.term}：{term.externalEvidenceIds.length ? `${term.externalEvidenceIds.length} 页` : "未检出"}
+					<EvidenceRef ids={term.externalEvidenceIds} index={[]} />
 				</span>
 			)),
 	},
@@ -367,7 +399,7 @@ const topicCoverageColumns: TableProps<TopicCoverageRow>["columns"] = [
 
 const baselineDeltaColumns: TableProps<BaselineDeltaRow>["columns"] = [
 	{ title: "平台", key: "platform", dataIndex: "platform" },
-	{ title: "指标", key: "metric", dataIndex: "metric" },
+	{ title: "指标", key: "metric", dataIndex: "metric", render: (label: string) => <MetricLabel label={label} /> },
 	{ title: "基线", key: "before", dataIndex: "before" },
 	{ title: "复测", key: "after", dataIndex: "after" },
 	{
@@ -910,7 +942,7 @@ export function Report({ project }: { project: Project }) {
 				restart: Boolean(latestSnapshot?.pdf_artifact_key && latestSnapshot.word_artifact_key),
 			});
 			setWorkflowState(result.state);
-			if (result.state === "analysis_unavailable") setReportError("V2 语义证据不足，请在证据中心审核或重新解析");
+			if (result.state === "analysis_unavailable") setReportError("回答分析证据不足，请在证据中心审核或重新解析");
 			await Promise.all([loadAgentRuns(), loadSnapshots()]);
 			setTab("narrative");
 		} catch (reason) {
@@ -923,9 +955,9 @@ export function Report({ project }: { project: Project }) {
 	const reportReady = Boolean(latestSnapshot?.pdf_artifact_key && latestSnapshot.word_artifact_key);
 	const workflowLabel =
 		workflowState === "analysis_pending"
-			? "等待 V2 语义解析"
+			? "等待回答分析"
 			: workflowState === "analysis_unavailable"
-				? "V2 证据不足"
+				? "证据不足"
 				: awaitingApproval
 					? "等待人工审批"
 					: hasActiveAgentRuns
@@ -1015,13 +1047,13 @@ export function Report({ project }: { project: Project }) {
 				<>
 					<section className="agent-activity">
 						<SectionTitle
-							title="HRouter Agent 任务"
+							title="AI 分析任务"
 							count={
 								hasActiveAgentRuns
 									? `${agentRuns.filter((run) => run.status === "queued" || run.status === "running").length} 个进行中`
 									: `${agentRuns.length} 条`
 							}
-							description="报告叙述与质量检查由 HRouter Agent 基于本批次证据生成；批准后自动进入下一步。"
+							description="报告解读与质量检查由 AI 助手 基于本批次证据生成；批准后自动进入下一步。"
 						/>
 						{agentRuns.length ? (
 							<div className="agent-run-list">
@@ -1050,7 +1082,7 @@ export function Report({ project }: { project: Project }) {
 								))}
 							</div>
 						) : (
-							<p className="agent-activity-empty">当前批次暂无 HRouter Agent 任务，点击右上角“生成并校验报告”开始。</p>
+							<p className="agent-activity-empty">当前批次暂无 AI 分析任务，点击右上角“生成并校验报告”开始。</p>
 						)}
 						<Pagination {...agentRunsPage} onPage={(page) => void loadAgentRuns(page)} />
 					</section>

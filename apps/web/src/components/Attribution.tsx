@@ -178,7 +178,10 @@ export function Attribution({ project }: { project: Project }) {
 				/>
 			) : (
 				<>
-					<SectionTitle title="业务指标汇总" />
+					<SectionTitle
+						title="业务指标汇总"
+						description="数值为已导入记录中相同来源、相同指标的数值之和；含义取决于原始导出字段，不是系统自动检测的 AI 表现，也不能据此证明优化带来成交。"
+					/>
 					<KpiGrid columns={Math.min(4, Math.max(2, data.summary.length))}>
 						{data.summary.map((item) => (
 							<KpiCard

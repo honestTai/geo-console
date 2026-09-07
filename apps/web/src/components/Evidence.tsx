@@ -43,7 +43,7 @@ type EvidenceKind = "captures" | "web_search" | "semantic";
 const KIND_OPTIONS = [
 	{ label: "AI 回答", value: "captures" },
 	{ label: "联网搜索", value: "web_search" },
-	{ label: "V2 语义审核", value: "semantic" },
+	{ label: "回答判断审核", value: "semantic" },
 ];
 
 /** 判定提及时用的品牌口径：客户品牌 id 就是项目 id（与指标口径一致），竞品取批次冻结配置。 */
@@ -109,7 +109,12 @@ export function Evidence({
 	}, [focus, onConsumeFocus]);
 	// 从报告/诊断的证据引用跳转过来时定位到具体回答。
 	useEffect(() => {
-		if (!focus || focus.kind === "web_search" || !batch) return;
+		if (!focus || focus.kind === "web_search") return;
+		if (focus.batchId && focus.batchId !== selected) {
+			setSelected(focus.batchId);
+			return;
+		}
+		if (!batch || batch.id !== selected) return;
 		const index = batch.captures.findIndex((item) => item.captureId === focus.evidenceId);
 		if (index === -1) {
 			const owner = project.batches.find((item) => item.id !== batch.id && focus.batchId === item.id);
@@ -121,7 +126,7 @@ export function Evidence({
 		setCapturePage(Math.floor(index / PAGE_SIZE) + 1);
 		setActiveCaptureId(focus.evidenceId);
 		onConsumeFocus?.();
-	}, [focus, batch, project.batches, setSelected, onConsumeFocus]);
+	}, [focus, batch, selected, project.batches, setSelected, onConsumeFocus]);
 	const visibleCaptures = captures.slice((capturePage - 1) * PAGE_SIZE, capturePage * PAGE_SIZE);
 	const activeCapture = captures.find((item) => item.captureId === activeCaptureId) ?? visibleCaptures[0] ?? null;
 	const brands: BrandScope = {
@@ -192,7 +197,7 @@ export function Evidence({
 	);
 	if (kind === "semantic")
 		return (
-			<Page breadcrumb={project.name} eyebrow="证据中心" title="V2 语义观察与人工审核">
+			<Page breadcrumb={project.name} eyebrow="证据中心" title="回答判断与人工审核">
 				<FilterBar>
 					{kindSwitch}
 					<BatchPicker project={project} selected={selected} setSelected={setSelected} />

@@ -233,6 +233,9 @@ describe("HRouter Agent 领域工具边界", () => {
 					{
 						priority: "high",
 						title: "澄清售后标准",
+						deliveryType: "content",
+						ownerRole: "内容负责人",
+						acceptanceCriteria: "上线并核对事实来源",
 						action: "发布可核验的响应时效。",
 						rationale: "回应当前负面评价。",
 						evidenceIds: ["capture"],

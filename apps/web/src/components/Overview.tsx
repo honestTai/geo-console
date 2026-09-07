@@ -47,15 +47,24 @@ export function OverviewKpis({ trends, tasks }: { trends: TrendResponse; tasks: 
 		<>
 			<div className="kpi-grid">
 				<div className="kpi-card">
-					<Statistic title="品牌提及率" value={percentage(overallMetric(latest, "brandMentionRate"))} />
+					<Statistic
+						title={<MetricLabel metric="brandMentionRate" />}
+						value={percentage(overallMetric(latest, "brandMentionRate"))}
+					/>
 					{deltaChip(deltaPoints("brandMentionRate"), " 百分点")}
 				</div>
 				<div className="kpi-card">
-					<Statistic title="首位推荐率" value={percentage(overallMetric(latest, "firstRecommendationRate"))} />
+					<Statistic
+						title={<MetricLabel metric="firstRecommendationRate" />}
+						value={percentage(overallMetric(latest, "firstRecommendationRate"))}
+					/>
 					{deltaChip(deltaPoints("firstRecommendationRate"), " 百分点")}
 				</div>
 				<div className="kpi-card">
-					<Statistic title="官网引用率" value={percentage(overallMetric(latest, "citationRate"))} />
+					<Statistic
+						title={<MetricLabel metric="citationRate" />}
+						value={percentage(overallMetric(latest, "citationRate"))}
+					/>
 					{deltaChip(deltaPoints("citationRate"), " 百分点")}
 				</div>
 				<div className="kpi-card">
@@ -102,7 +111,7 @@ export function OverviewTrendPanel({
 			<Empty
 				compact
 				title="暂无可比较的批次数据"
-				detail="同配置的正式批次达到 V2 证据门槛后进入趋势；快审和有限结果不连接为趋势。"
+				detail="同配置的正式批次达到正式统计要求后进入趋势；快审和有限结果不连接为趋势。"
 			/>
 		);
 	} else {
@@ -228,3 +237,5 @@ export function Overview({ project, refresh }: { project: Project; refresh(): Pr
 		</Page>
 	);
 }
+
+import { MetricLabel } from "../ui/MetricLabel";

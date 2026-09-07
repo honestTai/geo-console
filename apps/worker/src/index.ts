@@ -123,7 +123,7 @@ import { applyServiceLogRetention, getServiceLogs, getServiceLogsCsv } from "./s
 import { canAccessProject, createOrganization, listOrganizations, setOrganizationStatus } from "./tenancy";
 import { HttpInputError, json, readJson } from "./utils";
 import { getWebSearchTestStatus, listWebSearchEvidencePage, testWebSearch } from "./web-search";
-import { getWebsiteEvidence } from "./website-evidence";
+import { getEvidenceReference, getWebsiteEvidence } from "./website-evidence";
 import {
 	answerQuestion,
 	cancelSession,
@@ -207,6 +207,11 @@ async function handleProjectRoutes(
 		);
 	const project = routeMatch(path, /^\/api\/projects\/([^/]+)$/);
 	const websiteEvidence = routeMatch(path, /^\/api\/projects\/([^/]+)\/website-evidence\/([^/]+)$/);
+	const evidenceReference = routeMatch(path, /^\/api\/projects\/([^/]+)\/evidence-reference\/([^/]+)$/);
+	if (evidenceReference && request.method === "GET") {
+		json(response, 200, await getEvidenceReference(database, evidenceReference[0], evidenceReference[1]));
+		return true;
+	}
 	if (websiteEvidence && request.method === "GET") {
 		json(response, 200, await getWebsiteEvidence(database, websiteEvidence[0], websiteEvidence[1]));
 		return true;

@@ -1,5 +1,7 @@
 # GEO Console Runtime Runbook
 
+可读报告/文章排障：新模板仅用于新冻结快照；0026 为文章可空计划和定位策略加法，发布须 API/Agent/Report/Web 同版本。文章排队先确认 content，历史未分类需重生成批准，不自动付费回填。引用 409/打不开区分跨客户、缺失对象、正文或文件权限，不替换记录/放宽隔离。备份计划、冻结全文与 PNG/raw；回滚不删列，保留新模板渲染能力。见 `docs/reader-report-workflow.md`。
+
 额度耗尽排查：区分未来采样窗口和 leased 活跃请求；查看 captureProgress 的 pending/active/next_at 与 blockedProviders。HTTP 402 / 明确额度型 429 后，只收尾同批次该平台 pending/过期 leased capture jobs；即时与每分钟清扫兼容旧 provider_error HTTP 402，日志 capture.quota_jobs_stopped，不改 Capture/config、不换平台、不自动充值后重跑。截图/PDF 失败检查 audit.screenshot_failed/audit.pdf_failed、API/Agent 的 Chromium/字体/资源；源文件与旧截图不可补写覆盖，修复后新建审计。备份包含审计 JSON 与对象证据。详见 `docs/website-audit-and-capture-recovery.md`。
 
 完整回答辅助解读复用 Semantic Worker 的独立 1 槽，正式测量保留 2 槽。`answer_analysis` job 最多 2 次技术尝试、5 分钟租约、30 秒续租/重试；通用清扫同步终结耗尽的 run。排查 `answer_analysis_runs.error_message`、jobs、`answer.analysis.execute` 与当前 actor 权限；保留原始 Capture/旧分析，失败在 UI 重新生成而非改证据。备份两张新增分析表，包含敏感原始模型响应。详见 `docs/answer-analysis.md`。

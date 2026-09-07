@@ -1,5 +1,7 @@
 # 本机与服务器部署
 
+客户可读报告与自适应文章需一致发布 API/Agent/Report/Web 和 `0026_article_publication_plan.sql`。0026 只增加可空 JSON 计划与证据定位元数据策略，不改采集原文、指标快照或旧报告；写作方案使用该 JSON，暂无额外 migration。升级前成对备份，迁移仅通过已授权部署目标执行。上线检查指标释义、旧证据定位、文章历史计划缺失提示和新静态资源；真实文章/报告重生成及付费复测由用户另行触发。新冻结报告须保留能理解 v4 的 Report Worker，不能回退旧 Worker 重写新快照。见 `docs/reader-report-workflow.md`。
+
 机构客户管理需同步 Web/API 与 migration `0025_customer_management.sql`（0024 之后）；这只是菜单/授权目录增量，没有新服务或端口。仅在明确授权的部署库执行；未迁移时前端不会绕过服务端导航硬塞入口。权限缓存/身份刷新后可见“机构管理 → 客户管理”，原有客户访问范围保持不变。见 `docs/customer-management.md`。
 
 官网选填/可追溯审计发布须同步 API、Web、Capture、Agent、Report 代码和 migration `0024_optional_website.sql`，仅针对新建或明确授权部署库。没有新增服务/端口/包依赖，但人工审计所在 API 与 `run_site_audit` 所在 Agent 现在需要可用 Chromium 和中文字体；沿用项目 Playwright 发行版或显式 `GEO_PLAYWRIGHT_EXECUTABLE_PATH`。上线前分别验证截图/PDF、artifact 项目授权、quota 清扫和空官网建档，确认代理请求隔离与资源预算。备份数据库与对象存储；空官网记录与旧版 NOT NULL 假设不兼容，回滚不得通过编造官网或删除客户恢复约束。详细回滚/验证边界见 `docs/website-audit-and-capture-recovery.md`。

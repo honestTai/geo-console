@@ -3,7 +3,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "../access";
 import { api, post } from "../api";
 import { type Batch, providerLabel } from "../types";
+import { MetricLabel } from "../ui/MetricLabel";
 import { percentage, SectionTitle } from "../ui/primitives";
+import { MeasurementExplanation } from "./MeasurementExplanation";
 
 type Observation = {
 	id: string;
@@ -20,7 +22,7 @@ const labels: Record<string, string> = {
 	ready: "达到正式证据门槛",
 	partial: "有限结果",
 	failed: "解析失败或证据不足",
-	not_configured: "未配置 V2 测量",
+	not_configured: "尚未配置回答分析",
 	capture_contract_changed: "旧采集解析协议（只读）",
 };
 
@@ -101,7 +103,7 @@ export function Measurement({
 		setBusy(true);
 		try {
 			await post(`/api/batches/${batch.id}/measurement`);
-			message.success("已创建独立 V2 解析运行，原始证据不变");
+			message.success("已创建新的回答分析，原始证据不变");
 			onRefresh?.();
 			await load();
 		} catch (e) {
@@ -131,10 +133,10 @@ export function Measurement({
 		}
 	}
 	return (
-		<section aria-label="V2 语义测量">
+		<section aria-label="AI 回答分析">
 			<SectionTitle
-				title="API 可见度 V2"
-				description="问题内重复采样 → 问题等权 → 达标平台等权；失败和不可见来源不是零分。"
+				title="AI 回答中的品牌表现"
+				description="通过服务商接口测试，不等同于手机应用；未完成和无法判断的回答不按零分补齐。"
 				extra={
 					<Button
 						permission="agent.run"
@@ -174,15 +176,35 @@ export function Measurement({
 				size="small"
 				column={{ xs: 1, sm: 2, lg: 3 }}
 				items={[
-					{ key: "mention", label: "整体品牌提及率", children: percentage(overall?.brandMentionRate) },
+					{
+						key: "mention",
+						label: <MetricLabel metric="brandMentionRate" />,
+						children: percentage(overall?.brandMentionRate),
+					},
 					{
 						key: "interval",
-						label: "95% 问题聚类区间",
+						label: (
+							<MetricLabel
+								label="提及率可能波动的范围（95%）"
+								help={{
+									label: "提及率的波动范围",
+									meaning: "描述本轮抽样估计的不确定性，不是品牌未来表现的保证范围。",
+									formula: "按问题聚类重采样计算 95% 区间；重复测试或有效问题不足时不计算。",
+									caution: "快速检测不提供这个区间；不能用区间缺失推断品牌表现差。",
+								}}
+							/>
+						),
 						children: overall?.confidenceIntervals?.brandMentionRate?.map((v) => percentage(v)).join(" – ") ?? "不可用",
 					},
 					{
 						key: "recommendation",
-						label: "推荐 / 明确 / 首位",
+						label: (
+							<>
+								<MetricLabel metric="recommendationRate" label="推荐" /> /{" "}
+								<MetricLabel metric="explicitRecommendationRate" label="明确" /> /{" "}
+								<MetricLabel metric="firstRecommendationRate" label="首位" />
+							</>
+						),
 						children: `${percentage(overall?.recommendationRate)} / ${percentage(overall?.explicitRecommendationRate)} / ${percentage(overall?.firstRecommendationRate)}`,
 					},
 				]}
@@ -195,15 +217,15 @@ export function Measurement({
 				dataSource={platforms}
 				columns={[
 					{ title: "平台", dataIndex: "platform", render: (platform: string) => providerLabel(platform) },
-					{ title: "采集覆盖", render: (_, row) => percentage(row.captureCoverage) },
-					{ title: "解析覆盖", render: (_, row) => percentage(row.parseCoverage) },
+					{ title: <MetricLabel metric="captureCoverage" />, render: (_, row) => percentage(row.captureCoverage) },
+					{ title: <MetricLabel metric="parseCoverage" />, render: (_, row) => percentage(row.parseCoverage) },
 					{
-						title: "问题覆盖",
+						title: <MetricLabel metric="promptCoverage" />,
 						render: (_, row) =>
 							`${row.eligiblePromptCount ?? 0}/${row.plannedPromptCount ?? batch.config.prompts.length}（${percentage(row.promptCoverage)}）`,
 					},
 					{
-						title: "提及率 / 95% 区间",
+						title: <MetricLabel metric="brandMentionRate" label="提及率 / 波动范围" />,
 						render: (_, row) =>
 							`${percentage(row.brandMentionRate)} / ${row.confidenceIntervals?.brandMentionRate?.map((v) => percentage(v)).join("–") ?? "不可用"}`,
 					},
@@ -249,6 +271,7 @@ export function Measurement({
 					]}
 				/>
 			)}
+			<MeasurementExplanation explanation={batch.metricExplanation} batchId={batch.id} />
 			<Drawer
 				title="审核原子语义（保存新观察，不改原文）"
 				open={Boolean(editing)}

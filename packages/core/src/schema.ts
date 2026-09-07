@@ -1107,6 +1107,7 @@ export const optimizationArticles = pgTable(
 		summary: text("summary"),
 		status: text("status").$type<OptimizationArticleStatus>().notNull().default("draft"),
 		contentMarkdown: text("content_markdown").notNull().default(""),
+		publicationPlan: jsonb("publication_plan").$type<Record<string, unknown>>(),
 		outline: jsonb("outline").$type<string[]>().notNull().default([]),
 		factGaps: jsonb("fact_gaps").$type<string[]>().notNull().default([]),
 		evidenceIds: jsonb("evidence_ids").$type<string[]>().notNull().default([]),

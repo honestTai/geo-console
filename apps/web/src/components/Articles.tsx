@@ -1,8 +1,10 @@
+import type { PublicationPlan } from "@geo/evidence";
 import { IconEye, IconPencil, IconRefresh, IconSparkles, IconTrash } from "@tabler/icons-react";
 import { App, Drawer, Form, Input, Popconfirm, Segmented, Select, Table, type TableProps, Tag } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, useAgentRunPolling, usePermission } from "../access";
 import { api, patch, post } from "../api";
+import { useEvidenceIndex } from "../hooks/useEvidenceIndex";
 import {
 	type AgentRun,
 	type Article,
@@ -16,9 +18,10 @@ import {
 } from "../types";
 import { FormattedAnswer } from "../ui/markdown";
 import { useWorkspaceNavigation } from "../ui/navigation";
-import { Empty, FilterBar, IdChip, Pagination, SectionTitle, shortDate } from "../ui/primitives";
+import { Empty, EvidenceRef, FilterBar, IdChip, Pagination, SectionTitle, shortDate } from "../ui/primitives";
 import "./Articles.css";
 import { Page } from "./Page";
+import { PublicationPlanFields, PublicationPlanView } from "./PublicationPlan";
 
 const priorityLabel: Record<string, string> = { high: "高优先级", medium: "中优先级", low: "低优先级" };
 
@@ -35,6 +38,7 @@ function ArticleEditor({
 }) {
 	const { message } = App.useApp();
 	const [article, setArticle] = useState<Article | null>(null);
+	const evidenceIndex = useEvidenceIndex(article?.batch_id, article?.project_id);
 	const [mode, setMode] = useState<"edit" | "preview">("edit");
 	const [form] = Form.useForm<{
 		title: string;
@@ -42,6 +46,7 @@ function ArticleEditor({
 		status: ArticleStatus;
 		publishedUrl: string;
 		contentMarkdown: string;
+		publicationPlan?: PublicationPlan;
 	}>();
 	const [busy, setBusy] = useState(false);
 	const load = useCallback(async () => {
@@ -53,6 +58,7 @@ function ArticleEditor({
 			status: value.status,
 			publishedUrl: value.published_url ?? "",
 			contentMarkdown: value.content_markdown,
+			publicationPlan: value.publication_plan ?? undefined,
 		});
 	}, [articleId, form]);
 	useEffect(() => {
@@ -62,8 +68,16 @@ function ArticleEditor({
 	const content = Form.useWatch("contentMarkdown", { form, preserve: true }) ?? "";
 	const title = Form.useWatch("title", { form, preserve: true }) ?? "";
 	const summary = Form.useWatch("summary", { form, preserve: true }) ?? "";
+	const publicationPlan = Form.useWatch("publicationPlan", { form, preserve: true });
 	async function save() {
-		const values = await form.validateFields();
+		let values: Awaited<ReturnType<typeof form.validateFields>>;
+		try {
+			values = await form.validateFields();
+		} catch {
+			setMode("edit");
+			message.warning("请补全标出的必填项，尤其是文章用途与发布计划；尚未保存。");
+			return;
+		}
 		setBusy(true);
 		try {
 			await patch(`/api/articles/${articleId}`, {
@@ -72,6 +86,15 @@ function ArticleEditor({
 				status: values.status,
 				publishedUrl: values.publishedUrl ? values.publishedUrl : null,
 				contentMarkdown: values.contentMarkdown,
+				publicationPlan: values.publicationPlan
+					? {
+							...values.publicationPlan,
+							channels: values.publicationPlan.channels.map((channel, index) => ({
+								...channel,
+								evidenceIds: form.getFieldValue(["publicationPlan", "channels", index, "evidenceIds"]) ?? [],
+							})),
+						}
+					: undefined,
 			});
 			message.success("已保存");
 			await Promise.all([load(), onSaved()]);
@@ -118,6 +141,14 @@ function ArticleEditor({
 							{article.recommendation_title}
 						</p>
 						{article.recommendation_action && <p className="article-source-action">{article.recommendation_action}</p>}
+						<h4>关联监测问题</h4>
+						{article.target_questions?.length ? (
+							article.target_questions.map((q) => <p key={q.id}>{q.question}</p>)
+						) : (
+							<p>历史文章未绑定具体问题，请补充后再判断用途。</p>
+						)}
+						<h4>原始依据（点击查看）</h4>
+						<EvidenceRef ids={article.evidence_ids} index={evidenceIndex} />
 						{article.outline.length > 0 && (
 							<>
 								<h4>文章结构</h4>
@@ -150,6 +181,7 @@ function ArticleEditor({
 						className={mode === "preview" ? "article-form article-form-hidden" : "article-form"}
 						disabled={!canWrite}
 					>
+						<PublicationPlanFields />
 						<div className="article-form-grid">
 							<Form.Item name="title" label="标题" rules={[{ required: true, min: 2, max: 120 }]}>
 								<Input />
@@ -173,13 +205,14 @@ function ArticleEditor({
 							name="contentMarkdown"
 							label="正文（Markdown）"
 							rules={[{ required: true, message: "正文不能为空" }]}
-							extra="支持 ## 小节、列表、表格；保存后正文有变化会生成新版本。"
+							extra="按实际问题决定长短与结构，无须固定章节；Markdown 格式按需使用，正文变化会生成新版本。"
 						>
 							<Input.TextArea className="article-textarea" autoSize={{ minRows: 20, maxRows: 40 }} />
 						</Form.Item>
 					</Form>
 					{mode === "preview" && (
 						<article className="article-preview">
+							<PublicationPlanView plan={publicationPlan ?? article.publication_plan} />
 							<p className="article-preview-kicker">
 								{articleStatusLabel[(form.getFieldValue("status") as ArticleStatus) ?? article.status]} · 第{" "}
 								{article.version} 版
@@ -238,10 +271,17 @@ export function Articles({ project }: { project: Project }) {
 	async function generate(target: string) {
 		setBusy("generate");
 		try {
-			const result = await post<{ queued: unknown[] }>(`/api/projects/${project.id}/articles/generate`, {
-				batchId: target,
-			});
-			message.success(result.queued.length ? `已排队 ${result.queued.length} 篇文章` : "所有建议都已生成过文章");
+			const result = await post<{ queued: unknown[]; skipped?: Array<{ title: string; reason: string }> }>(
+				`/api/projects/${project.id}/articles/generate`,
+				{
+					batchId: target,
+				},
+			);
+			if (result.skipped?.length)
+				message.info(
+					`已排队 ${result.queued.length} 篇内容文章；${result.skipped.length} 条非内容或未分类建议未转成文章。${result.skipped[0].reason}`,
+				);
+			else message.success(result.queued.length ? `已排队 ${result.queued.length} 篇文章` : "内容建议都已生成过文章");
 			await load();
 		} catch (reason) {
 			message.error(reason instanceof Error ? reason.message : "生成失败");

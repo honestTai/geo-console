@@ -1,6 +1,15 @@
 import type { FrozenBatchConfig, WebsiteAuditResult } from "@geo/core";
 import type { QueryCapture } from "@geo/evidence";
-import { mean, type OverallVisibilityMetrics, recommendationRankMedian, type VisibilityMetrics } from "@geo/metrics";
+import {
+	explainMeasurement,
+	failureExplanation,
+	type MeasurementExplanation,
+	mean,
+	type OverallVisibilityMetrics,
+	recommendationRankMedian,
+	type VisibilityMetrics,
+} from "@geo/metrics";
+import { websiteGuidance } from "./website-guidance";
 
 type BatchMetrics = {
 	perPlatform: Record<string, VisibilityMetrics>;
@@ -8,6 +17,7 @@ type BatchMetrics = {
 	validSamples: number;
 	failedSamples: number;
 	expectedSamples: number;
+	contract?: { sampling: { mode: string } };
 };
 
 export type ReportFinding = {
@@ -31,6 +41,9 @@ export type DiagnosisWebEvidence = {
 };
 
 export type ReportAnalysis = {
+	supplementalEvidence?: import("./report-evidence").SupplementalEvidence[];
+	readerGuide: MeasurementExplanation;
+	webPages: DiagnosisWebEvidence[];
 	generatedAt: string;
 	executive: {
 		headline: string;
@@ -345,11 +358,11 @@ export function buildDeterministicFindings(input: {
 		findings.push({
 			category: "样本质量",
 			title: "部分真实采样未完成",
-			detail: `${metrics.expectedSamples} 个计划样本中 ${metrics.validSamples} 个有效、${metrics.failedSamples} 个失败。失败样本保留原状态，未用替代回答补齐。`,
+			detail: `${metrics.expectedSamples} 次计划测试中 ${metrics.validSamples} 次取得符合要求的回答，${metrics.failedSamples} 次未通过采集检查。具体原因：${[...new Set(failed.map((c) => failureExplanation(c.failureCode ?? c.status).reason))].join("；")}。缺失不是企业的负面表现。`,
 			confidence: 1,
 			evidenceIds: failed.map((capture) => capture.captureId),
 			targetPromptIds: [...new Set(failed.map((capture) => capture.promptId))],
-			recommendation: "先处理登录、验证、限流或页面契约问题，再按相同冻结配置补建新批次。",
+			recommendation: [...new Set(failed.map((c) => failureExplanation(c.failureCode ?? c.status).action))].join(" "),
 		});
 	}
 	if (
@@ -374,12 +387,13 @@ export function buildDeterministicFindings(input: {
 	if (weakPrompts.length)
 		findings.push({
 			category: "问题机会",
-			title: "部分问题的正向推荐覆盖仍有空间",
-			detail: `${weakPrompts.length} 个平台/问题的有效重复中并非每次都有正向推荐；这是 V2 问题级结果，不表示固定排名。`,
+			title: "正向推荐覆盖需结合问题用途解读",
+			detail: `${weakPrompts.length} 个平台与问题组合中，没有每次都观察到正向推荐。知识解释类问题本来就未必需要推荐公司，请优先核对真正寻找供应商的问题；不是所有未推荐都需要写文章。`,
 			confidence: 1,
 			evidenceIds: [...new Set(weakPrompts.flatMap((p) => p.evidenceIds))],
 			targetPromptIds: [...new Set(weakPrompts.map((p) => p.promptId))],
-			recommendation: "对照语义证据补充可核验的适用条件、事实来源和相关内容，再同条件复测。",
+			recommendation:
+				"先核对哪些问题真的在寻找供应商；客户确实具备对应能力时，补充适用条件、案例和可核验出处，再同条件复测。不为纯知识问题硬塞公司名称。",
 		});
 
 	const owned = normalizeDomain(config.project.domain);
@@ -392,15 +406,16 @@ export function buildDeterministicFindings(input: {
 		withOwnedCitation.length === 0
 	) {
 		const withSources = complete.filter((capture) => capture.sources.length > 0);
+		const cited = complete.filter((capture) => capture.sources.some((s) => s.isCitation));
 		findings.push({
 			category: "信源差距",
 			title: "官网尚未进入本批次引用链",
-			detail: `${complete.length} 个有效回答中官网引用率为 0%。${withSources.length ? `其中 ${withSources.length} 个回答引用了第三方页面。` : "本批次回答未展示可提取来源。"}`,
+			detail: `${complete.length} 个已取得回答中，${withSources.length} 个有搜索来源记录，${cited.length} 个有明确的最终引用；没有观察到官网被明确引用。来源不可观察的回答不算作零引用，搜索过页面不等于引用过页面。`,
 			confidence: 1,
 			evidenceIds: (withSources.length ? withSources : complete).map((capture) => capture.captureId),
 			targetPromptIds: [...new Set(complete.map((capture) => capture.promptId))],
 			recommendation:
-				"修复官网可访问性与结构化信息，为核心购买问题建立独立可索引页面，并争取可信第三方页面引用同一组可核验事实。",
+				"逐条打开回答，比较真正引用的页面与官网能提供的事实。先确认内容缺口，再补充对应业务页和可核验案例；只有官网审计确认存在技术缺口时才安排技术整改。",
 		});
 	}
 	const competitorAhead = promptMetrics.filter(
@@ -421,18 +436,22 @@ export function buildDeterministicFindings(input: {
 
 	if (websiteAudit) {
 		const material = websiteAudit.result.checks.filter(
-			(check) => check.status === "fail" || (check.status === "warning" && check.weight >= 6),
+			(check) => check.status === "fail" || check.status === "warning",
 		);
 		if (material.length) {
 			findings.push({
 				category: "官网技术基础",
-				title: "官网存在影响读取与引用的技术缺口",
+				title: "官网检查发现需要复核和处理的项目",
 				detail: `官网审计 ${websiteAudit.result.score === null ? "未形成可评分证据" : `${websiteAudit.result.score}/100`}，需处理：${material.map((check) => `${check.label}（${check.detail}）`).join("；")}。`,
 				confidence: 1,
 				evidenceIds: [websiteAudit.id],
 				targetPromptIds: [],
-				recommendation:
-					"按审计项从 HTTPS 与可访问性开始整改，再处理页面标题、Sitemap、Canonical 和结构化数据；完成后重新运行官网审计。",
+				recommendation: material
+					.map(
+						(check) =>
+							`${check.label}：${check.recommendation ?? websiteGuidance[check.id]?.recommendation ?? "先打开源证据复核"} 验收：${check.verification ?? websiteGuidance[check.id]?.verification ?? "修改上线后重新检查相同页面"}`,
+					)
+					.join("\n"),
 			});
 		}
 	}
@@ -486,10 +505,13 @@ export function buildReportAnalysis(input: {
 	const findings = buildDeterministicFindings(input);
 	const strengths = findings.filter((finding) => finding.category.includes("优势"));
 	const gaps = findings.filter((finding) => !finding.category.includes("优势"));
+	const includedPlatforms = Object.values(input.metrics.perPlatform).filter((p) =>
+		input.metrics.contract?.sampling.mode === "quick" ? p.status !== "unavailable" : p.status === "ready",
+	);
 	const promptRows = input.config.prompts.map((prompt) => {
 		const captures = input.captures.filter((capture) => capture.promptId === prompt.id);
 		const valid = captures.filter((capture) => capture.status === "complete");
-		const measured = Object.values(input.metrics.perPlatform)
+		const measured = includedPlatforms
 			.flatMap((p) => p.prompts ?? [])
 			.filter((p) => p.promptId === prompt.id && p.eligible);
 
@@ -531,13 +553,16 @@ export function buildReportAnalysis(input: {
 		input.metrics.overall.status === "ready" ? "高" : input.metrics.overall.status === "limited" ? "中" : "低";
 	const averagePosition = input.metrics.overall.medianRecommendationRank;
 	const webEvidence = input.webEvidence ?? [];
+	const readerGuide = explainMeasurement(input.metrics, input.config, input.captures);
 	return {
+		readerGuide,
+		webPages: webEvidence,
 		generatedAt: new Date().toISOString(),
 		executive: {
 			headline: `${input.config.project.name} AI 可见度基线：提及率 ${percentage(input.metrics.overall.brandMentionRate)}，官网引用率 ${input.metrics.overall.citationRate === null ? "不可用" : percentage(input.metrics.overall.citationRate)}`,
-			summary: `本批次获得 ${input.metrics.validSamples}/${input.metrics.expectedSamples} 个有效联网 API 回答。品牌首位推荐率 ${percentage(input.metrics.overall.firstRecommendationRate)}${averagePosition === null ? "，暂无可计算位置" : `，明确推荐名次中位数 ${averagePosition.toFixed(1)}`}。报告同时保留平台差异、竞品位置、引用来源、数据覆盖率和失败样本；API 回答不描述为消费端 App 回答。`,
+			summary: `${readerGuide.scope} ${readerGuide.counts.planned} 次计划测试 → ${readerGuide.counts.answered} 次取得回答 → ${readerGuide.counts.parsed} 次可以用于品牌判断。首位推荐率 ${percentage(input.metrics.overall.firstRecommendationRate)}${averagePosition === null ? "；没有可计算的明确推荐名次，不等于排名最后" : `；明确推荐名次中位数 ${averagePosition.toFixed(1)}`}。`,
 			evidenceLevel,
-			validityNote: `V2 可报告状态 ${input.metrics.overall.status}：采集覆盖 ${percentage(validRatio)}、解析覆盖 ${percentage(input.metrics.overall.parseCoverage)}、问题覆盖 ${percentage(input.metrics.overall.promptCoverage)}；结果是指定时间、账号、地区和问题集下的真实采样，不等于平台长期固定排名。提及率 95% 区间：${input.metrics.overall.confidenceIntervals?.brandMentionRate?.map((v) => percentage(v)).join(" – ") ?? "样本不足"}。`,
+			validityNote: `${readerGuide.status}。${readerGuide.limitation} 采集完成度 ${percentage(validRatio)}、回答可判断比例 ${percentage(input.metrics.overall.parseCoverage)}、有效问题覆盖 ${percentage(input.metrics.overall.promptCoverage)}。这些完成度不是企业得分。`,
 		},
 		promptRows,
 		sourceDomains: buildSourceDomains(complete, input.config),

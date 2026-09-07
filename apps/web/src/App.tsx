@@ -1,5 +1,5 @@
 import { IconLoader2 } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessContext, hasPermission } from "./access";
 import { ApiError, api, post } from "./api";
 import { AccountControl, Login } from "./components/Login";
@@ -58,6 +58,9 @@ export function App() {
 	});
 	const [projectSearch, setProjectSearch] = useState("");
 	const [projectId, setProjectId] = useState<string | null>(null);
+	const evidenceProject = useRef(projectId),
+		evidenceRequest = useRef(0);
+	evidenceProject.current = projectId;
 	const [project, setProject] = useState<Project | null>(null);
 	const [view, setView] = useState<View>("overview");
 	const [creating, setCreating] = useState(false);
@@ -95,13 +98,28 @@ export function App() {
 			panelViews: availableViews
 				.filter((item) => !managementViews.includes(item.id))
 				.map((item) => ({ id: item.id, label: item.label })),
-			openEvidence: (evidenceId, batchId = null, kind = "capture") => {
-				if (kind === "audit" || kind === "snapshot") {
-					setWebsiteEvidenceId(evidenceId);
-					return;
-				}
-				setEvidenceFocus({ evidenceId, batchId, kind });
-				setView("evidence");
+			openEvidence: (evidenceId) => {
+				if (!projectId) return;
+				const request = ++evidenceRequest.current;
+				const isCurrent = () => evidenceProject.current === projectId && request === evidenceRequest.current;
+				void api<{ kind: NonNullable<EvidenceFocus>["kind"]; batchId: string | null }>(
+					`/api/projects/${encodeURIComponent(projectId)}/evidence-reference/${encodeURIComponent(evidenceId)}`,
+				)
+					.then((reference) => {
+						if (!isCurrent()) return;
+						if (reference.kind === "audit" || reference.kind === "snapshot") setWebsiteEvidenceId(evidenceId);
+						else {
+							if (!availableViews.some((item) => item.id === "evidence")) {
+								setError("当前账号没有证据中心的查看权限，请联系管理员授权；没有打开其他记录作为替代。");
+								return;
+							}
+							setEvidenceFocus({ evidenceId, ...reference });
+							setView("evidence");
+						}
+					})
+					.catch((reason) => {
+						if (isCurrent()) setError(reason instanceof Error ? reason.message : "证据定位失败");
+					});
 			},
 			openBatch: (batchId) => {
 				setBatchFocus(batchId);
@@ -112,7 +130,7 @@ export function App() {
 				setView("workbench");
 			},
 		}),
-		[availableViews],
+		[availableViews, projectId],
 	);
 
 	const loadProjects = useCallback(async () => {

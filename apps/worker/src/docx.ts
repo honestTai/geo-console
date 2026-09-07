@@ -1,5 +1,6 @@
 import { PRODUCT_NAME, priorityLabel, reportTypeLabel, reputationLabel } from "./labels";
 import { type EvidenceIndexEntry, stripTrackingFragment } from "./report";
+import { readerWordBody } from "./report-word-reader";
 
 type ZipEntry = { name: string; data: Buffer; crc: number; offset: number };
 
@@ -15,13 +16,13 @@ function crc32(data: Buffer): number {
 	return (value ^ 0xffffffff) >>> 0;
 }
 
-function zip(entries: Array<{ name: string; content: string }>): Buffer {
+function zip(entries: Array<{ name: string; content: string | Buffer }>): Buffer {
 	const locals: Buffer[] = [];
 	const records: ZipEntry[] = [];
 	let offset = 0;
 	for (const entry of entries) {
 		const name = Buffer.from(entry.name, "utf8");
-		const data = Buffer.from(entry.content, "utf8");
+		const data = Buffer.isBuffer(entry.content) ? entry.content : Buffer.from(entry.content, "utf8");
 		const crc = crc32(data);
 		const header = Buffer.alloc(30);
 		header.writeUInt32LE(0x04034b50, 0);
@@ -84,7 +85,8 @@ function customerParagraphs(customer: Record<string, unknown>, snapshot: Record<
 	];
 }
 
-export function renderReportDocx(snapshot: Record<string, unknown>): Buffer {
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Preserve the legacy immutable template alongside native reader bookmarks and media in one ZIP assembly.
+export function renderReportDocx(snapshot: Record<string, unknown>, auditScreenshot?: Buffer): Buffer {
 	const payload = snapshot.payload as Record<string, unknown>;
 	const customer = (payload.batch as { config?: { project?: Record<string, unknown> } }).config?.project ?? {};
 	const batch = payload.batch as { metrics?: { overall?: Record<string, unknown> } };
@@ -198,14 +200,18 @@ export function renderReportDocx(snapshot: Record<string, unknown>): Buffer {
 				]
 			: []),
 	].join("");
-	const document = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${body}<w:sectPr><w:headerReference w:type="default" r:id="rIdHeader"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="850" w:bottom="1020" w:left="850" w:header="425"/></w:sectPr></w:body></w:document>`;
+	const reader =
+		(payload.renderContract as { templateVersion?: string } | undefined)?.templateVersion === "zzgeo.report.v4"
+			? readerWordBody(snapshot, auditScreenshot)
+			: null;
+	const document = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${reader?.body ?? body}<w:sectPr><w:headerReference w:type="default" r:id="rIdHeader"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="850" w:bottom="1020" w:left="850" w:header="425"/></w:sectPr></w:body></w:document>`;
 	const header = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:v="urn:schemas-microsoft-com:vml"><w:p><w:r><w:rPr><w:b/><w:color w:val="16834E"/></w:rPr><w:t>Z · ZZGEO · ${xml(customer.name)}</w:t></w:r><w:r><w:pict><v:rect id="ZZGEO-Watermark" filled="f" stroked="f" style="position:absolute;width:420pt;height:100pt;rotation:315;z-index:-251654144;mso-position-horizontal:center;mso-position-horizontal-relative:page;mso-position-vertical:center;mso-position-vertical-relative:page"><v:textbox><w:txbxContent><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val="EAEDEA"/><w:sz w:val="100"/></w:rPr><w:t>ZZGEO</w:t></w:r></w:p></w:txbxContent></v:textbox></v:rect></w:pict></w:r></w:p></w:hdr>`;
 	const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:rPr><w:rFonts w:eastAsia="Microsoft YaHei"/><w:sz w:val="22"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:rPr><w:b/><w:sz w:val="40"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:rPr><w:b/><w:color w:val="0D584A"/><w:sz w:val="30"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:rPr><w:b/><w:sz w:val="25"/></w:rPr></w:style></w:styles>`;
 	return zip([
 		{
 			name: "[Content_Types].xml",
 			content:
-				'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/></Types>',
+				'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/></Types>',
 		},
 		{
 			name: "_rels/.rels",
@@ -215,10 +221,10 @@ export function renderReportDocx(snapshot: Record<string, unknown>): Buffer {
 		{ name: "word/document.xml", content: document },
 		{
 			name: "word/_rels/document.xml.rels",
-			content:
-				'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rIdHeader" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/></Relationships>',
+			content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rIdHeader" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>${reader?.relationships ?? ""}</Relationships>`,
 		},
 		{ name: "word/styles.xml", content: styles },
 		{ name: "word/header1.xml", content: header },
+		...(reader && auditScreenshot ? [{ name: "word/media/audit.png", content: auditScreenshot }] : []),
 	]);
 }
