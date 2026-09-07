@@ -12,6 +12,7 @@ import {
 } from "@geo/core";
 import { type QueryCapture, type QueryCaptureV2, queryCaptureSchema, queryCaptureV2Schema } from "@geo/evidence";
 import { StructuredLogger, safeErrorMessage } from "@geo/logging";
+import { explainMeasurement } from "@geo/metrics";
 import { ADAPTER_VERSION } from "@geo/search-providers";
 import { z } from "zod";
 import { captureContractCurrent } from "./capture-contract";
@@ -1129,7 +1130,15 @@ export async function getBatch(database: Database, batchId: string): Promise<Rec
 		 WHERE c.batch_id = $1 ORDER BY c.captured_at`,
 		[batchId],
 	);
-	const captures = rows.rows.map(captureFromRow);
+	const frozenQuestions = new Map((config.prompts ?? []).map((p) => [p.id, p.question]));
+	const captures = rows.rows.map((row) =>
+		captureFromRow({
+			...row,
+			question: frozenQuestions.get(String(row.prompt_id)) ?? row.question,
+			region: config.project?.region ?? row.region,
+			language: config.project?.language ?? row.language,
+		}),
+	);
 	const measurement = await currentMeasurement(database, batchId);
 	const compatible = captureContractCurrent(config);
 	const executionFailedSamples = Number(
@@ -1152,6 +1161,10 @@ export async function getBatch(database: Database, batchId: string): Promise<Rec
 			captureContractCurrent: compatible,
 		},
 		captureProgress: await captureProgress(database, batchId),
+		metricExplanation:
+			compatible && measurement.payload && !["queued", "running"].includes(measurement.status)
+				? explainMeasurement(measurement.payload, config, captures)
+				: null,
 		pairedComparison: compatible
 			? await readPairedComparisons(
 					database,

@@ -1,5 +1,9 @@
 # GEO Console Web 前端架构规则
 
+文章 `PublicationPlanView/Fields` 增加内容形式、选择理由和篇幅依据；自由文本，不做固定文章类型下拉或字数目标。新生成由实际问题/证据/渠道决定，短答允许无大纲；旧计划缺 `contentStrategy` 明确提示，不自动补模板。编辑中不完整的计划也应可预览，保存时校验必填项。见 `docs/reader-report-workflow.md`。
+
+客户解释优先：复用 `MetricLabel` 可键盘操作的释义，监测/报告 `MeasurementExplanation` 展示实际分母、纳入原因与原文入口。不暴露内部状态或把缺失当 0。EvidenceRef 即使不在当前索引也按全局元数据定位真实历史证据，缺失/权限不足明确提示。文章 PublicationPlan 展示/编辑用途、读者、平台/栏目、依据类别和验收；推荐渠道不是已发布。见 `docs/reader-report-workflow.md`。
+
 官网/任务状态补充：官网字段选填；客户概览和未建档页可编辑资料，无官网审计展示不适用及补充入口，不显示 0 分。Monitoring 分开已存证、已结束任务、等待窗口、额度阻断与语义解析覆盖。WebsiteAudit 每个检查项可开证据 Drawer，展示冻结客户、定位/建议/验收、截图预览、源文和探测状态；旧记录缺失截图要直说。全局 WebsiteEvidenceViewer 按项目/证据 ID 读取历史快照，不借用最新审计替换旧引用。下载有真实 artifact 权限，抽屉在桌面界面检查无溢出。见 `docs/website-audit-and-capture-recovery.md`。
 
 完整回答语义解读由 EvidenceDetail 装配 AnswerAnalysis，结构化视图在 `ui/answer-analysis.tsx`、按需读取/串行轮询在 `hooks/useAnswerAnalysis.ts`。切换回答必须取消旧请求并重置状态；只读不生成，生成按钮权限 `agent.run`，重生成需确认。分段/品牌/条件分节平铺，不 dump JSON；原文 Drawer 用转义文本和服务端验证的 UTF-16 高亮。明确区分 ready（未人工复核）/needs_review/failed/历史只读；导出是主动下载客户证据，不可放公开目录。

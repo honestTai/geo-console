@@ -141,6 +141,9 @@ describe("buildReportAnalysis", () => {
 		});
 		expect(uncited.sourceDomains).toEqual([]);
 		expect(uncited.evidenceIndex.find((entry) => entry.kind === "capture")?.sourceUrls).toEqual([]);
+		expect(uncited.gaps.find((finding) => finding.title.includes("官网"))?.detail).toContain(
+			"1 个有搜索来源记录，0 个有明确的最终引用",
+		);
 		expect(report.perceptionExcerpts[0].text).toContain("真实品牌");
 		expect(report.webEvidenceSummary).toEqual({ customerPages: 1, competitorPages: 0, citationPages: 1 });
 		expect(report.topicCoverage[0].terms[0].customerEvidenceIds).toEqual(["customer-page"]);

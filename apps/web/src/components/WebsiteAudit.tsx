@@ -1,9 +1,11 @@
+import { websiteCheckLanguage, websiteScoreBreakdown, websiteScoreGuide } from "@geo/evidence";
 import { IconShieldCheck } from "@tabler/icons-react";
 import { Alert, Descriptions, Drawer, Image, Select, Statistic, Tag } from "antd";
 import { useMemo, useState } from "react";
 import { Button } from "../access";
 import { post } from "../api";
 import type { AuditCheck, Project, WebsiteAuditRecord } from "../types";
+import { MetricLabel } from "../ui/MetricLabel";
 import { date, Empty, IdChip, SectionTitle } from "../ui/primitives";
 import { Page } from "./Page";
 import { ProjectProfileEditor } from "./ProjectProfileEditor";
@@ -14,6 +16,8 @@ const verdictLabels: Record<string, string> = {
 	ready_with_warnings: "官网可读取，但存在重要缺口",
 	blocked: "官网存在读取阻断",
 };
+const scoreDescription = (result: WebsiteAuditRecord["result"]) =>
+	result.score === null ? "缺少评分证据，不记为零分" : websiteScoreBreakdown(result.checks);
 
 const checkStatusLabels: Record<AuditCheck["status"], string> = {
 	pass: "通过",
@@ -186,11 +190,12 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 			</div>
 			<div className="audit-hero">
 				<Statistic
-					title="首页技术检查（非 AI 排名）"
+					title={<MetricLabel label="首页技术检查（非 AI 排名）" help={websiteScoreGuide} />}
 					value={audit.result.score ?? "未评分"}
 					suffix={audit.result.score === null ? undefined : "/ 100"}
 				/>
 				<div className="audit-hero-text">
+					<p>{scoreDescription(audit.result)}</p>
 					<Tag>{verdictLabel}</Tag>
 					<p className="muted">
 						最近审计：{date(audit.result.checkedAt)} · {audit.result.checks.length} 项检查{" "}
@@ -257,8 +262,9 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 						<Tag>{checkStatusLabels[check.status]}</Tag>
 						<div className="audit-check-body">
 							<span className="audit-check-category">{checkGroupLabel(check)}</span>
-							<strong>{check.label}</strong>
+							<strong>{websiteCheckLanguage[check.id]?.label ?? check.label}</strong>
 							<p>{check.detail}</p>
+							<p className="muted">{websiteCheckLanguage[check.id]?.meaning}</p>
 							<Button variant="link" onClick={() => setDetail(check)}>
 								查看证据、问题定位与整改办法
 							</Button>
@@ -272,6 +278,29 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 }
 
 const artifactHref = (key: string) => `/artifacts/${key.split("/").map(encodeURIComponent).join("/")}`;
+function CheckInterpretation({ check }: { check: AuditCheck }) {
+	return (
+		<>
+			<p>{websiteCheckLanguage[check.id]?.meaning}</p>
+			<p>建议负责人：{websiteCheckLanguage[check.id]?.owner ?? "网站负责人"}</p>
+			<p>
+				本项权重：{check.weight}；
+				{check.status === "skip"
+					? "不参与计分"
+					: check.status === "pass"
+						? "获得全部权重"
+						: check.status === "warning"
+							? "获得一半权重"
+							: "未获得权重"}
+				。
+			</p>
+		</>
+	);
+}
+const checkRecommendation = (check: AuditCheck) =>
+	check.status === "pass"
+		? "本项已通过，保持现状，无需重复安排整改。"
+		: (check.recommendation ?? "旧记录未提供逐项建议，请结合原始证据核对。");
 export function AuditEvidenceDrawer({
 	audit,
 	detail,
@@ -307,12 +336,13 @@ export function AuditEvidenceDrawer({
 				/>
 				{check && (
 					<>
+						<CheckInterpretation check={check} />
 						<h3>观察事实</h3>
 						<p>{check.detail}</p>
 						<h3>问题定位</h3>
 						<p>{check.selector ?? "旧记录未保存定位信息，请新建审计。"}</p>
 						<h3>整改建议</h3>
-						<p>{check.recommendation ?? "旧记录未提供逐项建议，请结合原始证据核对。"}</p>
+						<p>{checkRecommendation(check)}</p>
 						<h3>验收办法</h3>
 						<p>{check.verification ?? "修复后重新审计，保留新旧两份结果。"}</p>
 					</>

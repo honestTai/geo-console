@@ -1,5 +1,9 @@
 # 运行与故障处理
 
+## 客户报告与文章计划
+
+新模板/字段见 `docs/reader-report-workflow.md`；升级需要 0026 及一致版本 API/Agent/Report/Web。历史计划为空、旧报告没新布局不是损坏，不覆盖 PDF 或自动付费回填。冻结引用 409 检查同客户 ID/对象/权限，不用新页面替代。文章未分类先批准有内容分类的新建议，技术建议不得反复排队。备份含 publication_plan、报告全文/对象；回滚保留新增列，新模板交给兼容 Worker。
+
 ## 额度耗尽与官网证据
 
 不要把跨采样窗口等待判断成死 Worker：看 `captureProgress.next_at/pending/active` 与真实 HTTP 状态。明确额度不足后，Capture Runner 即时或启动/每分钟清扫会将同批次同平台 pending/过期 leased 任务收尾为 failed；活跃租约不抢占。日志 `capture.quota_jobs_stopped` 与普通 `capture.stale_jobs_failed` 分开；不用 SQL 修改 Capture 或 config。余额补足不自动产生付费重跑，用户手动创建严格同条件复测，其他平台继续。

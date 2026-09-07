@@ -1,5 +1,15 @@
 # GEO Console Domain Contracts
 
+## 客户可读报告与文章计划
+
+文章采用问题/证据/渠道驱动的自适应写作（`agent.ts ARTICLE_WRITING_GUIDANCE`）；新提交需 `publicationPlan.contentStrategy.format/rationale/lengthApproach`，类型为自由文本。正文非空即可，大纲可空；60,000 字符是资源上限，不是统一篇幅。保留真实问题/证据与 content 类型门禁。老 JSON/草稿兼容，不给旧文章补造写作方案；Web/PDF/Word 同步显示形式与篇幅依据。见 `docs/reader-report-workflow.md`。
+
+`communication.ts` 仅从冻结指标/config/Capture 派生分母、逐题纳入和点名拆分；正式算法仍以 visibility.ts 为准，不池化次数或把未知记零。sources 与 isCitation 分开。新模板 v4 冻结前补齐同客户嵌套历史引用，缺失拒绝冻结；旧报告不改。Word 原生书签、PDF 锚点、外链协议白名单和截图哈希不可省略。
+
+0026 增加 nullable publication_plan；新建议需 deliveryType/ownerRole/acceptanceCriteria，新文章需 targetPromptIds 与用途/渠道/证据/验收计划。只有 content 可生成，未分类历史建议需重生成批准。发布检查在行锁事务内，需实际 URL 和无待补充事实的正文，计划证据不超出文章 evidence_ids。报告冻结目标/计划，后改文章不改旧报告。定位 API 不授予正文/文件权限。见 `docs/reader-report-workflow.md`。
+
+Agent readerGuide 必须由 `agent-measurement-context.ts` 实际提供运行绑定指标与冻结问题，不能只写提示词要求。getBatch/Agent 索引优先用冻结问题和地区/语言恢复证据上下文，完整新批次不受客户后改资料影响；仅缺少旧配置的历史记录保留兼容回退。所有变更均只读映射，不修改 Capture 行/对象或绑定指标。
+
 ## 机构客户目录
 
 `page.customers` 是机构菜单及现有 `/api/projects` 列表读取权限，不等于全机构客户范围或项目证据权限。列表必须同时应用当前 organizationId 与成员 projectIds；只读菜单不能 POST/PUT 或读取项目详情。创建沿用 project.create，资料编辑沿用 project.onboard，历史配置与证据不可改写。migration 0025 从既有 overview 授权补上等价菜单，不能为被撤销的机构上限重新授权；新建后的身份刷新用于读取真实新增客户范围。见 `docs/customer-management.md`。

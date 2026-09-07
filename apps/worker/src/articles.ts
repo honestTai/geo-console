@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { ExecutionActor } from "@geo/authorization";
 import type { Database, OptimizationArticleStatus } from "@geo/core";
+import { publicationPlanSchema } from "@geo/evidence";
 import { z } from "zod";
 import { enqueueAgentDraft } from "./agent";
 import { type Paginated, type PaginationInput, paginated } from "./pagination";
 import { HttpInputError, parseJsonColumn } from "./utils";
 
 export type ArticleRecommendation = {
+	deliveryType: string;
 	index: number;
 	priority: string;
 	title: string;
@@ -32,6 +34,7 @@ export async function approvedRecommendations(
 		row.draft as string | Record<string, unknown>,
 	);
 	const recommendations = (draft.geoRecommendations ?? []).map((item, index) => ({
+		deliveryType: typeof item.deliveryType === "string" ? item.deliveryType : "unclassified",
 		index,
 		priority: String(item.priority ?? "medium"),
 		title: String(item.title ?? `GEO 建议 ${index + 1}`),
@@ -46,7 +49,11 @@ export async function generateArticlesForBatch(
 	database: Database,
 	batchId: string,
 	options: { sessionId?: string | null; onlyMissing?: boolean; actor?: ExecutionActor } = {},
-): Promise<{ narrativeRunId: string; queued: Array<{ runId: string; recommendationIndex: number; title: string }> }> {
+): Promise<{
+	narrativeRunId: string;
+	queued: Array<{ runId: string; recommendationIndex: number; title: string }>;
+	skipped: Array<{ title: string; reason: string }>;
+}> {
 	const approved = await approvedRecommendations(database, batchId);
 	if (!approved) throw new HttpInputError("生成优化文章前必须先批准该批次的报告叙述", 409);
 	if (!approved.recommendations.length) throw new HttpInputError("报告叙述中没有 GEO 优化建议，无法生成文章", 409);
@@ -74,7 +81,18 @@ export async function generateArticlesForBatch(
 		}),
 	);
 	const queued: Array<{ runId: string; recommendationIndex: number; title: string }> = [];
+	const skipped: Array<{ title: string; reason: string }> = [];
 	for (const recommendation of approved.recommendations) {
+		if (recommendation.deliveryType !== "content") {
+			skipped.push({
+				title: recommendation.title,
+				reason:
+					recommendation.deliveryType === "unclassified"
+						? "历史建议未明确交付类型，请先重新生成并批准有分类的报告建议"
+						: "该建议需要技术、采集或资料核实，不应通过写文章处理",
+			});
+			continue;
+		}
 		if (options.onlyMissing !== false && (existing.has(recommendation.index) || pending.has(recommendation.index)))
 			continue;
 		const run = await enqueueAgentDraft(database, {
@@ -87,7 +105,7 @@ export async function generateArticlesForBatch(
 		});
 		queued.push({ runId: run.id, recommendationIndex: recommendation.index, title: recommendation.title });
 	}
-	return { narrativeRunId: approved.narrativeRunId, queued };
+	return { narrativeRunId: approved.narrativeRunId, queued, skipped };
 }
 
 export async function listArticles(
@@ -123,47 +141,94 @@ export async function getArticle(database: Database, articleId: string): Promise
 		await database.query<Record<string, unknown>>("SELECT * FROM optimization_articles WHERE id=$1", [articleId])
 	).rows[0];
 	if (!row) return null;
+	const targetIds = parseJsonColumn<string[]>(row.target_prompt_ids as string | string[]);
+	const batch = row.batch_id
+		? (
+				await database.query<{ config: unknown }>(
+					"SELECT config FROM experiment_batches WHERE id=$1 AND project_id=$2",
+					[row.batch_id, row.project_id],
+				)
+			).rows[0]
+		: null;
+	const prompts = batch
+		? (parseJsonColumn<{ prompts?: Array<{ id: string; question: string }> }>(
+				batch.config as string | Record<string, unknown>,
+			).prompts ?? [])
+		: [];
 	return {
 		...row,
 		outline: parseJsonColumn(row.outline as string | string[]),
 		fact_gaps: parseJsonColumn(row.fact_gaps as string | string[]),
 		evidence_ids: parseJsonColumn(row.evidence_ids as string | string[]),
 		target_prompt_ids: parseJsonColumn(row.target_prompt_ids as string | string[]),
+		publication_plan: row.publication_plan
+			? parseJsonColumn(row.publication_plan as string | Record<string, unknown>)
+			: null,
+		target_questions: prompts.filter((p) => targetIds.includes(p.id)).map(({ id, question }) => ({ id, question })),
 	};
 }
 
 const articleUpdateSchema = z.object({
-	title: z.string().trim().min(2).max(120).optional(),
+	title: z.string().trim().min(1).max(120).optional(),
 	summary: z.string().trim().max(600).nullable().optional(),
 	status: z.enum(["draft", "reviewing", "published"]).optional(),
-	contentMarkdown: z.string().max(60_000).optional(),
-	publishedUrl: z.url().nullable().optional(),
+	contentMarkdown: z.string().trim().min(1).max(60_000).optional(),
+	publishedUrl: z
+		.url()
+		.refine((url) => ["http:", "https:"].includes(new URL(url).protocol), "发布地址必须是网页地址")
+		.nullable()
+		.optional(),
+	publicationPlan: publicationPlanSchema.optional(),
 });
+
+function validatePublicationUpdate(data: z.infer<typeof articleUpdateSchema>, current: Record<string, unknown>): void {
+	const allowedEvidence = new Set(current.evidence_ids as string[]);
+	if (data.publicationPlan?.channels.some((c) => c.evidenceIds.some((id) => !allowedEvidence.has(id))))
+		throw new HttpInputError("发布计划只能引用这篇文章已绑定的证据", 400);
+	if ((data.status ?? current.status) === "published") {
+		if (
+			!(data.publishedUrl === undefined ? current.published_url : data.publishedUrl) ||
+			!(data.publicationPlan ?? current.publication_plan)
+		)
+			throw new HttpInputError("登记发布前请填写实际发布地址及文章用途/发布计划", 400);
+		if (/【待补充[：:]/.test(String(data.contentMarkdown ?? current.content_markdown)))
+			throw new HttpInputError("正文仍有待补充事实，不能登记为已发布", 400);
+	}
+}
 
 export async function updateArticle(database: Database, articleId: string, input: unknown): Promise<void> {
 	const data = articleUpdateSchema.parse(input);
-	const status: OptimizationArticleStatus | null = data.status ?? null;
-	const result = await database.query(
-		`UPDATE optimization_articles SET
+	return database.transaction(async (transaction) => {
+		await transaction.query("SELECT id FROM optimization_articles WHERE id=$1 FOR UPDATE", [articleId]);
+		const current = await getArticle(transaction, articleId);
+		if (!current) throw new HttpInputError("优化文章不存在", 404);
+		validatePublicationUpdate(data, current);
+		const status: OptimizationArticleStatus | null = data.status ?? null;
+		const result = await transaction.query(
+			`UPDATE optimization_articles SET
 		 title=COALESCE($2,title),
 		 summary=CASE WHEN $3::boolean THEN $4 ELSE summary END,
 		 status=COALESCE($5,status),
 		 content_markdown=COALESCE($6,content_markdown),
 		 published_url=CASE WHEN $7::boolean THEN $8 ELSE published_url END,
-		 version=CASE WHEN $6 IS NOT NULL AND $6<>content_markdown THEN version+1 ELSE version END,
+		 publication_plan=CASE WHEN $9::boolean THEN $10::jsonb ELSE publication_plan END,
+		 version=CASE WHEN ($6 IS NOT NULL AND $6<>content_markdown) OR $9::boolean THEN version+1 ELSE version END,
 		 updated_at=now() WHERE id=$1`,
-		[
-			articleId,
-			data.title ?? null,
-			data.summary !== undefined,
-			data.summary ?? null,
-			status,
-			data.contentMarkdown ?? null,
-			data.publishedUrl !== undefined,
-			data.publishedUrl ?? null,
-		],
-	);
-	if (result.affectedRows !== 1) throw new HttpInputError("优化文章不存在", 404);
+			[
+				articleId,
+				data.title ?? null,
+				data.summary !== undefined,
+				data.summary ?? null,
+				status,
+				data.contentMarkdown ?? null,
+				data.publishedUrl !== undefined,
+				data.publishedUrl ?? null,
+				data.publicationPlan !== undefined,
+				data.publicationPlan ? JSON.stringify(data.publicationPlan) : null,
+			],
+		);
+		if (result.affectedRows !== 1) throw new HttpInputError("优化文章不存在", 404);
+	});
 }
 
 export async function deleteArticle(database: Database, articleId: string): Promise<void> {

@@ -7,7 +7,7 @@ import { StructuredLogger, safeErrorMessage } from "@geo/logging";
 import { rateKeys } from "@geo/metrics";
 import { chromium } from "playwright";
 import { z } from "zod";
-import { enqueueAgentDraft } from "./agent";
+import { collectDraftEvidenceIds, enqueueAgentDraft } from "./agent";
 import { assertBatchCaptureContract } from "./capture-contract";
 import { renderReportDocx } from "./docx";
 import {
@@ -23,8 +23,11 @@ import { artifactExists, putArtifact, readArtifact } from "./object-store";
 import { type Paginated, type PaginationInput, paginated } from "./pagination";
 import { providerDefinitions } from "./providers";
 import { sweepTerminalLeases } from "./queue-recovery";
+import type { ReportAnalysis } from "./report";
 import { type EvidenceIndexEntry, evidencePlatformLabel, stripTrackingFragment } from "./report";
 import { customerBlock, reportBrandStyles, reportLogo, reportWatermark } from "./report-branding";
+import { freezeReferencedEvidence } from "./report-evidence";
+import { renderReaderReport } from "./report-reader";
 import { getBatch, getBatchReport } from "./service";
 import { HttpInputError, parseJsonColumn, sha256, stableJson } from "./utils";
 import { websiteAuditSection } from "./website-report";
@@ -355,9 +358,37 @@ async function createReportSnapshotLocked(
 				: "历史消费端证据，仅用于只读追溯。",
 	}));
 	const createdAt = new Date().toISOString();
+	const articles = (
+		await database.query<Record<string, unknown>>(
+			`SELECT a.title,a.summary,a.recommendation_title,a.status,a.published_url,a.publication_plan,a.evidence_ids,a.target_prompt_ids
+		 FROM optimization_articles a JOIN agent_runs r ON r.id=a.source_run_id
+		 WHERE a.batch_id=$1 AND a.narrative_run_id=$2 AND r.status='approved' ORDER BY a.recommendation_index`,
+			[input.batchId, approvedNarrative.id],
+		)
+	).rows.map((a) => ({
+		...a,
+		publication_plan: a.publication_plan
+			? parseJsonColumn(a.publication_plan as string | Record<string, unknown>)
+			: null,
+		evidence_ids: parseJsonColumn(a.evidence_ids as string | string[]),
+		target_prompt_ids: parseJsonColumn(a.target_prompt_ids as string | string[]),
+	}));
+	await freezeReferencedEvidence(
+		database,
+		String(batch.project_id),
+		report.analysis as ReportAnalysis,
+		collectDraftEvidenceIds([
+			parseJsonColumn(approvedNarrative.draft as string | Record<string, unknown>),
+			report.findings,
+			report.tasks,
+			(report.analysis as ReportAnalysis).gaps,
+			articles,
+		]),
+	);
 	const payload = {
 		schemaVersion: "geo.report-snapshot.v2",
-		renderContract: { brand: "ZZGEO", templateVersion: "zzgeo.report.v3" },
+		renderContract: { brand: "ZZGEO", templateVersion: "zzgeo.report.v4" },
+		articles,
 		metricSnapshotId: measurement.snapshotId,
 		reportType,
 		createdAt,
@@ -583,6 +614,11 @@ function renderReportBody(snapshot: Record<string, unknown>): string {
 
 /** Branding and customer details come from the frozen batch, never from today's mutable customer profile. */
 export function renderReportHtml(snapshot: Record<string, unknown>, auditScreenshot?: string): string {
+	if (
+		(snapshot.payload as { renderContract?: { templateVersion?: string } }).renderContract?.templateVersion ===
+		"zzgeo.report.v4"
+	)
+		return renderReaderReport(snapshot, auditScreenshot);
 	const payload = snapshot.payload as {
 		batch?: { config?: { project?: Record<string, unknown> } };
 		report?: { analysis?: { websiteAudit?: { result: WebsiteAuditResult } | null } };
@@ -666,10 +702,26 @@ export async function generateReportWord(database: Database, reportId: string): 
 	const snapshot = await getReportSnapshot(database, reportId);
 	if (!snapshot) throw new HttpInputError("报告快照不存在", 404);
 	const artifactKey = `reports/${reportId}.docx`;
+	const audit = (snapshot.payload as { report?: { analysis?: { websiteAudit?: { result: WebsiteAuditResult } } } })
+		.report?.analysis?.websiteAudit;
+	const image = audit?.result.evidence?.find((item) => item.kind === "screenshot" && item.objectKey);
+	let screenshot: Buffer | undefined;
+	if (image?.objectKey) {
+		try {
+			const asset = await readArtifact(image.objectKey);
+			if (
+				asset.contentType === "image/png" &&
+				createHash("sha256").update(asset.body).digest("hex") === image.contentHash
+			)
+				screenshot = Buffer.from(asset.body);
+		} catch {
+			/* Missing historical evidence is disclosed; never replace with a live screenshot. */
+		}
+	}
 	if (!(await artifactExists(artifactKey)))
 		await putArtifact(
 			artifactKey,
-			renderReportDocx(snapshot),
+			renderReportDocx(snapshot, screenshot),
 			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 		);
 	await database.query("UPDATE report_snapshots SET word_artifact_key=COALESCE(word_artifact_key,$2) WHERE id=$1", [

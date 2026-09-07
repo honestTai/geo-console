@@ -2,6 +2,8 @@ import { IconAlertTriangle, IconBolt, IconCheck, IconCopy, IconFileAnalytics } f
 import { Pagination as AntdPagination, App, Popover, Select, Statistic, Tooltip, Typography } from "antd";
 import type { ReactNode } from "react";
 import { batchKindLabel, type EvidenceIndexEntry, type Project, providerShortLabel } from "../types";
+import { MetricLabel } from "./MetricLabel";
+import { useWorkspaceNavigation } from "./navigation";
 import "./primitives.css";
 
 export const percentage = (value: number | null | undefined) => (value == null ? "-" : `${(value * 100).toFixed(1)}%`);
@@ -223,7 +225,7 @@ export function KpiCard({
 	return (
 		<article className={tone === "muted" ? "kpi-card muted" : "kpi-card"}>
 			<Statistic
-				title={label}
+				title={typeof label === "string" ? <MetricLabel label={label} /> : label}
 				value={typeof value === "number" ? value : undefined}
 				formatter={() => value}
 				suffix={suffix}
@@ -301,6 +303,8 @@ export function EvidenceRef({
 	/** 超过该数量的引用折叠进弹层，避免几十个编号把正文淹没。 */
 	max?: number;
 }) {
+	const navigation = useWorkspaceNavigation();
+	const open: EvidenceOpener = onOpen ?? ((id, kind) => navigation.openEvidence(id, null, kind));
 	const lookup = Array.isArray(index) ? new Map(index.map((entry) => [entry.id, entry])) : index;
 	if (!ids.length) return null;
 	const limit = max && ids.length > max ? max : ids.length;
@@ -311,12 +315,12 @@ export function EvidenceRef({
 		if (!entry)
 			return (
 				<Tooltip key={id} title={`证据 ${id}`}>
-					<span className="evidence-ref">
+					<button type="button" className="evidence-ref-button" onClick={() => open(id, "capture")}>
 						<b>[{id.slice(0, 6)}]</b>
-					</span>
+					</button>
 				</Tooltip>
 			);
-		const clickable = ["capture", "web_search", "audit", "snapshot"].includes(entry.kind) && onOpen;
+		const clickable = ["capture", "web_search", "audit", "snapshot"].includes(entry.kind);
 		const body = (
 			<span className="evidence-ref">
 				<b>[{evidenceRefBadge(entry)}]</b>
@@ -340,7 +344,7 @@ export function EvidenceRef({
 				}
 			>
 				{clickable ? (
-					<button type="button" className="evidence-ref-button" onClick={() => onOpen(entry.id, entry.kind)}>
+					<button type="button" className="evidence-ref-button" onClick={() => open(entry.id, entry.kind)}>
 						{body}
 					</button>
 				) : (

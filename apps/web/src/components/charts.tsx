@@ -86,7 +86,7 @@ export function TrendChart({ trends }: { trends: TrendResponse }) {
 							<time>{date(item.createdAt)}</time>
 							{overallTrendKeys.map(({ key, label }) => (
 								<div key={key}>
-									<span>{label}</span>
+									<MetricLabel metric={key} label={label} />
 									<i style={{ width: percentage(item.metrics.overall[key] as number | null) }} />
 									<b>{percentage(item.metrics.overall[key] as number | null)}</b>
 								</div>
@@ -347,9 +347,9 @@ function MetricCard({ platform, metrics }: { platform: string; metrics: Platform
 		{ label: "首位推荐率", value: unavailable ? "-" : percentage(metrics.firstRecommendationRate) },
 		{ label: "官网引用率", value: unavailable ? "-" : percentage(metrics.citationRate) },
 		{ label: "监测品牌出现份额", value: unavailable ? "-" : percentage(metrics.monitoredBrandShare) },
-		{ label: "两两一致率", value: unavailable ? "-" : percentage(metrics.pairwiseAgreement) },
+		{ label: "重复回答一致率", value: unavailable ? "-" : percentage(metrics.pairwiseAgreement) },
 		{ label: "明确推荐名次中位数", value: unavailable ? "-" : (metrics.medianRecommendationRank?.toFixed(1) ?? "-") },
-		{ label: "回答覆盖率", value: percentage(metrics.captureCoverage) },
+		{ label: "采集覆盖率", value: percentage(metrics.captureCoverage) },
 	];
 	return (
 		<article className={unavailable ? "metric-card unavailable" : "metric-card"}>
@@ -362,17 +362,23 @@ function MetricCard({ platform, metrics }: { platform: string; metrics: Platform
 			<div className="metric-hero">
 				<b>{unavailable ? "不可用" : percentage(metrics.brandMentionRate)}</b>
 				<span>
-					{unavailable
-						? metrics.answeredCaptures > 0
-							? "已有回答，但语义解析或问题覆盖不足，暂不展示品牌率"
-							: "该平台本批次没有成功回答，不进入品牌率分母"
-						: "品牌提及率"}
+					{unavailable ? (
+						metrics.answeredCaptures > 0 ? (
+							"已有回答，但语义解析或问题覆盖不足，暂不展示品牌率"
+						) : (
+							"该平台本批次没有成功回答，不进入品牌率分母"
+						)
+					) : (
+						<MetricLabel metric="brandMentionRate" />
+					)}
 				</span>
 			</div>
 			<dl>
 				{rows.map((row) => (
 					<div key={row.label}>
-						<dt>{row.label}</dt>
+						<dt>
+							<MetricLabel label={row.label} />
+						</dt>
 						<dd>{row.value}</dd>
 					</div>
 				))}
@@ -383,9 +389,9 @@ function MetricCard({ platform, metrics }: { platform: string; metrics: Platform
 
 export function BatchMetrics({ batch }: { batch: Batch }) {
 	const sampleItems: Array<{ label: string; value: ReactNode }> = [
-		{ label: "有效样本", value: batch.metrics.validSamples },
-		{ label: "失败样本", value: batch.metrics.failedSamples },
-		{ label: "计划样本", value: batch.metrics.expectedSamples },
+		{ label: "成功采集的回答（不等于已解析）", value: batch.metrics.validSamples },
+		{ label: "未通过采集检查的记录（不算品牌零分）", value: batch.metrics.failedSamples },
+		{ label: "计划采集次数", value: batch.metrics.expectedSamples },
 		{
 			label: "条件",
 			value: `${batch.config.prompts.length}题 × ${batch.config.platforms.length}平台 × ${batch.config.repeats}次`,
@@ -409,3 +415,5 @@ export function BatchMetrics({ batch }: { batch: Batch }) {
 		</div>
 	);
 }
+
+import { MetricLabel } from "../ui/MetricLabel";

@@ -294,6 +294,7 @@ export type PlatformMetrics = {
 	competitorMentionRates: Record<string, number | null>;
 };
 export type Batch = BatchSummary & {
+	metricExplanation?: import("@geo/metrics").MeasurementExplanation | null;
 	captureProgress?: {
 		pending: number;
 		active: number;
@@ -342,6 +343,7 @@ export type Batch = BatchSummary & {
 	};
 };
 export type ReportAnalysis = {
+	readerGuide?: import("@geo/metrics").MeasurementExplanation;
 	generatedAt: string;
 	executive: { headline: string; summary: string; evidenceLevel: "高" | "中" | "低"; validityNote: string };
 	promptRows: Array<{
@@ -586,6 +588,7 @@ export const articleStatusLabel: Record<ArticleStatus, string> = {
 	published: "已发布",
 };
 export type ArticleSummary = {
+	project_id: string;
 	id: string;
 	batch_id: string | null;
 	source_run_id: string | null;
@@ -603,6 +606,8 @@ export type ArticleSummary = {
 	updated_at: string;
 };
 export type Article = ArticleSummary & {
+	publication_plan: import("@geo/evidence").PublicationPlan | null;
+	target_questions?: Array<{ id: string; question: string }>;
 	recommendation_action: string | null;
 	content_markdown: string;
 	outline: string[];

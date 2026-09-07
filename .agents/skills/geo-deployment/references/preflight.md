@@ -1,5 +1,7 @@
 # GEO Console Deployment Preflight
 
+客户可读报告/自适应文章随 0026 与 API/Agent/Report/Web 一致发布。只在已授权库向前增加 publication_plan 与元数据策略，不改证据/指标/历史报告；备份包括新增计划与报告引用全文。写作方案复用 JSON 无额外迁移。上线可只读验收文案/证据定位；不把已授权部署推断为付费重生成或采样许可，用户保留手动运行。v4 新快照不能由旧 Report Worker 回写；详见 `docs/reader-report-workflow.md`。
+
 客户管理菜单随 migration 0025 与 Web/API 一同发布；迁移只增加等价客户列表导航，不授权写操作或扩大项目范围。上线检查当前机构/受限成员/只读角色；没有菜单先查机构上限和导航权限，不在客户端绕过。数据库操作仍要求明确授权，见 `docs/customer-management.md`。
 
 官网选填/审计证据发布：确认目标与备份后在明确授权库执行 migration 0024，同步 Web/API/Capture/Agent/Report。API 与 Agent 需能启动既有 Chromium；验证受控脚本取证、阻止内网/API/实时连接、中文 PDF、artifact 项目隔离和空官网。没有新端口/服务/包依赖。回滚不得恢复 NOT NULL 来破坏无官网客户；旧版不理解 null 与新证据时应暂停回滚或使用兼容版本，保留全部对象。详见 `docs/website-audit-and-capture-recovery.md`。

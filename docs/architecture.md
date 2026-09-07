@@ -1,5 +1,9 @@
 # 架构与数据边界
 
+文章交付结构与正文写法分离：Agent 绑定实际建议/问题/证据，按发布位置选择自由形式，并在 `publicationPlan.contentStrategy` 保存形式理由与篇幅依据；不再强制采购者、固定字数或两段大纲。Web/PDF/Word 共用该冻结计划，旧内容不回填。新提交必填策略，历史 schema 兼容；没有新增模型调用、服务或 migration。见 `docs/reader-report-workflow.md`。
+
+客户可读闭环：共享 `metrics/communication` → Web `MetricLabel/MeasurementExplanation` 和 `report-reader/report-word-reader`，只解释冻结指标，不改变正式计算。`report-evidence` 补齐同客户历史引用后冻结；v4 新模板可跳转全文，旧对象不改。`evidence-reference` 仅定位元数据。`evidence/publication` → Agent 内容分类 → article 行锁编辑 → 冻结文章计划，0026 为可空字段加法。见 `docs/reader-report-workflow.md`。
+
 机构客户管理：`ui/workspace-views.ts` 注册 `customers` → `CustomerManagement`（按需加载），在机构工作区与客户工作台共用同一页面；列表复用 `/api/projects` 的机构/成员范围过滤，创建和编辑复用 `CreateProject` / `ProjectProfileEditor`。migration 0025 增加 `page.customers` 菜单及列表读取策略，不授权监测/证据详情或写操作；详见 `docs/customer-management.md`。
 
 官网选填与可追溯审计：`project-profile` 仅更新客户现值；migration 0024 允许空官网/域名，批次与报告继续冻结身份。`capture-progress` 对明确额度错误做批次/平台内任务收尾，不改 Capture；API 返回下个采样窗口和任务进度，语义队列不再影响采集状态。`crawler` → `website-discovery` / `public-http` → `website-screenshot` / `website-report` 保存追加型源文件、截图和报告；人工与 Agent 共用此管线，证据 API 与 artifacts 均校验项目归属。详细安全、恢复和发布边界见 `docs/website-audit-and-capture-recovery.md`。
