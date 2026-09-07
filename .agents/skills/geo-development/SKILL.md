@@ -30,6 +30,7 @@ description: Develop or review GEO Console application code, including the Web/A
 - 成员管理必须在服务端事务内限制可授予角色/客户范围，不能以 members.manage 间接提升权限；默认角色用稳定 system_key，机构授权上限不删除角色定义。账号生命周期与前端状态规则见 domain-contracts/frontend。
 - HRouter Agent 只能读取当前项目的领域数据并提交待审批结构化草稿。不得增加 Bash、任意文件、任意 SQL 或开放 HTTP；审批时重新校验证据、Prompt、任务和项目归属。
 - 网站抓取必须继续阻止私网、Loopback、非 HTTP(S) 和重定向后的内网目标。抓取失败表示证据不足，不能推断页面没有内容。
+- 官网为选填；后补资料不改冻结批次。额度耗尽只收尾本批次该平台未执行任务，不改已有证据。官网审计源文件/截图/报告必须追加、可按项目授权打开；人工与 Agent 使用同一受控管线，不开放任意浏览器/HTTP 工具。详细预算和发布边界见 `docs/website-audit-and-capture-recovery.md`。
 - 报告先冻结 payload 与 SHA-256，再异步生成 PDF。只有批准的 Agent 草稿能进入正式业务记录或报告叙述。
 - 保持 API 口径披露，尤其 `yuanbao_hunyuan` 必须显示“元宝搜索源 + 混元合成”，不得冒充消费端 App 回答。
 
@@ -39,7 +40,7 @@ description: Develop or review GEO Console application code, including the Web/A
 - 数据库变更同时更新 Drizzle Schema 和新的递增 SQL migration；不得编辑已部署 migration。
 - 只在新建项目 PGlite 或用户明确提供的隔离 PostgreSQL 上运行 migration。不得连接或修改推断出来的外部数据库。
 - 对外部 Provider 使用结构化响应解析和明确失败分类；协议或解析语义变化时提升 adapter/search tool 版本。
-- UI 延续现有工作台信息架构，覆盖 loading、empty、error、partial、queued、failed、read-only 状态；桌面与 390px 宽度都要检查无重叠和截断。前端结构、antd 组件选用、分页/反馈/密度规则按 [references/frontend.md](references/frontend.md) 执行。
+- UI 延续现有工作台信息架构，覆盖 loading、empty、error、partial、queued、failed、read-only 状态；检查桌面界面无重叠和截断。默认不做手机端检查，只有用户明确要求时才进行。前端结构、antd 组件选用、分页/反馈/密度规则按 [references/frontend.md](references/frontend.md) 执行。
 - 重大功能变更必须在同一变更中重新蒸馏受影响的代码事实源，并同步对应 docs、skill entrypoint/reference；不能把同步留给后续任务。
 - 改动范围和验证方法按 [references/change-checklist.md](references/change-checklist.md) 执行。
 

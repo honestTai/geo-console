@@ -1,5 +1,7 @@
 # GEO Console Web 前端架构规则
 
+官网/任务状态补充：官网字段选填；客户概览和未建档页可编辑资料，无官网审计展示不适用及补充入口，不显示 0 分。Monitoring 分开已存证、已结束任务、等待窗口、额度阻断与语义解析覆盖。WebsiteAudit 每个检查项可开证据 Drawer，展示冻结客户、定位/建议/验收、截图预览、源文和探测状态；旧记录缺失截图要直说。全局 WebsiteEvidenceViewer 按项目/证据 ID 读取历史快照，不借用最新审计替换旧引用。下载有真实 artifact 权限，抽屉在桌面界面检查无溢出。见 `docs/website-audit-and-capture-recovery.md`。
+
 完整回答语义解读由 EvidenceDetail 装配 AnswerAnalysis，结构化视图在 `ui/answer-analysis.tsx`、按需读取/串行轮询在 `hooks/useAnswerAnalysis.ts`。切换回答必须取消旧请求并重置状态；只读不生成，生成按钮权限 `agent.run`，重生成需确认。分段/品牌/条件分节平铺，不 dump JSON；原文 Drawer 用转义文本和服务端验证的 UTF-16 高亮。明确区分 ready（未人工复核）/needs_review/failed/历史只读；导出是主动下载客户证据，不可放公开目录。
 
 适用于 `apps/web/`(React 19 + Vite 8 + antd 6)。这是 2026-09 UI 精修后确立的结构,后续前端改动必须遵守。
@@ -45,7 +47,7 @@ apps/web/src/
 
 ## 验证
 
-改前端后跑 `pnpm --filter @geo/web check-types && pnpm --filter @geo/web test && pnpm --filter @geo/web build` 及 biome check;窄屏(900px、600px、390px)与桌面端都要检查无重叠截断;桌面与 Tauri 客户端加载同一份构建产物。涉及桌面 Agent 时还要验证运行时独立 chunk、Tauri Channel 首字节流、断线后的 transcript/toolResult 恢复，以及浏览器入口不会创建 desktop 会话。
+改前端后跑 `corepack pnpm --filter @geo/web check-types && corepack pnpm --filter @geo/web test && corepack pnpm --filter @geo/web build` 及 biome check；默认只检查桌面界面无重叠截断，手机端检查仅在用户明确要求时进行；桌面与 Tauri 客户端加载同一份构建产物。涉及桌面 Agent 时还要验证运行时独立 chunk、Tauri Channel 首字节流、断线后的 transcript/toolResult 恢复，以及浏览器入口不会创建 desktop 会话。
 
 ## 2026-09 布局重做后的约定
 

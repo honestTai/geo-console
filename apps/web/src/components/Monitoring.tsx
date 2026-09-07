@@ -70,8 +70,8 @@ function PlatformCheckboxes({ value, onChange }: { value: ProviderId[]; onChange
 }
 
 export function runActivityStatus(status: string, active: boolean, captured: number): string {
-	if (status === "partial") return "采集完成 · 部分平台失败，原始证据已保留";
-	if (!active) return "采集完成 · 指标与证据已入库";
+	if (status === "partial") return "采集已结束 · 部分样本失败或未执行，已有证据保留";
+	if (!active) return "采集已结束 · 语义解析状态请查看上方测量面板";
 	return captured > 0 ? `采集中 · 已写入 ${captured} 条证据` : "任务已创建 · 等待 Capture Worker";
 }
 
@@ -310,7 +310,7 @@ export function RunCaptureLog({ captures, active }: { captures: Capture[]; activ
 	if (!active)
 		items.push({
 			color: "gray",
-			content: <span>指标已刷新 · {captures.length} 条近期 capture 已写入证据链</span>,
+			content: <span>采集结束 · 展示最近 {captures.length} 条真实采集记录；语义解析独立进行</span>,
 		});
 	return <Timeline items={items} />;
 }
@@ -331,11 +331,16 @@ export function RunActivityPanel({
 	const captured = batch?.captures.length ?? 0;
 	const batchStatus = batch?.status ?? summary.status;
 	const active = ["queued", "running"].includes(batchStatus);
-	const progress = expected > 0 ? Math.min(100, Math.round((captured / expected) * 100)) : active ? 4 : 100;
+	const queue = batch?.captureProgress;
+	const settled = queue ? queue.completed + queue.failed : captured;
+	const progress = expected > 0 ? Math.min(100, Math.round((settled / expected) * 100)) : active ? 4 : 100;
+	const waiting = active && queue && !queue.active && queue.next_at && new Date(queue.next_at).getTime() > Date.now();
 	const recentCaptures = [...(batch?.captures ?? [])]
 		.sort((left, right) => left.capturedAt.localeCompare(right.capturedAt))
 		.slice(-6);
-	const status = runActivityStatus(batchStatus, active, captured);
+	const status = waiting
+		? `本时段已完成 · 下次采样 ${date(queue.next_at)}（冻结采样计划，不是卡住）`
+		: runActivityStatus(batchStatus, active, captured);
 	return (
 		<section className="run-activity" aria-live="polite">
 			<header>
@@ -347,7 +352,7 @@ export function RunActivityPanel({
 					</p>
 				</div>
 				{active ? (
-					<span className="status running">运行中</span>
+					<span className="status running">{waiting ? "等待下一采样时段" : "运行中"}</span>
 				) : (
 					<Button
 						permission="monitor.run"
@@ -362,6 +367,17 @@ export function RunActivityPanel({
 			</header>
 			<Progress percent={progress} size="small" status={active ? "active" : undefined} aria-label="采集进度" />
 			<strong className={`run-status ${active ? "running" : "complete"}`}>{status}</strong>
+			{Boolean(queue?.blockedProviders.length) && (
+				<Alert
+					showIcon
+					type="warning"
+					title={`${queue?.blockedProviders.map(providerShortLabel).join("、")}余额或额度不足`}
+					description="本批次该平台后续未执行任务会停止，已发出的请求正常收尾；其他平台和成功回答的语义解析继续。请充值后手动再次运行，系统不会自动补采或修改原始证据。"
+				/>
+			)}
+			{Boolean(queue?.failed) && (
+				<p className="muted">{queue?.failed} 条任务未产生新采集证据，计入失败覆盖，不作为零分或成功样本。</p>
+			)}
 			<RunCaptureLog captures={recentCaptures} active={active} />
 		</section>
 	);

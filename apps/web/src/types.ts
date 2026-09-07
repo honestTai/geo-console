@@ -61,11 +61,12 @@ export type NavigationItem = {
 export type ProjectSummary = {
 	id: string;
 	name: string;
-	website_url: string;
-	domain: string;
+	website_url: string | null;
+	domain: string | null;
 	region: string;
 	language: string;
 	industry: string | null;
+	business_focus?: string | null;
 	status: string;
 	batch_count: number;
 	last_batch_at: string | null;
@@ -185,12 +186,31 @@ export type AuditCheck = {
 	status: "pass" | "warning" | "fail" | "skip";
 	detail: string;
 	weight: number;
+	selector?: string;
+	recommendation?: string;
+	verification?: string;
+	evidenceIds?: string[];
 };
 export type WebsiteAuditResult = {
+	schemaVersion?: "geo.website-audit.v2";
+	customer?: { name: string; websiteUrl: string | null; region: string; language: string; industry: string | null };
+	evidence?: Array<{
+		id: string;
+		kind: "homepage" | "robots" | "sitemap" | "llms" | "screenshot" | "report";
+		url: string | null;
+		objectKey: string | null;
+		contentType: string;
+		contentHash: string | null;
+		status: number | null;
+		error: string | null;
+		excerpt?: string;
+	}>;
+	screenshotMode?: "static_html_scripts_disabled" | "restricted_browser_render";
+	limitations?: string[];
 	requestedUrl: string;
 	checkedAt: string;
 	verdict: "ready" | "ready_with_warnings" | "blocked";
-	score: number;
+	score: number | null;
 	transport: {
 		https: { ok: boolean; status: number | null; error: string | null };
 		httpFallback: { checked: boolean; ok: boolean; status: number | null; error: string | null };
@@ -212,7 +232,17 @@ export type WebsiteAuditResult = {
 	};
 	discovery: {
 		robots: { ok: boolean; status: number | null; blockedBots: string[]; error: string | null };
-		sitemap: { ok: boolean; status: number | null; urlCount: number; error: string | null };
+		sitemap: {
+			ok: boolean;
+			status: number | null;
+			urlCount: number;
+			error: string | null;
+			urls?: string[];
+			documents?: Array<{ url: string; kind: string; status: number | null; error: string | null; urlCount: number }>;
+			limited?: boolean;
+			htmlSitemapUrls?: string[];
+			navigationLinkCount?: number;
+		};
 		llmsTxt: { ok: boolean; status: number | null; error: string | null };
 	};
 	checks: AuditCheck[];
@@ -264,6 +294,14 @@ export type PlatformMetrics = {
 	competitorMentionRates: Record<string, number | null>;
 };
 export type Batch = BatchSummary & {
+	captureProgress?: {
+		pending: number;
+		active: number;
+		completed: number;
+		failed: number;
+		next_at: string | null;
+		blockedProviders: ProviderId[];
+	};
 	pairedComparison?: Array<{
 		provider_id: string;
 		metric: string;

@@ -188,11 +188,11 @@ function promptMetrics(input: VisibilityMetricInput, promptId: string): PromptMe
 			input.contract.sampling.mode === "quick" ? null : pairwiseAgreement(target.map((s) => Boolean(s?.mention)));
 	}
 	const observable = successful.filter((c) => c.sourceVisibility !== "unavailable");
-	const domains = new Set(input.targetDomains.map(normalizeDomain));
+	const domains = new Set(input.targetDomains.filter((domain) => domain.trim()).map(normalizeDomain));
 	const present = observable.filter((c) => c.sources.some((s) => domains.has(normalizeDomain(s.domain))));
 	const cited = observable.filter((c) => c.sources.some((s) => s.isCitation && domains.has(normalizeDomain(s.domain))));
-	rates.sourcePresenceRate = ratio(present.length, observable.length);
-	rates.citationRate = ratio(cited.length, observable.length);
+	rates.sourcePresenceRate = domains.size ? ratio(present.length, observable.length) : null;
+	rates.citationRate = domains.size ? ratio(cited.length, observable.length) : null;
 	rates.sourceToCitationRate = ratio(cited.length, present.length);
 	return {
 		...rates,

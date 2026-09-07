@@ -127,7 +127,7 @@ export function ProjectHome({
 							<Typography.Title level={5} className="project-home-card-name" ellipsis={{ tooltip: project.name }}>
 								{project.name}
 							</Typography.Title>
-							<Typography.Text type="secondary">{project.domain}</Typography.Text>
+							<Typography.Text type="secondary">{project.domain || "暂未填写官网"}</Typography.Text>
 							<div className="project-home-card-stats">
 								<div>
 									<span>地区</span>
@@ -261,15 +261,8 @@ export function CreateProject({
 				<Form.Item name="name" label="客户名称" rules={[{ required: true, message: "请输入客户名称" }]}>
 					<Input placeholder="企业或品牌全称" />
 				</Form.Item>
-				<Form.Item
-					name="websiteUrl"
-					label="官网"
-					rules={[
-						{ required: true, message: "请输入官网地址" },
-						{ type: "url", message: "请输入有效网址" },
-					]}
-				>
-					<Input placeholder="https://example.com" />
+				<Form.Item name="websiteUrl" label="官网" rules={[{ type: "url", message: "请输入有效网址" }]}>
+					<Input placeholder="选填；暂时没有官网可留空，后续支持补充" />
 				</Form.Item>
 				<Form.Item name="region" label="目标地区" rules={[{ required: true, message: "请输入目标地区" }]}>
 					<Input placeholder="例如：中国 / 上海" />

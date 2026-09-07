@@ -27,12 +27,13 @@ import { AgentDraftCard } from "./AgentDraft";
 import { type EditableField, EditableList } from "./EditableList";
 import "./Onboarding.css";
 import { Page } from "./Page";
+import { ProjectProfileEditor } from "./ProjectProfileEditor";
 
 /** 与工作台“帮我出监测问题”快捷指令一致：把出题交给会联网研究的 Agent。 */
 const QUESTION_RESEARCH_MESSAGE =
 	"我不确定该监测哪些问题。请联网研究这个行业的买家会怎样向 AI 搜索提问，给我出一批监测问题候选并和我确认。";
 
-const STEPS = [{ title: "抓取官网" }, { title: "人工确认" }, { title: "建立基线" }];
+const STEPS = [{ title: "客户分析" }, { title: "人工确认" }, { title: "建立基线" }];
 
 const COMPETITOR_FIELDS: EditableField<Competitor>[] = [
 	{ key: "name", label: "竞品名称", width: 150 },
@@ -83,6 +84,7 @@ export function Onboarding({ project, refresh }: { project: Project; refresh(): 
 	const [busy, setBusy] = useState<"analyze" | "confirm" | "research" | string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [manualReview, setManualReview] = useState(false);
+	const [editingProfile, setEditingProfile] = useState(false);
 	const [syncLibrary, setSyncLibrary] = useState(false);
 	const [aliases, setAliases] = useState(project.aliases ?? [project.name]);
 	const [competitors, setCompetitors] = useState<Competitor[]>(project.competitors ?? []);
@@ -145,11 +147,15 @@ export function Onboarding({ project, refresh }: { project: Project; refresh(): 
 			}>(`/api/projects/${project.id}/analyze`);
 			await refresh();
 			const verification = result.competitorVerification;
-			const source = result.reusedSnapshots ? "（复用了 24 小时内的官网快照）" : "";
+			const source = result.reusedSnapshots
+				? "（复用了 24 小时内的官网快照）"
+				: project.website_url
+					? ""
+					: "（无官网：仅依据已填写的客户信息，需人工确认）";
 			message.success(
 				verification?.status === "pending"
-					? `官网分析完成${source}：${verification.candidates} 个竞品候选正在后台联网核实，结果会自动更新`
-					: `官网分析完成${source}`,
+					? `客户分析完成${source}：${verification.candidates} 个竞品候选正在后台联网核实，结果会自动更新`
+					: `客户分析完成${source}`,
 			);
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : "分析失败");
@@ -260,15 +266,17 @@ export function Onboarding({ project, refresh }: { project: Project; refresh(): 
 				className="onboarding"
 				breadcrumb={project.name}
 				eyebrow="客户建档"
-				title="读取客户官网"
-				description="建档分三步：抓取官网 → 人工确认监测范围 → 建立基线。"
+				title="整理客户资料"
+				description="建档分三步：客户分析（官网选填） → 人工确认监测范围 → 建立基线。"
 			>
 				<Steps size="small" current={0} items={STEPS} className="onboarding-steps" />
 				<div className="action-panel">
 					<IconWorldSearch size={34} />
-					<h2>读取客户的真实官网</h2>
+					<h2>{project.website_url ? "读取客户的真实官网" : "依据已填写的客户资料建档"}</h2>
 					<p>
-						抓取官网页面，由 HRouter Agent
+						{project.website_url
+							? "抓取官网页面，由 HRouter Agent"
+							: "没有官网不妨碍建档，由 HRouter Agent 依据用户填写的信息"}
 						生成客户画像、竞品候选与购买问题，并联网核实竞品、合并同行业知识库。需先在平台设置配好 HRouter Agent。
 					</p>
 					{error && <Alert type="error" showIcon title={error} />}
@@ -279,10 +287,13 @@ export function Onboarding({ project, refresh }: { project: Project; refresh(): 
 							icon={<IconSearch size={17} />}
 							onClick={analyze}
 						>
-							{busy === "analyze" ? "正在抓取和分析" : "开始官网分析"}
+							{busy === "analyze" ? "正在分析客户资料" : "开始客户分析"}
 						</Button>
 						{researchButton}
 						{workbenchButton}
+						<Button permission="project.onboard" variant="secondary" onClick={() => setEditingProfile(true)}>
+							编辑客户信息 / 官网
+						</Button>
 						<Button
 							permission="project.onboard"
 							variant="secondary"
@@ -294,6 +305,9 @@ export function Onboarding({ project, refresh }: { project: Project; refresh(): 
 					</div>
 				</div>
 				{researchDrafts}
+				{editingProfile && (
+					<ProjectProfileEditor project={project} refresh={refresh} onClose={() => setEditingProfile(false)} />
+				)}
 			</Page>
 		);
 	const librarySwitch = canWriteKnowledge && (

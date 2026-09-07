@@ -36,6 +36,8 @@ export async function resolveArtifact(database: Database, key: string): Promise<
 			`SELECT * FROM (
 	 SELECT p.organization_id,p.id AS project_id,'capture' AS kind FROM query_captures c JOIN projects p ON p.id=c.project_id WHERE c.raw_artifact_key=$1 OR c.screenshot_key=$1 OR c.trace_key=$1
 	 UNION ALL SELECT p.organization_id,p.id,'website' FROM website_snapshots w JOIN projects p ON p.id=w.project_id WHERE w.artifact_key=$1
+	 UNION ALL SELECT p.organization_id,p.id,'website' FROM website_audits a JOIN projects p ON p.id=a.project_id
+	 WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(a.result->'evidence','[]'::jsonb)) evidence WHERE evidence->>'objectKey'=$1)
 	 UNION ALL SELECT r.organization_id,r.project_id,'report' FROM report_snapshots r WHERE r.pdf_artifact_key=$1 OR r.word_artifact_key=$1
 	 UNION ALL SELECT r.organization_id,r.project_id,'semantic' FROM semantic_observations o JOIN semantic_parse_runs r ON r.id=o.run_id WHERE o.raw_artifact_key=$1
 	 ) owned LIMIT 1`,

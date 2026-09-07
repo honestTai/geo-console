@@ -1,5 +1,7 @@
 # 架构与数据边界
 
+官网选填与可追溯审计：`project-profile` 仅更新客户现值；migration 0024 允许空官网/域名，批次与报告继续冻结身份。`capture-progress` 对明确额度错误做批次/平台内任务收尾，不改 Capture；API 返回下个采样窗口和任务进度，语义队列不再影响采集状态。`crawler` → `website-discovery` / `public-http` → `website-screenshot` / `website-report` 保存追加型源文件、截图和报告；人工与 Agent 共用此管线，证据 API 与 artifacts 均校验项目归属。详细安全、恢复和发布边界见 `docs/website-audit-and-capture-recovery.md`。
+
 完整回答辅助解读：证据中心按需 POST → `answer_analysis` job → Semantic Worker 独立 1 槽 → 只追加分析尝试 → GET/原文高亮。正式测量仍保留 2 槽和唯一指标算法；辅助解读不改 Capture、冻结 config 或 MetricSnapshot。Python 仅用于离线标注评测，无新增生产服务。完整契约、0023 migration 和授权见 `docs/answer-analysis.md`。
 
 ## 运行组件

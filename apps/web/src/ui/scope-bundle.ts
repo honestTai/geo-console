@@ -57,7 +57,7 @@ export function buildScopeBundle(
 		kind: SCOPE_BUNDLE_KIND,
 		version: 1,
 		exportedAt,
-		project: { name: project.name, domain: project.domain },
+		project: { name: project.name, domain: project.domain ?? "" },
 		aliases: scope.aliases,
 		competitors: scope.competitors.map(({ name, domain, aliases }) => ({ name, domain, aliases })),
 		prompts: scope.prompts.map(({ question, intent, topic, persona, tags, library_question_id }) => ({

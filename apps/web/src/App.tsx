@@ -26,6 +26,7 @@ import { ProjectHome } from "./components/ProjectHome";
 import { AppShell, type ShellNavigationItem } from "./components/Shell";
 import { ViewBoundary } from "./components/ViewBoundary";
 import { WebsiteAudit } from "./components/WebsiteAudit";
+import { WebsiteEvidenceViewer } from "./components/WebsiteEvidenceViewer";
 import {
 	Articles,
 	Attribution,
@@ -128,6 +129,7 @@ export function App() {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [evidenceFocus, setEvidenceFocus] = useState<EvidenceFocus>(null);
+	const [websiteEvidenceId, setWebsiteEvidenceId] = useState<string | null>(null);
 	const [batchFocus, setBatchFocus] = useState<string | null>(null);
 	const [workbenchDraft, setWorkbenchDraft] = useState<string | null>(null);
 	const availableViews = useMemo(
@@ -159,6 +161,10 @@ export function App() {
 				.filter((item) => !managementViews.includes(item.id))
 				.map((item) => ({ id: item.id, label: item.label })),
 			openEvidence: (evidenceId, batchId = null, kind = "capture") => {
+				if (kind === "audit" || kind === "snapshot") {
+					setWebsiteEvidenceId(evidenceId);
+					return;
+				}
 				setEvidenceFocus({ evidenceId, batchId, kind });
 				setView("evidence");
 			},
@@ -445,6 +451,14 @@ export function App() {
 									<Evidence project={project} focus={evidenceFocus} onConsumeFocus={() => setEvidenceFocus(null)} />
 								)}
 								{view === "audit" && <WebsiteAudit project={project} refresh={loadProject} />}
+								{websiteEvidenceId && (
+									<WebsiteEvidenceViewer
+										key={`${project.id}:${websiteEvidenceId}`}
+										projectId={project.id}
+										evidenceId={websiteEvidenceId}
+										onClose={() => setWebsiteEvidenceId(null)}
+									/>
+								)}
 								{view === "diagnosis" && <Diagnosis project={project} refresh={loadProject} />}
 								{view === "remediation" && <Remediation project={project} refresh={loadProject} />}
 								{view === "attribution" && <Attribution project={project} />}

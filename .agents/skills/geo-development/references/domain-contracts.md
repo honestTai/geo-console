@@ -1,5 +1,12 @@
 # GEO Console Domain Contracts
 
+## 可选官网与额度收尾
+
+- migration 0024 使 projects.website_url/domain 可空；PUT 客户资料严格白名单、project.onboard 权限/项目范围，不改别名、正式范围、历史 config/审计/报告。新基线 domain 用空字符串表示未提供，websiteUrl 可空；后补官网需新基线，同条件复测仍复制旧配置。
+- HTTP 402/明确额度型 429 为失败 quota_exceeded，不当作临时限速重试。只停止同批次/平台的 pending 和过期 leased capture jobs；保留活跃租约、其他平台、Capture 原文和历史配置。兼容只读旧 HTTP 402 失败。采集聚合只看 capture jobs，语义解析独立。
+- 官网原始证据保持追加：`geo.website-audit.v2` 的 customer、check evidenceIds/selector/recommendation/verification、原文摘要/哈希/对象键和截图模式被冻结；失败响应与空成功文件也有源证据，网络失败不推断内容缺失。GET 官网证据必须按项目限定；artifact 通过 website_audits 的引用归属授权。
+- 截图只用新无凭据上下文，从保存 HTML 受控渲染；仅 GET 展示资源经 DNS-pinned public-http，禁止 API、表单、frame、worker、WebSocket/WebRTC。PDF 脚本关闭、所有外网关闭。有限 Sitemap 扫描与截图限制、无官网指标 null、报告品牌冻结规则见 `docs/website-audit-and-capture-recovery.md`。
+
 ## 完整回答辅助解读
 
 事实源 `packages/evidence/src/answer-analysis.ts` 和 worker 同名 service；`geo.answer-analysis.v1` 独立于正式 measurement。冻结原文输入哈希、批次问题/品牌、模型/提示/分段/校验版本；每次手动重生成追加 run/attempt，不修改 Capture/config/MetricSnapshot。全文按序覆盖片段，引文逐字唯一定位为 UTF-16；无效引文/品牌归属不展示正文，缺段/条件/歧义为 needs_review，覆盖不是准确率。POST 与执行均走 `answer.analysis.execute`、明确 actor 和当前权限；模型无工具/代码/联网能力。单次 60,000 UTF-16 输入、16,000 output tokens、120 秒；独立 1 槽、两次技术尝试、5 分钟租约、30 秒续租/重试。未知费用 null。详见 `docs/answer-analysis.md`。

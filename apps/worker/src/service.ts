@@ -15,6 +15,7 @@ import { StructuredLogger, safeErrorMessage } from "@geo/logging";
 import { ADAPTER_VERSION } from "@geo/search-providers";
 import { z } from "zod";
 import { captureContractCurrent } from "./capture-contract";
+import { captureProgress } from "./capture-progress";
 import { auditWebsite, crawlPublishedUrl, crawlWebsite } from "./crawler";
 import { analyzeCustomer } from "./hrouter";
 import {
@@ -25,6 +26,7 @@ import {
 	readPairedComparisons,
 } from "./measurement";
 import { type Paginated, type PaginationInput, paginated } from "./pagination";
+import { optionalWebsiteSchema } from "./project-profile";
 import { providerDefinitions } from "./providers";
 import { buildDeterministicFindings, buildReportAnalysis, type DiagnosisWebEvidence } from "./report";
 import { HttpInputError, normalizeDomain, parseJsonColumn, sha256, stableJson, tryNormalizeDomain } from "./utils";
@@ -40,7 +42,7 @@ const ANALYSIS_SNAPSHOT_REUSE_HOURS = 24;
 
 const projectInputSchema = z.object({
 	name: z.string().trim().min(1),
-	websiteUrl: z.url(),
+	websiteUrl: optionalWebsiteSchema,
 	region: z.string().trim().min(1),
 	language: z.string().trim().min(1),
 	businessFocus: z.string().trim().optional().nullable(),
@@ -100,7 +102,7 @@ async function createProjectInTransaction(
 ): Promise<{ id: string }> {
 	const data = projectInputSchema.parse(input);
 	const id = randomUUID();
-	const url = new URL(data.websiteUrl);
+	const url = data.websiteUrl ? new URL(data.websiteUrl) : null;
 	await database.query(
 		`INSERT INTO projects (id,organization_id,name,website_url,domain,region,language,business_focus,industry,aliases,status)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,'draft')`,
@@ -108,8 +110,8 @@ async function createProjectInTransaction(
 			id,
 			organizationId,
 			data.name,
-			url.href,
-			normalizeDomain(url.href),
+			url?.href ?? null,
+			url ? normalizeDomain(url.href) : null,
 			data.region,
 			data.language,
 			data.businessFocus || null,
@@ -175,6 +177,11 @@ export async function auditProject(
 		])
 	).rows[0];
 	if (!project) throw new HttpInputError("客户项目不存在", 404);
+	if (!project.website_url)
+		throw new HttpInputError(
+			"该客户暂未填写官网，官网审计不适用。可继续 AI 监测；建站后在客户信息中补充官网再审计。",
+			409,
+		);
 	const aliases = parseJsonColumn<string[]>(project.aliases as string[] | string);
 	return auditWebsite(database, projectId, String(project.website_url), [
 		...new Set([String(project.name), ...aliases]),
@@ -251,15 +258,17 @@ export async function analyzeProject(database: Database, id: string): Promise<Re
 			`project:${id}:known_competitors`,
 		])
 	).rows[0];
-	const customerDomain = normalizeDomain(String(project.domain));
-	const reusedPages = await recentProjectPages(database, id, customerDomain);
+	const customerDomain = project.domain ? normalizeDomain(String(project.domain)) : "";
+	const reusedPages = customerDomain ? await recentProjectPages(database, id, customerDomain) : [];
 	const pages = reusedPages.length
 		? reusedPages
-		: await crawlWebsite(database, id, String(project.website_url), ANALYSIS_CRAWL_LIMIT);
+		: project.website_url
+			? await crawlWebsite(database, id, String(project.website_url), ANALYSIS_CRAWL_LIMIT)
+			: [];
 	const analysis = await analyzeCustomer(database, {
 		organizationId: String(project.organization_id),
 		name: String(project.name),
-		websiteUrl: String(project.website_url),
+		websiteUrl: project.website_url ? String(project.website_url) : null,
 		region: String(project.region),
 		language: String(project.language),
 		businessFocus: project.business_focus ? String(project.business_focus) : null,
@@ -384,6 +393,7 @@ export async function ensureProjectSnapshots(database: Database, projectId: stri
 		await database.query<{ website_url: string }>("SELECT website_url FROM projects WHERE id=$1", [projectId])
 	).rows[0];
 	if (!project) throw new HttpInputError("客户项目不存在", 404);
+	if (!project.website_url) return 0;
 	const pages = await crawlWebsite(database, projectId, project.website_url, limit);
 	return pages.length;
 }
@@ -533,7 +543,7 @@ export async function confirmProject(
 		)
 	).rows[0];
 	if (!project) throw new HttpInputError("客户项目不存在", 404);
-	const competitors = normalizeCompetitorScope(data.competitors, project.domain);
+	const competitors = normalizeCompetitorScope(data.competitors, project.domain ?? "");
 	assertUniqueQuestions(data.prompts);
 	const referencedLibraryIds = [
 		...new Set(
@@ -756,7 +766,8 @@ async function buildBaselineConfig(
 	const config: FrozenBatchConfig = {
 		project: {
 			name: String(project.name),
-			domain: String(project.domain),
+			websiteUrl: project.website_url ? String(project.website_url) : null,
+			domain: project.domain ? String(project.domain) : "",
 			region: String(project.region),
 			language: String(project.language),
 			industry: project.industry ? String(project.industry) : null,
@@ -1140,6 +1151,7 @@ export async function getBatch(database: Database, batchId: string): Promise<Rec
 			status: compatible ? measurement.status : "capture_contract_changed",
 			captureContractCurrent: compatible,
 		},
+		captureProgress: await captureProgress(database, batchId),
 		pairedComparison: compatible
 			? await readPairedComparisons(
 					database,
@@ -1160,13 +1172,17 @@ export async function getBatch(database: Database, batchId: string): Promise<Rec
 async function latestWebsiteAudit(
 	database: Database,
 	projectId: string,
+	domain?: string,
 ): Promise<{ id: string; result: WebsiteAuditResult } | null> {
+	if (domain === "") return null;
 	const row = (
 		await database.query<Record<string, unknown>>(
-			"SELECT id,result FROM website_audits WHERE project_id=$1 ORDER BY checked_at DESC LIMIT 1",
+			"SELECT id,result,requested_url FROM website_audits WHERE project_id=$1 ORDER BY checked_at DESC LIMIT 100",
 			[projectId],
 		)
-	).rows[0];
+	).rows.find(
+		(row) => domain === undefined || tryNormalizeDomain(String(row.requested_url)) === normalizeDomain(domain),
+	);
 	return row
 		? { id: String(row.id), result: parseJsonColumn<WebsiteAuditResult>(row.result as WebsiteAuditResult | string) }
 		: null;
@@ -1182,7 +1198,7 @@ export async function getBatchReport(database: Database, batchId: string): Promi
 	const captures = batch.captures as QueryCapture[];
 	const metricId = (batch.measurement as { snapshotId: string | null }).snapshotId;
 	const [websiteAudit, findings, tasks, attributionSummary, webEvidence] = await Promise.all([
-		latestWebsiteAudit(database, projectId),
+		latestWebsiteAudit(database, projectId, config.project.domain),
 		database.query(
 			"SELECT * FROM diagnosis_findings WHERE batch_id=$1 AND metric_snapshot_id=$2 ORDER BY confidence DESC,created_at",
 			[batchId, metricId],
@@ -1356,7 +1372,7 @@ export async function refreshBatchStatus(database: Database, batchId: string): P
 			`SELECT count(*) FILTER (WHERE status IN ('pending','leased'))::int AS remaining,
 			 (count(*) FILTER (WHERE status = 'failed') +
 			  (SELECT count(*) FROM query_captures WHERE batch_id=$1 AND status <> 'complete'))::int AS failed
-			 FROM jobs WHERE payload->>'batchId' = $1`,
+			 FROM jobs WHERE type='capture' AND payload->>'batchId' = $1`,
 			[batchId],
 		)
 	).rows[0];
@@ -1507,7 +1523,7 @@ async function collectDiagnosisWebEvidence(
 		const project = (
 			await database.query<{ website_url: string }>("SELECT website_url FROM projects WHERE id=$1", [projectId])
 		).rows[0];
-		if (project)
+		if (project?.website_url)
 			try {
 				await crawlWebsite(database, projectId, project.website_url, 30);
 			} catch {
@@ -1558,8 +1574,11 @@ export async function diagnoseBatch(
 	const valid = captures.filter((capture) => capture.status === "complete");
 	if (valid.length === 0) throw new HttpInputError("证据不足：当前批次没有成功采集的真实回答", 409);
 	const config = batch.config as FrozenBatchConfig;
-	let websiteAudit = await latestWebsiteAudit(database, String(batch.project_id));
-	if (!websiteAudit) {
+	let websiteAudit = await latestWebsiteAudit(database, String(batch.project_id), config.project.domain);
+	const currentSite = (
+		await database.query<{ domain: string | null }>("SELECT domain FROM projects WHERE id=$1", [batch.project_id])
+	).rows[0];
+	if (!websiteAudit && config.project.domain && currentSite?.domain === config.project.domain) {
 		try {
 			websiteAudit = await auditProject(database, String(batch.project_id));
 		} catch {

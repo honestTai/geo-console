@@ -166,10 +166,17 @@ describe("不可变报告快照", () => {
 				expect(renderReportHtml(snapshot ?? {})).toContain("API 回答不等同于对应消费端 App");
 				expect(renderReportHtml(snapshot ?? {})).toContain("服务响应需要改善");
 				expect(renderReportHtml(snapshot ?? {})).toContain("https://brand.example/case");
+				expect(renderReportHtml(snapshot ?? {})).toContain("zz-watermark");
+				expect(renderReportHtml(snapshot ?? {})).toContain("ZZGEO");
+				expect(renderReportHtml(snapshot ?? {})).toContain("客户：真实客户");
+				await database.query("UPDATE projects SET name='修改后的客户' WHERE id='project'");
+				expect(renderReportHtml((await getReportSnapshot(database, created.id)) ?? {})).not.toContain("修改后的客户");
 				const word = await generateReportWord(database, created.id);
 				const wordArtifact = await readArtifact(word.artifactKey);
 				expect(wordArtifact.contentType).toContain("wordprocessingml");
 				expect(Buffer.from(wordArtifact.body.subarray(0, 2)).toString("ascii")).toBe("PK");
+				expect(Buffer.from(wordArtifact.body).toString("utf8")).toContain("ZZGEO-Watermark");
+				expect(Buffer.from(wordArtifact.body).toString("utf8")).toContain("客户：真实客户");
 				expect(await requestReportPdf(database, created.id)).toEqual({ status: "queued", artifactKey: null });
 				expect((await getReportPdfStatus(database, created.id)).status).toBe("queued");
 				if (process.env.GEO_PDF_E2E === "true") {

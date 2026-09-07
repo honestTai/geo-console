@@ -1,5 +1,11 @@
 # 运行与故障处理
 
+## 额度耗尽与官网证据
+
+不要把跨采样窗口等待判断成死 Worker：看 `captureProgress.next_at/pending/active` 与真实 HTTP 状态。明确额度不足后，Capture Runner 即时或启动/每分钟清扫会将同批次同平台 pending/过期 leased 任务收尾为 failed；活跃租约不抢占。日志 `capture.quota_jobs_stopped` 与普通 `capture.stale_jobs_failed` 分开；不用 SQL 修改 Capture 或 config。余额补足不自动产生付费重跑，用户手动创建严格同条件复测，其他平台继续。
+
+官网为空显示不适用；截图/PDF 失败看 `audit.screenshot_failed` / `audit.pdf_failed`，源证据保留，恢复浏览器依赖后新建审计，不回填旧记录。备份需同时包含 website_audits 的 JSON/哈希、对象文件及报告快照。详细症状、限制和发布检查见 `docs/website-audit-and-capture-recovery.md`。
+
 ## 完整回答语义分析队列
 
 `answer_analysis` 是按需辅助解读，复用 Semantic Worker 独立 1 槽（正式测量另外 2 槽），无需新进程。最多 2 次技术尝试、5 分钟租约、30 秒续租/重试；`sweepTerminalLeases` 同步收敛耗尽的 job/run。看 `answer_analysis_runs.status/error_message`、执行策略和 jobs；failed/needs_review 由用户核对原文/模型后重生成，保留旧尝试，不改 Capture 或正式指标。备份包含新增两表的原始模型响应，视为敏感证据；没有自动付费历史回填。见 `docs/answer-analysis.md`。

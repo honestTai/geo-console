@@ -29,7 +29,7 @@
 - API 输入继续用 Zod 校验；写请求进入审计日志；运行时授权使用动态权限/策略；admin/analyst/viewer 仅为可扩展默认模板，不能夹带 system_only 权限。
 - 认证变更覆盖生产环境 bootstrap、12 位密码下限、HttpOnly/Strict/Secure Cookie 和停用用户会话撤销。
 - UI 覆盖真实 API 的 loading、empty、partial、queued、failed、permission 和 read-only 状态，不加入演示数据兜底。
-- 手工检查工作台主流程、长中文/英文内容、桌面和 390px 移动宽度；确认工具栏、表格、弹窗和底部导航不重叠。
+- 手工检查桌面端工作台主流程、长中文/英文内容；确认工具栏、表格和弹窗不重叠。手机端检查仅在用户明确要求时进行。
 
 ## 最终检查
 

@@ -9,6 +9,7 @@ import { Empty, percentage, SectionTitle } from "../ui/primitives";
 import { LineTrendChart, MentionBarChart, overallMetric, overallPercent, perPlatformMention } from "./charts";
 import { Measurement } from "./Measurement";
 import { Page } from "./Page";
+import { ProjectProfileEditor } from "./ProjectProfileEditor";
 import { ScopeEditor } from "./ScopeEditor";
 
 export function OverviewKpis({ trends, tasks }: { trends: TrendResponse; tasks: Task[] }) {
@@ -159,6 +160,7 @@ export function Overview({ project, refresh }: { project: Project; refresh(): Pr
 		setSelected(latestId ?? null);
 	}, [latestId, setSelected]);
 	const [editingScope, setEditingScope] = useState(false);
+	const [editingProfile, setEditingProfile] = useState(false);
 	const [trends, setTrends] = useState<TrendResponse | null>(null);
 	const [trendsLoading, setTrendsLoading] = useState(false);
 	// 切换批次时先保留旧数据，超过延迟阈值才换成骨架屏；首次加载没有旧数据可留，立即显示加载态
@@ -202,6 +204,14 @@ export function Overview({ project, refresh }: { project: Project; refresh(): Pr
 				</Button>
 			}
 		>
+			<div className="actions">
+				<Button permission="project.onboard" variant="secondary" onClick={() => setEditingProfile(true)}>
+					编辑客户信息{!project.website_url ? " / 补充官网" : ""}
+				</Button>
+			</div>
+			{editingProfile && (
+				<ProjectProfileEditor project={project} onClose={() => setEditingProfile(false)} refresh={refresh} />
+			)}
 			{showTrendsLoading ? (
 				<div className="kpi-grid" aria-hidden="true">
 					{["skeleton-a", "skeleton-b", "skeleton-c", "skeleton-d", "skeleton-e"].map((key) => (

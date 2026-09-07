@@ -1,5 +1,7 @@
 # GEO Console Runtime Runbook
 
+额度耗尽排查：区分未来采样窗口和 leased 活跃请求；查看 captureProgress 的 pending/active/next_at 与 blockedProviders。HTTP 402 / 明确额度型 429 后，只收尾同批次该平台 pending/过期 leased capture jobs；即时与每分钟清扫兼容旧 provider_error HTTP 402，日志 capture.quota_jobs_stopped，不改 Capture/config、不换平台、不自动充值后重跑。截图/PDF 失败检查 audit.screenshot_failed/audit.pdf_failed、API/Agent 的 Chromium/字体/资源；源文件与旧截图不可补写覆盖，修复后新建审计。备份包含审计 JSON 与对象证据。详见 `docs/website-audit-and-capture-recovery.md`。
+
 完整回答辅助解读复用 Semantic Worker 的独立 1 槽，正式测量保留 2 槽。`answer_analysis` job 最多 2 次技术尝试、5 分钟租约、30 秒续租/重试；通用清扫同步终结耗尽的 run。排查 `answer_analysis_runs.error_message`、jobs、`answer.analysis.execute` 与当前 actor 权限；保留原始 Capture/旧分析，失败在 UI 重新生成而非改证据。备份两张新增分析表，包含敏感原始模型响应。详见 `docs/answer-analysis.md`。
 
 ## 服务与定时行为

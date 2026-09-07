@@ -165,7 +165,7 @@ export function AppShell({
 							<strong>{title ?? project?.name ?? "加载项目"}</strong>
 							{project?.domain && (
 								<Tag className="topbar-domain" icon={<IconGlobe size={13} />}>
-									{project.domain}
+									{project.domain || "暂未填写官网"}
 								</Tag>
 							)}
 							{!project && subtitle && <span className="topbar-subtitle">{subtitle}</span>}

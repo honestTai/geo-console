@@ -47,6 +47,10 @@ export function artifactContentType(key: string): string {
 			return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 		case ".png":
 			return "image/png";
+		case ".xml":
+			return "application/xml; charset=utf-8";
+		case ".txt":
+			return "text/plain; charset=utf-8";
 		default:
 			return "application/octet-stream";
 	}

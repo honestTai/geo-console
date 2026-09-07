@@ -1,5 +1,7 @@
 # 可见度 V2：实现与运行契约
 
+无官网客户：新的基线冻结 `project.domain=""`（保留既有字符串契约）和可空 `websiteUrl`；Metric 输入的 owned domains 为空。品牌提及/推荐照常基于真实回答和门槛测量，官网 citationRate/sourcePresenceRate 保持 null（不适用），不是零引用；不能生成“官网零引用”发现。后补官网只影响新基线，旧基线同条件复测仍完整复制原配置。额度不足收尾的未执行任务没有伪造 Capture，正式采样/解析/问题覆盖门槛不降低。见 `docs/website-audit-and-capture-recovery.md`。
+
 证据中心另有 `geo.answer-analysis.v1` 完整回答辅助解读（`docs/answer-analysis.md`）。其 job/运行/尝试与本文件的原子语义观察独立，不改公式、分母、快照或可比性；重生成辅助解读不会触发 V2 重解析。
 
 实施日期：2026-09-05；任务基准：`a8e8cd284ee016aaa280f58ad36eb4b6709e3abc`。

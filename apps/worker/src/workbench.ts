@@ -1210,10 +1210,21 @@ export async function createWorkbenchTools(
 		{
 			name: "run_site_audit",
 			label: "运行官网审计",
-			description: "重新抓取并审计客户官网的 AI 可读性（robots、sitemap、结构化数据、HTTPS 等），返回得分与检查项。",
+			description:
+				"与人工按钮使用同一受控真实审计：robots 声明与嵌套 XML Sitemap、页面结构、HTTPS、源文件、受控浏览器截图和带客户信息的 ZZGEO 报告。无官网时明确不适用，不阻塞 AI 监测；不得把菜单当 Sitemap 或用推测改写证据。",
 			parameters: Type.Object({}),
 			executionMode: "sequential",
 			execute: async () => {
+				const website = (
+					await database.query<{ website_url: string | null }>("SELECT website_url FROM projects WHERE id=$1", [
+						projectId,
+					])
+				).rows[0];
+				if (!website?.website_url)
+					return toolResult({
+						status: "not_applicable",
+						reason: "客户暂未填写官网，官网审计不适用。可继续 AI 监测；建站后在客户信息中补充官网再审计。",
+					});
 				const audit = await auditProject(database, projectId);
 				control.plan = planUpsert(control.plan, {
 					key: "audit",

@@ -65,8 +65,8 @@ export const projects = pgTable("projects", {
 		.default("default")
 		.references(() => organizations.id),
 	name: text("name").notNull(),
-	websiteUrl: text("website_url").notNull(),
-	domain: text("domain").notNull(),
+	websiteUrl: text("website_url"),
+	domain: text("domain"),
 	region: text("region").notNull(),
 	language: text("language").notNull(),
 	businessFocus: text("business_focus"),
@@ -180,10 +180,25 @@ export const websiteSnapshots = pgTable(
 );
 
 export type WebsiteAuditResult = {
+	schemaVersion?: "geo.website-audit.v2";
+	customer?: { name: string; websiteUrl: string | null; region: string; language: string; industry: string | null };
+	evidence?: Array<{
+		id: string;
+		kind: "homepage" | "robots" | "sitemap" | "llms" | "screenshot" | "report";
+		url: string | null;
+		objectKey: string | null;
+		contentType: string;
+		contentHash: string | null;
+		status: number | null;
+		error: string | null;
+		excerpt?: string;
+	}>;
+	screenshotMode?: "static_html_scripts_disabled" | "restricted_browser_render";
+	limitations?: string[];
 	requestedUrl: string;
 	checkedAt: string;
 	verdict: "ready" | "ready_with_warnings" | "blocked";
-	score: number;
+	score: number | null;
 	transport: {
 		https: { ok: boolean; status: number | null; error: string | null };
 		httpFallback: { checked: boolean; ok: boolean; status: number | null; error: string | null };
@@ -206,7 +221,17 @@ export type WebsiteAuditResult = {
 	};
 	discovery: {
 		robots: { ok: boolean; status: number | null; blockedBots: string[]; error: string | null };
-		sitemap: { ok: boolean; status: number | null; urlCount: number; error: string | null };
+		sitemap: {
+			ok: boolean;
+			status: number | null;
+			urlCount: number;
+			error: string | null;
+			urls?: string[];
+			documents?: Array<{ url: string; kind: string; status: number | null; error: string | null; urlCount: number }>;
+			limited?: boolean;
+			htmlSitemapUrls?: string[];
+			navigationLinkCount?: number;
+		};
 		llmsTxt: { ok: boolean; status: number | null; error: string | null };
 	};
 	checks: Array<{
@@ -215,6 +240,10 @@ export type WebsiteAuditResult = {
 		status: "pass" | "warning" | "fail" | "skip";
 		detail: string;
 		weight: number;
+		selector?: string;
+		recommendation?: string;
+		verification?: string;
+		evidenceIds?: string[];
 	}>;
 };
 
@@ -238,6 +267,7 @@ export type FrozenBatchConfig = {
 	measurement?: FrozenMeasurementContract;
 	project: {
 		name: string;
+		websiteUrl?: string | null;
 		domain: string;
 		region: string;
 		language: string;
