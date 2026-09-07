@@ -80,6 +80,14 @@ export const applicationPermissions = [
 		iconKey: "article",
 	},
 	{
+		key: "page.customers",
+		kind: "page",
+		group: "机构管理",
+		label: "客户管理",
+		navigationKey: "customers",
+		iconKey: "building",
+	},
+	{
 		key: "page.knowledge",
 		kind: "page",
 		group: "机构管理",

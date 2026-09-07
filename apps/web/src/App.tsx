@@ -1,22 +1,4 @@
-import {
-	IconActivity,
-	IconArticle,
-	IconBook2,
-	IconBuilding,
-	IconBuildingCommunity,
-	IconClipboardCheck,
-	IconDatabase,
-	IconHistory,
-	IconLoader2,
-	IconLockAccess,
-	IconReportAnalytics,
-	IconRoute,
-	IconSearch,
-	IconSettings,
-	IconShieldCheck,
-	IconSparkles,
-	IconUsers,
-} from "@tabler/icons-react";
+import { IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AccessContext, hasPermission } from "./access";
 import { ApiError, api, post } from "./api";
@@ -31,6 +13,7 @@ import {
 	Articles,
 	Attribution,
 	AuditLogs,
+	CustomerManagement,
 	Diagnosis,
 	Evidence,
 	KnowledgeBase,
@@ -58,55 +41,7 @@ import {
 } from "./types";
 import { type EvidenceFocus, NavigationContext, type WorkspaceNavigation } from "./ui/navigation";
 
-const views: Array<{ id: View; label: string; icon: typeof IconActivity }> = [
-	{ id: "workbench", label: "AI 工作台", icon: IconSparkles },
-	{ id: "overview", label: "项目总览", icon: IconBuilding },
-	{ id: "monitor", label: "AI 监测", icon: IconActivity },
-	{ id: "evidence", label: "证据中心", icon: IconDatabase },
-	{ id: "audit", label: "官网审计", icon: IconShieldCheck },
-	{ id: "diagnosis", label: "差距诊断", icon: IconSearch },
-	{ id: "remediation", label: "整改中心", icon: IconClipboardCheck },
-	{ id: "attribution", label: "业务归因", icon: IconRoute },
-	{ id: "report", label: "复测报告", icon: IconReportAnalytics },
-	{ id: "articles", label: "优化文章", icon: IconArticle },
-	{ id: "knowledge", label: "问题知识库", icon: IconBook2 },
-	{ id: "settings", label: "平台设置", icon: IconSettings },
-	{ id: "members", label: "机构成员", icon: IconUsers },
-	{ id: "auditLogs", label: "审计日志", icon: IconHistory },
-	{ id: "serviceLogs", label: "运行日志", icon: IconActivity },
-	{ id: "rbac", label: "权限配置", icon: IconLockAccess },
-	{ id: "organizations", label: "多租户管理", icon: IconBuildingCommunity },
-];
-const navigationIcons: Record<string, typeof IconActivity> = {
-	activity: IconActivity,
-	article: IconArticle,
-	sparkles: IconSparkles,
-	book: IconBook2,
-	building: IconBuilding,
-	checklist: IconClipboardCheck,
-	database: IconDatabase,
-	history: IconHistory,
-	lock: IconLockAccess,
-	organizations: IconBuildingCommunity,
-	report: IconReportAnalytics,
-	route: IconRoute,
-	search: IconSearch,
-	settings: IconSettings,
-	shield: IconShieldCheck,
-	users: IconUsers,
-};
-const projectPagePermissions = [
-	"page.workbench",
-	"page.overview",
-	"page.monitor",
-	"page.evidence",
-	"page.audit",
-	"page.diagnosis",
-	"page.remediation",
-	"page.attribution",
-	"page.report",
-	"page.articles",
-];
+import { navigationIcons, projectPagePermissions, views } from "./ui/workspace-views";
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Top-level application state keeps authentication and project navigation transitions atomic.
 export function App() {
@@ -183,7 +118,9 @@ export function App() {
 	const loadProjects = useCallback(async () => {
 		if (!user) return;
 		const canReadProjects =
-			user.isSuperAdmin || projectPagePermissions.some((permission) => user.permissions.includes(permission));
+			user.isSuperAdmin ||
+			user.permissions.includes("page.customers") ||
+			projectPagePermissions.some((permission) => user.permissions.includes(permission));
 		if (!canReadProjects) {
 			setProjects([]);
 			setLoading(false);
@@ -346,6 +283,29 @@ export function App() {
 				<AccountControl user={user} onLogout={logoutUser} />
 			</main>
 		);
+	const customerContent = (
+		<CustomerManagement
+			key={user.organizationId}
+			organizationName={user.organizationName}
+			canOpenWorkspace={availableViews.some((item) => !managementViews.includes(item.id))}
+			onOpenProject={(id) => {
+				const next = availableViews.find((item) => !managementViews.includes(item.id));
+				if (next) {
+					setView(next.id);
+					setProjectId(id);
+				}
+			}}
+			onCreated={async () => {
+				const result = await api<{ user: UserIdentity }>("/api/auth/me");
+				setUser(result.user);
+				await loadProjects();
+			}}
+			onChanged={async () => {
+				await loadProjects();
+				await loadProject();
+			}}
+		/>
+	);
 	if (!projectId && managementViews.includes(view))
 		return (
 			<AccessContext.Provider value={user}>
@@ -358,6 +318,7 @@ export function App() {
 						onSelectView={setView}
 						onLogout={logoutUser}
 						onIdentityChange={applyIdentity}
+						customerContent={customerContent}
 					/>
 				</ViewBoundary>
 			</AccessContext.Provider>
@@ -467,6 +428,7 @@ export function App() {
 								{view === "knowledge" && (
 									<KnowledgeBase project={project} canWrite={hasPermission(user, "knowledge.manage")} />
 								)}
+								{view === "customers" && customerContent}
 								{view === "settings" && <Settings />}
 								{view === "members" && <Members localBypass={user.localBypass} />}
 								{view === "auditLogs" && <AuditLogs />}

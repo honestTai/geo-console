@@ -1,5 +1,7 @@
 # GEO Console Project Map
 
+机构客户目录：`core/access.ts` + migration 0025 注册 `page.customers`；Web `ui/workspace-views.ts` 维护页面/图标/项目页权限注册，`lazy-views.tsx` 按需加载 `CustomerManagement`；App/Management 只装配，CreateProject 是客户首页与客户管理共用的建档弹窗，ProjectProfileEditor 接受列表摘要。列表/新建/编辑继续复用 service/project-profile 和原有授权边界，不增加客户删除或跨机构转移。验收与发布见 `docs/customer-management.md`。
+
 客户/官网/额度链：`project-profile.ts` + migration 0024 → `ProjectProfileEditor` / Onboarding / Overview；`capture-progress.ts` → cloud-runner/service → Monitoring；`crawler.ts` → `website-discovery.ts`（XML 类型、嵌套、限额）、`public-http.ts`（DNS 固定与压缩上限）、`website-screenshot.ts`（受控浏览器）、`website-report.ts` / `report-branding.ts`（审计与最终报告）。`website-evidence.ts` + authorization/resources → WebsiteEvidenceViewer / AuditEvidenceDrawer，让历史审计/快照引用可打开且跨项目不可读。操作与兼容说明见 `docs/website-audit-and-capture-recovery.md`。
 
 完整回答辅助解读：evidence `answer-analysis.ts` → worker `answer-analysis-model.ts` / `answer-analysis.ts` → Semantic Worker 独立槽 → Web `AnswerAnalysis` / `ui/answer-analysis` / `useAnswerAnalysis`（EvidenceDetail 装配）。Core migration 0023 保存独立运行/尝试及授权，GET 不调用模型，POST 固定异步身份。与 measurement/metrics 解耦，不改正式排名。`tools/answer-analysis-eval` 是可选 Python 离线标注评测；详情见 `docs/answer-analysis.md`。

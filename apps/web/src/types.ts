@@ -748,6 +748,7 @@ export type View =
 	| "remediation"
 	| "attribution"
 	| "report"
+	| "customers"
 	| "knowledge"
 	| "settings"
 	| "members"
@@ -756,6 +757,7 @@ export type View =
 	| "rbac"
 	| "organizations";
 export const managementViews: View[] = [
+	"customers",
 	"knowledge",
 	"settings",
 	"members",

@@ -10,7 +10,8 @@
 
 ```text
 apps/web/src/
-  App.tsx            # 应用外壳:认证、项目选择、视图注册与切换;只装配,不写业务 UI
+  App.tsx            # 应用外壳:认证、项目选择与切换;只装配,不写业务 UI
+  ui/workspace-views.ts # 页面/图标/项目页权限注册;服务端仍决定导航与可访问范围
   main.tsx           # StrictMode + ThemeProvider 入口
   theme.tsx          # antd ConfigProvider 主题 token + zhCN locale + <AntdApp>(message/modal 上下文)
   api.ts             # fetch 封装与 ApiError
@@ -22,7 +23,7 @@ apps/web/src/
   components/*.css   # 视图私有样式,与组件同目录同 import
 ```
 
-- App.tsx 保持薄壳(<500 行)。新增视图 = 新建 `components/<Name>.tsx` + 在 `App.tsx` 视图注册表登记 + 服务端权限目录加 navigation_key;不得把视图写回 App.tsx。
+- App.tsx 保持薄壳(<500 行)。新增视图 = 新建 `components/<Name>.tsx` + 在 `ui/workspace-views.ts` 登记 + 服务端权限目录加 navigation_key，重视图从 `lazy-views.tsx` 按需加载；不得把业务视图写回 App.tsx。
 - 共享物只能向上沉淀:components 之间不互相 import;两个视图都要用的组件先证明复用价值,再提升为 `components/` 下的共享件(如 EditableList),通用类型/常量进 `types.ts`,数据请求模式进 `hooks/`,展示原件进 `ui/primitives.tsx`。
 - 拆分是自顶向下的,不是提前抽象:三行相似代码保留重复胜过过早组件化;但整段重复的可编辑列表、审批卡、KPI 卡这类**结构性重复**必须提取。
 
