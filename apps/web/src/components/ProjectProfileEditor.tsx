@@ -1,14 +1,14 @@
 import { Alert, Form, Input, Modal } from "antd";
 import { useState } from "react";
 import { put } from "../api";
-import type { Project } from "../types";
+import type { ProjectSummary } from "../types";
 
 export function ProjectProfileEditor({
 	project,
 	onClose,
 	refresh,
 }: {
-	project: Project;
+	project: ProjectSummary;
 	onClose(): void;
 	refresh(): Promise<void>;
 }) {

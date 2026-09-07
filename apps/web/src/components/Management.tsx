@@ -1,4 +1,5 @@
 import { Alert } from "antd";
+import type { ReactNode } from "react";
 import { hasPermission } from "../access";
 import {
 	AuditLogs,
@@ -16,7 +17,7 @@ import { AppShell, type ShellNavigationItem } from "./Shell";
 import "./Management.css";
 
 /**
- * 机构管理工作区：不选客户时也能进入的机构级页面（知识库、平台设置、成员、日志、权限、租户）。
+ * 机构管理工作区：不选客户时也能进入的机构级页面（客户管理、知识库、平台设置、成员、日志、权限、租户）。
  * 复用客户工作台的外壳，只保留“机构管理 / 系统管理”两组菜单，避免出现第二套导航。
  */
 export function ManagementWorkspace({
@@ -27,6 +28,7 @@ export function ManagementWorkspace({
 	onSelectView,
 	onLogout,
 	onIdentityChange,
+	customerContent,
 }: {
 	view: View;
 	user: UserIdentity;
@@ -35,6 +37,7 @@ export function ManagementWorkspace({
 	onSelectView(view: View): void;
 	onLogout(): Promise<void>;
 	onIdentityChange(user: UserIdentity): void;
+	customerContent: ReactNode;
 }) {
 	const available = navigation.filter((item) => managementViews.includes(item.id));
 	return (
@@ -44,7 +47,7 @@ export function ManagementWorkspace({
 			navigation={available}
 			error={null}
 			title="机构管理"
-			subtitle={`${user.organizationName} · 机构级设置，对该机构下所有客户生效`}
+			subtitle={`${user.organizationName} · 客户、成员与机构级设置`}
 			switchLabel="返回客户列表"
 			account={<AccountControl user={user} onLogout={onLogout} />}
 			onSwitchProject={onBack}
@@ -54,8 +57,9 @@ export function ManagementWorkspace({
 				className="management-notice"
 				type="info"
 				showIcon
-				title="这里是机构级设置：模型与平台密钥、问题知识库、成员与权限、日志。客户项目的监测、报告与文章请返回客户列表后进入对应客户。"
+				title="这里管理当前机构的客户资料、模型与平台密钥、问题知识库、成员与权限、日志。可从客户管理进入对应客户的监测、报告与文章工作台。"
 			/>
+			{view === "customers" && customerContent}
 			{view === "knowledge" && (
 				<KnowledgeBase initialIndustry={null} canWrite={hasPermission(user, "knowledge.manage")} />
 			)}

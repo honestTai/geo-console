@@ -6,6 +6,9 @@ export const Attribution = lazy(() =>
 	import("./components/Attribution").then((module) => ({ default: module.Attribution })),
 );
 export const AuditLogs = lazy(() => import("./components/AuditLogs").then((module) => ({ default: module.AuditLogs })));
+export const CustomerManagement = lazy(() =>
+	import("./components/CustomerManagement").then((module) => ({ default: module.CustomerManagement })),
+);
 export const Diagnosis = lazy(() => import("./components/Diagnosis").then((module) => ({ default: module.Diagnosis })));
 export const Evidence = lazy(() => import("./components/Evidence").then((module) => ({ default: module.Evidence })));
 export const KnowledgeBase = lazy(() =>

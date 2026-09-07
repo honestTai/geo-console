@@ -1,5 +1,9 @@
 # GEO Console Domain Contracts
 
+## 机构客户目录
+
+`page.customers` 是机构菜单及现有 `/api/projects` 列表读取权限，不等于全机构客户范围或项目证据权限。列表必须同时应用当前 organizationId 与成员 projectIds；只读菜单不能 POST/PUT 或读取项目详情。创建沿用 project.create，资料编辑沿用 project.onboard，历史配置与证据不可改写。migration 0025 从既有 overview 授权补上等价菜单，不能为被撤销的机构上限重新授权；新建后的身份刷新用于读取真实新增客户范围。见 `docs/customer-management.md`。
+
 ## 可选官网与额度收尾
 
 - migration 0024 使 projects.website_url/domain 可空；PUT 客户资料严格白名单、project.onboard 权限/项目范围，不改别名、正式范围、历史 config/审计/报告。新基线 domain 用空字符串表示未提供，websiteUrl 可空；后补官网需新基线，同条件复测仍复制旧配置。
