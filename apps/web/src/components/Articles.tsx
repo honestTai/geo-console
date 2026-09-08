@@ -24,6 +24,7 @@ import {
 	type Paginated,
 	type Project,
 } from "../types";
+import { BrandLoading } from "../ui/BrandLoading";
 import { FormattedAnswer } from "../ui/markdown";
 import { useWorkspaceNavigation } from "../ui/navigation";
 import {
@@ -62,6 +63,23 @@ function ArticleTargetQuestions({ article }: { article: Article }) {
 	);
 }
 
+function ArticleLoadState({ ready, error, onRetry }: { ready: boolean; error: string | null; onRetry(): void }) {
+	if (ready) return null;
+	if (!error) return <BrandLoading label="正在读取文章" />;
+	return (
+		<Alert
+			showIcon
+			type="error"
+			title={error}
+			action={
+				<Button variant="link" onClick={onRetry}>
+					重新加载
+				</Button>
+			}
+		/>
+	);
+}
+
 function ArticleEditor({
 	articleId,
 	canWrite,
@@ -75,6 +93,7 @@ function ArticleEditor({
 }) {
 	const { message } = App.useApp();
 	const [article, setArticle] = useState<Article | null>(null);
+	const [loadError, setLoadError] = useState<string | null>(null);
 	const evidenceIndex = useEvidenceIndex(article?.batch_id, article?.project_id);
 	const [mode, setMode] = useState<"edit" | "preview" | "quality">(canWrite ? "edit" : "preview");
 	const [form] = Form.useForm<{
@@ -87,6 +106,7 @@ function ArticleEditor({
 	}>();
 	const [busy, setBusy] = useState(false);
 	const load = useCallback(async () => {
+		setLoadError(null);
 		const value = await api<Article>(`/api/articles/${articleId}`);
 		setArticle(value);
 		form.setFieldsValue({
@@ -98,9 +118,10 @@ function ArticleEditor({
 			publicationPlan: value.publication_plan ?? undefined,
 		});
 	}, [articleId, form]);
-	useEffect(() => {
-		void load().catch((reason) => message.error(reason instanceof Error ? reason.message : "文章加载失败"));
-	}, [load, message]);
+	const reload = useCallback(() => {
+		void load().catch((reason) => setLoadError(reason instanceof Error ? reason.message : "文章加载失败"));
+	}, [load]);
+	useEffect(reload, [reload]);
 	// 预览时正文输入框会卸载，preserve 让 useWatch 仍能读到表单里的正文。
 	const content = Form.useWatch("contentMarkdown", { form, preserve: true }) ?? "";
 	const title = Form.useWatch("title", { form, preserve: true }) ?? "";
@@ -148,7 +169,7 @@ function ArticleEditor({
 			open
 			size={Math.min(1120, window.innerWidth - 32)}
 			onClose={onClose}
-			title={article ? article.title : "加载中"}
+			title={article ? article.title : "文章详情"}
 			className="article-drawer"
 			rootClassName="article-drawer-root"
 			extra={
@@ -163,13 +184,14 @@ function ArticleEditor({
 						]}
 					/>
 					{canWrite && (
-						<Button busy={busy} onClick={() => void save()}>
+						<Button busy={busy} disabled={!article} onClick={() => void save()}>
 							保存
 						</Button>
 					)}
 				</div>
 			}
 		>
+			<ArticleLoadState ready={Boolean(article)} error={loadError} onRetry={reload} />
 			{article && (
 				<div className="article-editor">
 					<aside className="article-editor-side">

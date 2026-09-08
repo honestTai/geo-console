@@ -1,5 +1,7 @@
 # GEO Console Web 前端架构规则
 
+通用等待统一使用 `ui/BrandLoading`，不新增纯“加载中”占位：完整字标用于启动/懒加载/内容占位，BrandLoadingMark 经 ThemeProvider 的 spin/button/select 配置用于紧凑指示器。自定义 Spin indicator 必须接收 className/style 并消费 percent，不能把 SVG 或字标强塞进错误尺寸。Page 的300ms延迟与已挂载内容保留；失败、权限和实际业务进度不能被无限动画覆盖；支持 prefers-reduced-motion。详见 docs/ui-refinement.md。
+
 2026-09 用户指定全工作台复刻 GEOFlow 的视觉布局：256px 白色侧栏、64px 顶栏、48px 桌面内容留白、30px 页面标题、40px 主操作，列表/表单/空态/统计使用同一细灰边框与 8px 圆角规范。继续使用 React/antd 独立实现。任务页由 `TaskManagementLayout` 排列主列表、已完成折叠行、四项统计与三栏运行信息。导航业务组保持监测/内容/交付；客户与页面切换移到 Shell 顶栏，Page 只展示唯一 H1。详见 `docs/content-operations.md`。
 
 客户封档使用 `ProjectReadOnlyContext`，权限按钮和 usePermission 在项目视图禁用写动作；筛选、展开、查看和下载保持可用，机构管理不继承项目只读。App 不把 archived 项目导回建档页。CustomerManagement 的独立权限菜单打开 ProjectLifecycleDialog，删除需两步确认并输入全名；成功后刷新列表，失败保留弹窗。

@@ -1,5 +1,7 @@
 # 架构与数据边界
 
+前端等待展示由 `ui/BrandLoading` 与 ThemeProvider 的 antd 配置统一：完整品牌字标覆盖应用和内容占位，紧凑 Z 标记覆盖 Spin/Table/Button/Select。Page 延迟与数据挂载保持，业务任务的实际进度/失败/权限仍由原服务和视图负责，未改变 API、队列或数据库契约。交互与无障碍规范见 `docs/ui-refinement.md`。
+
 全工作台视觉布局统一由 Shell/Page/theme/primitives 管理：256px 白侧栏、64px 顶栏、48px 桌面留白、30px H1，客户和页面切换在顶栏。TaskManagementLayout 是 Remediation 的展示组件，任务列表和详情抽屉继续调用原接口；运行摘要使用现有 AgentRun 分页，不新增 Worker 心跳、全局队列或回收站契约。此次布局重排不改变原始证据和后台流程。
 
 内容运营新增：`content-routes.ts` → `article-quality.ts/articles.ts`、`customer-knowledge.ts`、`publications.ts`、`project-operations.ts`。0028-0031 保存文章不可变版本、质检与审核历史、客户知识版本、人工发布渠道/工单/回执。Semantic Worker 增加独立一槽文章质检，无新部署服务。前端通过原有 React/antd、动态权限导航和白色侧栏/蓝色主题提供文章、资料与发布工作台。当前仅人工发布，不保存第三方登录凭据、不执行外部发文。详见 `docs/content-operations.md`。

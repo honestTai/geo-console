@@ -1,4 +1,3 @@
-import { IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessContext, hasPermission, ProjectReadOnlyContext } from "./access";
 import { ApiError, api, post } from "./api";
@@ -41,6 +40,7 @@ import {
 	type UserIdentity,
 	type View,
 } from "./types";
+import { BrandLoading } from "./ui/BrandLoading";
 import { type EvidenceFocus, NavigationContext, type WorkspaceNavigation } from "./ui/navigation";
 
 import { navigationIcons, projectPagePermissions, views } from "./ui/workspace-views";
@@ -302,9 +302,8 @@ export function App() {
 
 	if (!authReady || (user && loading))
 		return (
-			<main className="center">
-				<IconLoader2 className="spin" />
-				<span>正在打开 ZZ Geo</span>
+			<main className="zz-loading-screen">
+				<BrandLoading label="正在打开 ZZ Geo" />
 			</main>
 		);
 	if (!user)
@@ -425,9 +424,7 @@ export function App() {
 					<ViewBoundary resetKey={`${projectId}:${view}`}>
 						<ProjectReadOnlyContext.Provider value={project?.status === "archived" && !managementViews.includes(view)}>
 							{!project ? (
-								<div className="center">
-									<IconLoader2 className="spin" />
-								</div>
+								<BrandLoading label="正在读取客户资料" />
 							) : !["active", "archived"].includes(project.status) &&
 								!managementViews.includes(view) &&
 								view !== "workbench" &&

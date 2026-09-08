@@ -1,12 +1,13 @@
 import { IconRoute, IconUpload } from "@tabler/icons-react";
 import type { TableProps } from "antd";
-import { Alert, Button as AntdButton, App, Select, Spin, Table, Tag, Upload } from "antd";
+import { Alert, Button as AntdButton, App, Select, Table, Tag, Upload } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../access";
 import { api, post } from "../api";
 import { type AttributionPayload, DEFAULT_PAGE_SIZE, metricLabels, type Project, sourceLabels } from "../types";
 import { date, dayDate, Empty, KpiCard, KpiGrid, Pagination, SectionTitle, shortDate } from "../ui/primitives";
 import "./Attribution.css";
+import { BrandLoading } from "../ui/BrandLoading";
 import { Page } from "./Page";
 
 type AttributionEvent = AttributionPayload["events"][number];
@@ -168,9 +169,7 @@ export function Attribution({ project }: { project: Project }) {
 				title="业务数据与 AI 指标的同步变化不等于因果关系，线索和成交来源需另行核实。"
 			/>
 			{!data ? (
-				<div className="center">
-					<Spin />
-				</div>
+				<BrandLoading label="正在读取业务数据" />
 			) : data.summary.length === 0 ? (
 				<Empty title="还没有业务数据" detail="导入客户自己的导出文件后，这里才会显示访问、搜索点击、表单或电话指标。" />
 			) : (
