@@ -96,7 +96,7 @@ export const metricGuide = {
 } as const;
 export type MetricGuideKey = keyof typeof metricGuide;
 export const aggregationExplanation =
-	"先算每个平台内每个问题的比例，再让问题等权，最后让纳入统计的平台等权。正式检测只纳入达标平台；快速检测保留有限结果。次数用于核对，不应把多平台、多次测试的总命中次数直接相除冒充总分。失败、无法判断、不可观察来源不按零分补齐。";
+	"先计算各平台每个问题的比例，再按问题等权、平台等权汇总。正式检测只纳入达标平台，快速检测提供初步结果。总次数仅用于核对，不能直接相除得到总分。失败、无法判断和缺少来源的数据不记为零分。";
 
 export function guideForLabel(label: string) {
 	return Object.values(metricGuide).find((guide) => guide.label === label || label === `整体${guide.label}`);

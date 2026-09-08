@@ -57,6 +57,7 @@ export async function listProjects(
 	organizationId: string,
 	input: PaginationInput,
 	access: { allProjects: boolean; projectIds: string[] },
+	status: "all" | "open" | "archived" = "all",
 ): Promise<Paginated<Record<string, unknown>>> {
 	const search = input.search ? `%${input.search}%` : null;
 	const scopeValues = access.allProjects ? [] : [...new Set(access.projectIds)];
@@ -66,24 +67,27 @@ export async function listProjects(
 			? `p.id IN (${scopeValues.map((_, index) => `$${index + 3}`).join(",")})`
 			: "false";
 	const baseParams = [organizationId, search, ...scopeValues];
+	const lifecycleClause = `p.deleted_at IS NULL${status === "all" ? "" : status === "archived" ? " AND p.status='archived'" : " AND p.status<>'archived'"}`;
 	const total = Number(
 		(
 			await database.query<{ count: number }>(
 				`SELECT count(*)::int AS count FROM projects p WHERE p.organization_id=$1
-				 AND ($2::text IS NULL OR p.name ILIKE $2 OR p.domain ILIKE $2 OR p.industry ILIKE $2) AND ${scopeClause}`,
+				 AND ${lifecycleClause} AND ($2::text IS NULL OR p.name ILIKE $2 OR p.domain ILIKE $2 OR p.industry ILIKE $2) AND ${scopeClause}`,
 				baseParams,
 			)
 		).rows[0]?.count ?? 0,
 	);
 	const limitPosition = baseParams.length + 1;
+	const page = Math.min(input.page, Math.max(1, Math.ceil(total / input.pageSize)));
+	const boundedInput = { ...input, page, offset: (page - 1) * input.pageSize };
 	const result = await database.query<Record<string, unknown>>(
 		`SELECT p.*, count(DISTINCT b.id)::int AS batch_count, max(b.created_at) AS last_batch_at
 		 FROM projects p LEFT JOIN experiment_batches b ON b.project_id = p.id
 		 WHERE p.organization_id=$1 AND ($2::text IS NULL OR p.name ILIKE $2 OR p.domain ILIKE $2 OR p.industry ILIKE $2)
-		 AND ${scopeClause} GROUP BY p.id ORDER BY p.updated_at DESC LIMIT $${limitPosition} OFFSET $${limitPosition + 1}`,
-		[...baseParams, input.pageSize, input.offset],
+		 AND ${scopeClause} AND ${lifecycleClause} GROUP BY p.id ORDER BY p.updated_at DESC,p.id LIMIT $${limitPosition} OFFSET $${limitPosition + 1}`,
+		[...baseParams, input.pageSize, boundedInput.offset],
 	);
-	return paginated(result.rows, total, input);
+	return paginated(result.rows, total, boundedInput);
 }
 
 export async function createProject(
@@ -133,7 +137,9 @@ async function createProjectInTransaction(
 }
 
 export async function getProject(database: Database, id: string): Promise<Record<string, unknown> | null> {
-	const project = (await database.query<Record<string, unknown>>("SELECT * FROM projects WHERE id = $1", [id])).rows[0];
+	const project = (
+		await database.query<Record<string, unknown>>("SELECT * FROM projects WHERE id = $1 AND deleted_at IS NULL", [id])
+	).rows[0];
 	if (!project) return null;
 	const [competitors, prompts, batches, tasks, findings, audits, schedule, enabledProviders] = await Promise.all([
 		database.query("SELECT * FROM competitors WHERE project_id = $1 AND archived_at IS NULL ORDER BY created_at", [id]),
@@ -1008,7 +1014,7 @@ async function createScheduledBatch(
 
 export async function processDueSchedules(database: Database): Promise<number> {
 	const due = await database.query<Record<string, unknown>>(
-		`SELECT * FROM monitoring_schedules WHERE enabled=true AND next_run_at<=now() AND EXISTS(SELECT 1 FROM projects p JOIN organizations o ON o.id=p.organization_id WHERE p.id=monitoring_schedules.project_id AND o.suspended_at IS NULL)
+		`SELECT * FROM monitoring_schedules WHERE enabled=true AND next_run_at<=now() AND EXISTS(SELECT 1 FROM projects p JOIN organizations o ON o.id=p.organization_id WHERE p.id=monitoring_schedules.project_id AND p.status<>'archived' AND p.deleted_at IS NULL AND o.suspended_at IS NULL)
 		 ORDER BY next_run_at LIMIT 10`,
 	);
 	let created = 0;

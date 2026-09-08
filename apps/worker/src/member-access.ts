@@ -44,10 +44,10 @@ export async function assertAssignableMember(
 	if (
 		projects.length &&
 		(
-			await database.query("SELECT id FROM projects WHERE organization_id=$1 AND id=ANY($2::text[])", [
-				organizationId,
-				projects,
-			])
+			await database.query(
+				"SELECT id FROM projects WHERE organization_id=$1 AND deleted_at IS NULL AND id=ANY($2::text[])",
+				[organizationId, projects],
+			)
 		).rows.length !== projects.length
 	)
 		throw new HttpInputError("客户不存在或不属于当前机构");
@@ -96,7 +96,7 @@ export async function listMemberOptions(
 		kind === "roles"
 			? `r.organization_id=$1 AND ($2::text[] IS NULL OR NOT EXISTS(SELECT 1 FROM role_permissions rp WHERE rp.role_id=r.id AND NOT(rp.permission_key=ANY($2::text[]))))
 		 AND ($3::text IS NULL OR r.name ILIKE $3)`
-			: `r.organization_id=$1 AND ($2::text[] IS NULL OR r.id=ANY($2::text[])) AND ($3::text IS NULL OR r.name ILIKE $3 OR r.domain ILIKE $3)`;
+			: `r.organization_id=$1 AND r.deleted_at IS NULL AND ($2::text[] IS NULL OR r.id=ANY($2::text[])) AND ($3::text IS NULL OR r.name ILIKE $3 OR r.domain ILIKE $3)`;
 	const total = Number(
 		(
 			await database.query<{ count: number }>(

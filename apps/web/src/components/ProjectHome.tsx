@@ -50,7 +50,7 @@ export function ProjectHome({
 					<span className="brand-mark">Z</span>
 					<div>
 						<strong>ZZ Geo</strong>
-						<small>真实 AI 可见度工作台</small>
+						<small>AI 搜索监测</small>
 					</div>
 				</div>
 				<div className="home-actions">
@@ -75,9 +75,7 @@ export function ProjectHome({
 				</div>
 			</header>
 			<section className="home-title">
-				<span className="eyebrow">客户项目</span>
-				<h1>从一个真实客户开始</h1>
-				<p>建档、真实采集、证据诊断、整改和同条件复测都保存在同一个项目中。</p>
+				<h1>客户项目</h1>
 			</section>
 			<FilterBar
 				extra={<span className="project-home-count">{pagination.total ? `共 ${pagination.total} 个客户` : ""}</span>}
@@ -94,8 +92,8 @@ export function ProjectHome({
 			{error && <Notice type="error" message={error} />}
 			{projects.length === 0 ? (
 				<Empty
-					title="还没有客户项目"
-					detail="输入客户与官网，系统将先读取真实网站，再生成待人工确认的竞品和购买问题。"
+					title={search ? "没有找到匹配的客户" : "还没有客户项目"}
+					detail={search ? "请换个名称或域名搜索。" : "新建客户后即可设置监测问题，官网可稍后补充。"}
 					action={
 						<Button permission="project.create" icon={<IconPlus size={17} />} onClick={onCreate}>
 							新建第一个客户
@@ -121,7 +119,9 @@ export function ProjectHome({
 							}}
 						>
 							<div className="project-home-card-head">
-								<Tag>{project.status === "active" ? "运行中" : "待建档"}</Tag>
+								<Tag>
+									{project.status === "archived" ? "已封档" : project.status === "active" ? "已建档" : "待建档"}
+								</Tag>
 								<IconChevronRight className="card-arrow" size={20} />
 							</div>
 							<Typography.Title level={5} className="project-home-card-name" ellipsis={{ tooltip: project.name }}>
@@ -160,7 +160,7 @@ export function ProjectHome({
 						>
 							<IconPlus size={30} strokeWidth={1.6} />
 							<Typography.Text strong>新建客户</Typography.Text>
-							<Typography.Text type="secondary">录入客户与官网，开始真实采集</Typography.Text>
+							<Typography.Text type="secondary">添加客户资料</Typography.Text>
 						</Card>
 					)}
 				</div>

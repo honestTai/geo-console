@@ -5,6 +5,7 @@ import { api } from "./api";
 import type { AgentRun, Batch, Project, UserIdentity } from "./types";
 
 export const AccessContext = createContext<UserIdentity | null>(null);
+export const ProjectReadOnlyContext = createContext(false);
 
 export function hasPermission(identity: UserIdentity | null, permission: string): boolean {
 	return Boolean(
@@ -13,7 +14,9 @@ export function hasPermission(identity: UserIdentity | null, permission: string)
 }
 
 export function usePermission(permission: string): boolean {
-	return hasPermission(useContext(AccessContext), permission);
+	const identity = useContext(AccessContext);
+	const readOnly = useContext(ProjectReadOnlyContext);
+	return (!readOnly || permission.startsWith("page.")) && hasPermission(identity, permission);
 }
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "link";
@@ -50,7 +53,9 @@ export function Button({
 	block?: boolean;
 }) {
 	const identity = useContext(AccessContext);
-	if (permission && !hasPermission(identity, permission)) return null;
+	const readOnly = useContext(ProjectReadOnlyContext);
+	if (permission && ((!permission.startsWith("page.") && readOnly) || !hasPermission(identity, permission)))
+		return null;
 	return (
 		<AntdButton
 			{...variantProps[variant]}

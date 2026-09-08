@@ -1115,9 +1115,7 @@ export function Workbench({
 					{webSearchHint(newSession.webSearchEnabled, newSession.model)}
 				</div>
 			)}
-			<p className="wb-composer-hint">
-				Enter 发送，Shift+Enter 换行。HRouter Agent 只在当前客户项目内操作，每一步都会写入会话记录与审计日志。
-			</p>
+			<p className="wb-composer-hint">AI 生成内容需核对，模型调用按用量计费。</p>
 		</div>
 	);
 
@@ -1125,10 +1123,7 @@ export function Workbench({
 	if (!session)
 		main = (
 			<div className="wb-welcome">
-				<Empty
-					title="让 HRouter Agent 替你跑完整个流程"
-					detail="输入“跑基线”，HRouter Agent 会先和你确认监测问题，然后自动创建批次、等待采集、核验结果、审计官网、生成报告与优化文章。"
-				/>
+				<Empty title="开始新对话" detail="还没有对话记录。" />
 				{composer}
 			</div>
 		);
@@ -1325,13 +1320,7 @@ export function Workbench({
 		);
 
 	return (
-		<Page
-			breadcrumb={project.name}
-			eyebrow="AI 工作台"
-			title="让 HRouter Agent 跑完整个流程"
-			description="一句话下指令，Agent 自动采集、审计、出报告、写文章，全程留痕。"
-			className="wb-page"
-		>
+		<Page breadcrumb={project.name} eyebrow="AI 工作台" title="AI 工作台" className="wb-page">
 			<div className="wb-layout">
 				{sidebar}
 				<section className="wb-main">{main}</section>

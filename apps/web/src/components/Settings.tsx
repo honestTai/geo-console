@@ -345,7 +345,7 @@ export function Settings() {
 		<Page
 			eyebrow="平台设置"
 			title="模型与联网平台"
-			description="HRouter Agent 模型与五个联网平台的 API 配置；密钥加密保存。"
+			description="模型、搜索平台和访问密钥。"
 			extra={
 				<div className="actions">
 					<TransferButtons
@@ -381,7 +381,7 @@ export function Settings() {
 						HRouter Agent 模型
 					</>
 				}
-				description={`报告、诊断、优化文章与 AI 工作台都通过受限领域工具调用下面选定的 GPT。密钥：${analysis.configured ? "已配置" : "未配置"}`}
+				description={`报告、诊断、文章和 AI 工作台使用此模型。密钥${analysis.configured ? "已配置" : "未配置"}。`}
 			/>
 			<Form layout="vertical" className="settings-form hrouter-form">
 				<div className="settings-grid">
@@ -524,7 +524,7 @@ export function Settings() {
 			</Form>
 			<SectionTitle
 				title="联网监测平台"
-				description="每个平台使用冻结的协议契约采集；启用后才会进入批次。"
+				description="仅已启用的平台可参与新批次采集。"
 				count={`${providers.filter((provider) => provider.enabled).length}/${providers.length} 已启用`}
 			/>
 			<div className="provider-settings">

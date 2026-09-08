@@ -36,7 +36,8 @@ describe("explainable monitoring and optional-website UI", () => {
 		const project = { id: "test", name: "测试客户", website_url: null, websiteAudits: [] } as unknown as Project;
 		const html = renderToStaticMarkup(<WebsiteAudit project={project} refresh={async () => {}} />);
 		expect(html).toContain("暂未填写官网");
-		expect(html).toContain("不记为零分");
+		expect(html).toContain("暂无官网可供检查");
+		expect(html).not.toContain("ant-statistic");
 		expect(html).not.toContain("开始真实审计");
 	});
 });

@@ -63,6 +63,7 @@ import { currentMeasurement, reparseMeasurement, reviewSemanticObservation } fro
 import { listMemberOptions } from "./member-access";
 import { artifactSafetyHeaders, checkObjectStore, readArtifact } from "./object-store";
 import { parsePagination } from "./pagination";
+import { changeProjectLifecycle } from "./project-lifecycle";
 import { updateProjectProfile } from "./project-profile";
 import {
 	ensureProviderConfigs,
@@ -190,10 +191,16 @@ async function handleProjectRoutes(
 		json(
 			response,
 			200,
-			await listProjects(database, identity.organizationId, parsePagination(url), {
-				allProjects: identity.allProjects,
-				projectIds: identity.projectIds,
-			}),
+			await listProjects(
+				database,
+				identity.organizationId,
+				parsePagination(url),
+				{
+					allProjects: identity.allProjects,
+					projectIds: identity.projectIds,
+				},
+				z.enum(["all", "open", "archived"]).parse(url.searchParams.get("status") ?? "all"),
+			),
 		);
 		return true;
 	}
@@ -206,6 +213,22 @@ async function handleProjectRoutes(
 			) ?? true
 		);
 	const project = routeMatch(path, /^\/api\/projects\/([^/]+)$/);
+	const archiveProject = routeMatch(path, /^\/api\/projects\/([^/]+)\/archive$/);
+	if ((archiveProject && request.method === "POST") || (project && request.method === "DELETE")) {
+		const projectId = (archiveProject ?? project)![0];
+		json(
+			response,
+			200,
+			await changeProjectLifecycle(
+				database,
+				projectId,
+				archiveProject ? "archive" : "delete",
+				await readJson(request),
+				actorFromIdentity(identity),
+			),
+		);
+		return true;
+	}
 	const websiteEvidence = routeMatch(path, /^\/api\/projects\/([^/]+)\/website-evidence\/([^/]+)$/);
 	const evidenceReference = routeMatch(path, /^\/api\/projects\/([^/]+)\/evidence-reference\/([^/]+)$/);
 	if (evidenceReference && request.method === "GET") {

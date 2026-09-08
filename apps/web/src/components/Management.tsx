@@ -1,4 +1,3 @@
-import { Alert } from "antd";
 import type { ReactNode } from "react";
 import { hasPermission } from "../access";
 import {
@@ -53,12 +52,6 @@ export function ManagementWorkspace({
 			onSwitchProject={onBack}
 			onSelectView={onSelectView}
 		>
-			<Alert
-				className="management-notice"
-				type="info"
-				showIcon
-				title="这里管理当前机构的客户资料、模型与平台密钥、问题知识库、成员与权限、日志。可从客户管理进入对应客户的监测、报告与文章工作台。"
-			/>
 			{view === "customers" && customerContent}
 			{view === "knowledge" && (
 				<KnowledgeBase initialIndustry={null} canWrite={hasPermission(user, "knowledge.manage")} />

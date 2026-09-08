@@ -1,5 +1,7 @@
 # 架构与数据边界
 
+客户生命周期由 `project-lifecycle.ts` 事务处理，`project-state.ts` 接入 HTTP/文件/后台授权。0027 增加封档时间、逻辑删除时间及数据库写保护；封档后只读，删除后所有项目访问入口关闭，证据行与对象继续保留。状态切换前确认没有未结束任务，并停用周期计划；详细并发与发布约束见 `docs/customer-management.md`。Web 通过项目只读上下文控制动作，机构设置仍使用机构权限。
+
 文章交付结构与正文写法分离：Agent 绑定实际建议/问题/证据，按发布位置选择自由形式，并在 `publicationPlan.contentStrategy` 保存形式理由与篇幅依据；不再强制采购者、固定字数或两段大纲。Web/PDF/Word 共用该冻结计划，旧内容不回填。新提交必填策略，历史 schema 兼容；没有新增模型调用、服务或 migration。见 `docs/reader-report-workflow.md`。
 
 客户可读闭环：共享 `metrics/communication` → Web `MetricLabel/MeasurementExplanation` 和 `report-reader/report-word-reader`，只解释冻结指标，不改变正式计算。`report-evidence` 补齐同客户历史引用后冻结；v4 新模板可跳转全文，旧对象不改。`evidence-reference` 仅定位元数据。`evidence/publication` → Agent 内容分类 → article 行锁编辑 → 冻结文章计划，0026 为可空字段加法。见 `docs/reader-report-workflow.md`。

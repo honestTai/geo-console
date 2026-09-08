@@ -1,5 +1,7 @@
 # 本机与服务器部署
 
+客户封档/逻辑删除需执行 `0027_project_lifecycle.sql` 并统一发布 API/Web/Workers。先备份状态字段与原始证据；仅在已授权的部署库迁移。新动作需显式授予既有机构和角色。旧 API 不理解 deleted_at，不能直接回退，否则可能重新开放已删除客户的访问；保持 0027 和访问保护，详见 `docs/customer-management.md`。
+
 客户可读报告与自适应文章需一致发布 API/Agent/Report/Web 和 `0026_article_publication_plan.sql`。0026 只增加可空 JSON 计划与证据定位元数据策略，不改采集原文、指标快照或旧报告；写作方案使用该 JSON，暂无额外 migration。升级前成对备份，迁移仅通过已授权部署目标执行。上线检查指标释义、旧证据定位、文章历史计划缺失提示和新静态资源；真实文章/报告重生成及付费复测由用户另行触发。新冻结报告须保留能理解 v4 的 Report Worker，不能回退旧 Worker 重写新快照。见 `docs/reader-report-workflow.md`。
 
 机构客户管理需同步 Web/API 与 migration `0025_customer_management.sql`（0024 之后）；这只是菜单/授权目录增量，没有新服务或端口。仅在明确授权的部署库执行；未迁移时前端不会绕过服务端导航硬塞入口。权限缓存/身份刷新后可见“机构管理 → 客户管理”，原有客户访问范围保持不变。见 `docs/customer-management.md`。

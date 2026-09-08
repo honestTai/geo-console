@@ -67,7 +67,7 @@ export function CreateProject({
 			title={
 				<div>
 					<span className="eyebrow">客户建档</span>
-					<div className="project-home-modal-title">新建真实客户项目</div>
+					<div className="project-home-modal-title">新建客户</div>
 				</div>
 			}
 			footer={[

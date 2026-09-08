@@ -1,5 +1,9 @@
 # GEO Console Domain Contracts
 
+## 客户生命周期
+
+0027 的 archived_at/deleted_at 为附加状态；status=archived 后仅允许读取和逻辑删除，不允许改名、解封或新增业务内容。删除关闭列表、授权候选、子资源、artifact 与公开分享，原始行和对象保留。project.archive/project.delete 独立授权，新权限不自动补授既有机构/角色。状态切换在事务中锁定项目并重新授权，未结束任务返回 409，成功时停用周期计划。数据库触发器锁项目并检查直接及间接项目写入，覆盖通过授权后发生封档的竞争；新增子表必须补映射。详见 `docs/customer-management.md`。
+
 ## 客户可读报告与文章计划
 
 文章采用问题/证据/渠道驱动的自适应写作（`agent.ts ARTICLE_WRITING_GUIDANCE`）；新提交需 `publicationPlan.contentStrategy.format/rationale/lengthApproach`，类型为自由文本。正文非空即可，大纲可空；60,000 字符是资源上限，不是统一篇幅。保留真实问题/证据与 content 类型门禁。老 JSON/草稿兼容，不给旧文章补造写作方案；Web/PDF/Word 同步显示形式与篇幅依据。见 `docs/reader-report-workflow.md`。

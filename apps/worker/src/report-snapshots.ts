@@ -800,7 +800,7 @@ export async function queueScheduledReportSnapshots(database: Database): Promise
 		 FROM monitoring_schedules s
 		 JOIN experiment_batches b ON b.id=s.last_batch_id
 		 JOIN projects p ON p.id=b.project_id JOIN organizations o ON o.id=p.organization_id
- WHERE b.status IN ('complete','partial') AND o.suspended_at IS NULL`,
+ WHERE b.status IN ('complete','partial') AND p.status<>'archived' AND p.deleted_at IS NULL AND o.suspended_at IS NULL`,
 	);
 	let created = 0;
 	for (const batch of batches.rows) {
@@ -942,7 +942,7 @@ export async function revokeReportShare(database: Database, shareId: string): Pr
 export async function getSharedReport(database: Database, token: string): Promise<Record<string, unknown> | null> {
 	const row = (
 		await database.query<{ report_id: string }>(
-			"SELECT s.report_id FROM report_shares s JOIN report_snapshots r ON r.id=s.report_id JOIN organizations o ON o.id=r.organization_id WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND o.suspended_at IS NULL",
+			"SELECT s.report_id FROM report_shares s JOIN report_snapshots r ON r.id=s.report_id JOIN projects p ON p.id=r.project_id JOIN organizations o ON o.id=r.organization_id WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND p.deleted_at IS NULL AND o.suspended_at IS NULL",
 			[hashToken(token)],
 		)
 	).rows[0];

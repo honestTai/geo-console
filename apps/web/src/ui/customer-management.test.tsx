@@ -55,7 +55,7 @@ describe("customer management UI", () => {
 		expect(views.find((view) => view.id === "customers")?.label).toBe("客户管理");
 		const html = render(["page.customers"]);
 		expect(html).toContain("测试客户");
-		expect(html).toContain("未填写（选填）");
+		expect(html).toContain("未填写");
 		for (const text of ["新建客户", "编辑客户信息", "进入工作台"]) expect(html).not.toContain(text);
 	});
 	it("reuses separately authorized create/edit actions and permits workspace navigation only when available", () => {

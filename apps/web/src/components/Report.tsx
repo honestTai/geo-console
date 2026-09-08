@@ -1015,7 +1015,7 @@ export function Report({ project }: { project: Project }) {
 				batch && analysis && report ? (
 					<>
 						<ReportExecutiveOverview batch={batch} analysis={analysis} baselineBatch={baselineBatch} />
-						<SectionTitle title="采样条件与平台表现" description="所有条件写入冻结批次，不随项目后续编辑变化。" />
+						<SectionTitle title="采样条件与平台表现" description="采样条件以批次创建时的设置为准。" />
 						<dl className="report-facts">
 							<div>
 								<dt>平台</dt>
@@ -1053,7 +1053,7 @@ export function Report({ project }: { project: Project }) {
 									? `${agentRuns.filter((run) => run.status === "queued" || run.status === "running").length} 个进行中`
 									: `${agentRuns.length} 条`
 							}
-							description="报告解读与质量检查由 AI 助手 基于本批次证据生成；批准后自动进入下一步。"
+							description="报告解读和质量检查均需人工审核。"
 						/>
 						{agentRuns.length ? (
 							<div className="agent-run-list">
@@ -1090,7 +1090,7 @@ export function Report({ project }: { project: Project }) {
 						<section className="approved-agent-report">
 							<SectionTitle
 								title="口碑检测与 GEO 优化意见"
-								description="已批准的 HRouter Agent 结论；每条结论后的引用可点击跳转到证据中心核对原文。"
+								description="已审核的分析结论，附对应原文。"
 								extra={<Tag>{approvedQuality ? "质量校验通过" : "等待质量校验"}</Tag>}
 							/>
 							<AgentDraftContent
@@ -1114,7 +1114,7 @@ export function Report({ project }: { project: Project }) {
 			label: "数据明细",
 			children: analysis ? (
 				<>
-					<SectionTitle title="逐问题竞争矩阵" description="不是总分平均值，直接显示具体问题的输赢。" />
+					<SectionTitle title="各问题的品牌表现" />
 					<Table<PromptMatrixRow>
 						className="prompt-matrix"
 						rowKey="promptId"
@@ -1146,9 +1146,7 @@ export function Report({ project }: { project: Project }) {
 									))}
 								</div>
 							) : (
-								<p className="muted">
-									本批次没有可核验的最终引用。检索与浏览来源可在证据中心查看，系统不会把它们当成引用。
-								</p>
+								<p className="muted">本批次未提供明确的最终引用，检索与浏览来源另见证据中心。</p>
 							)}
 						</div>
 						<div>
@@ -1241,10 +1239,7 @@ export function Report({ project }: { project: Project }) {
 			label: `诊断与整改${report ? ` (${report.findings.length + report.tasks.length})` : ""}`,
 			children: report ? (
 				<>
-					<SectionTitle
-						title="证据诊断"
-						description="由确定性规则与已批准的 HRouter Agent 诊断得出；每条结论附引用证据。"
-					/>
+					<SectionTitle title="证据诊断" description="依据规则检查与已审核的 AI 分析，附对应证据。" />
 					{report.findings.length ? (
 						report.findings.map((finding) => (
 							<div className="report-finding" key={finding.id}>
@@ -1282,7 +1277,7 @@ export function Report({ project }: { project: Project }) {
 					) : (
 						<p className="muted">还没有整改任务；在“整改中心”从已批准诊断创建任务后会同步到报告。</p>
 					)}
-					<SectionTitle title="真实业务结果" description="与 AI 指标并列，不自动推断因果。" />
+					<SectionTitle title="业务数据" description="与 AI 指标的变化关系需另行核实。" />
 					{report.attributionSummary.length ? (
 						<div className="report-attribution">
 							{report.attributionSummary.map((item) => (
@@ -1291,7 +1286,7 @@ export function Report({ project }: { project: Project }) {
 									<strong>{item.value.toLocaleString("zh-CN")}</strong>
 									<b>{metricLabels[item.metric] ?? item.metric}</b>
 									<small>
-										{item.observations} 条真实观察 · 至 {date(item.last_observed_at)}
+										{item.observations} 条记录 · 至 {date(item.last_observed_at)}
 									</small>
 								</div>
 							))}
@@ -1317,9 +1312,8 @@ export function Report({ project }: { project: Project }) {
 						<p className="muted">当前批次还没有可索引的证据。</p>
 					)}
 					<p className="limitation">
-						联网 API
-						的模型、索引与搜索策略属于平台黑盒，并具有随机性。报告仅描述冻结模型、问题集、地区和采样窗口下的真实结果；API
-						回答不等同于对应 App 页面回答，也不证明单一整改与排名变化之间的因果关系。
+						结果仅适用于本次模型、问题、地区和采样时段。API 回答可能与对应 App 不同；
+						排名变化还受平台搜索策略与回答随机性影响，不能单独归因于某项整改。
 					</p>
 				</>
 			),
@@ -1414,7 +1408,7 @@ export function Report({ project }: { project: Project }) {
 			{!report && !reportError ? (
 				<div className="center report-loading-placeholder">
 					<IconLoader2 className="spin" />
-					正在从真实证据生成报告
+					正在生成报告
 				</div>
 			) : (
 				<Tabs

@@ -74,4 +74,13 @@
 
 .page-body {
 	min-width: 0;
+	display: flow-root;
+}
+
+.page-body .ant-alert {
+	margin-block: var(--space-4);
+}
+
+.page-body > .ant-alert:first-child {
+	margin-top: 0;
 }

@@ -550,9 +550,9 @@ export function AgentDraftCard({
 				<p className="agent-draft-phase">
 					{run.error_message ??
 						(["queued", "running"].includes(run.status)
-							? "Agent 正在后台读取项目证据；离开页面不会中断任务。"
+							? "正在分析项目资料，可稍后回来查看。"
 							: pending
-								? "草稿中的每个结论已通过证据 ID 白名单校验；批准前不会写入正式记录。"
+								? "请核对草稿及引用证据，批准后将写入正式记录。"
 								: agentRunPhase(run))}
 				</p>
 				{summary && <p className="agent-draft-summary">{summary}</p>}

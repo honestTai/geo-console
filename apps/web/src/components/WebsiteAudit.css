@@ -1,9 +1,9 @@
 .audit-hero {
 	display: flex;
 	align-items: center;
-	gap: 24px;
+	gap: var(--space-6);
 	flex-wrap: wrap;
-	margin-bottom: 16px;
+	margin: var(--space-5) 0 var(--space-6);
 }
 
 .audit-hero-text p {
@@ -26,8 +26,27 @@
 
 .audit-check-body {
 	display: grid;
-	gap: 3px;
+	gap: var(--space-2);
 	min-width: 0;
+}
+
+.audit-toolbar {
+	gap: var(--space-3);
+}
+
+.audit-check-body p {
+	margin: 0;
+	line-height: 1.7;
+}
+
+.audit-page .ant-descriptions {
+	overflow-wrap: anywhere;
+}
+
+.audit-page .ant-descriptions-item-label {
+	width: 112px;
+	min-width: 112px;
+	white-space: nowrap;
 }
 
 .audit-check-category {

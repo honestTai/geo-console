@@ -1,5 +1,9 @@
 # 运行与故障处理
 
+## 客户封档与删除
+
+0027 后，封档返回 409 时先检查该客户的 pending/leased jobs、queued/running 分析和 running/waiting_job 会话。允许任务完成或从工作台停止会话后重试，不直接修改证据来消除阻塞。封档/删除会停用周期计划，后台协调器跳过该客户；历史待审批内容仍保留。删除是访问层逻辑删除，备份和保留规则仍覆盖原始行及对象。禁止回退不检查 deleted_at 的旧服务，详见 `docs/customer-management.md`。
+
 ## 客户报告与文章计划
 
 新模板/字段见 `docs/reader-report-workflow.md`；升级需要 0026 及一致版本 API/Agent/Report/Web。历史计划为空、旧报告没新布局不是损坏，不覆盖 PDF 或自动付费回填。冻结引用 409 检查同客户 ID/对象/权限，不用新页面替代。文章未分类先批准有内容分类的新建议，技术建议不得反复排队。备份含 publication_plan、报告全文/对象；回滚保留新增列，新模板交给兼容 Worker。

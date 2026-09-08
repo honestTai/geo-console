@@ -39,7 +39,7 @@ function ArticleEditor({
 	const { message } = App.useApp();
 	const [article, setArticle] = useState<Article | null>(null);
 	const evidenceIndex = useEvidenceIndex(article?.batch_id, article?.project_id);
-	const [mode, setMode] = useState<"edit" | "preview">("edit");
+	const [mode, setMode] = useState<"edit" | "preview">(canWrite ? "edit" : "preview");
 	const [form] = Form.useForm<{
 		title: string;
 		summary: string;
@@ -75,7 +75,7 @@ function ArticleEditor({
 			values = await form.validateFields();
 		} catch {
 			setMode("edit");
-			message.warning("请补全标出的必填项，尤其是文章用途与发布计划；尚未保存。");
+			message.warning("请补全标出的必填项后保存。");
 			return;
 		}
 		setBusy(true);
@@ -115,6 +115,7 @@ function ArticleEditor({
 			extra={
 				<div className="article-drawer-actions">
 					<Segmented
+						disabled={!canWrite}
 						value={mode}
 						onChange={(value) => setMode(value as "edit" | "preview")}
 						options={[
@@ -145,9 +146,9 @@ function ArticleEditor({
 						{article.target_questions?.length ? (
 							article.target_questions.map((q) => <p key={q.id}>{q.question}</p>)
 						) : (
-							<p>历史文章未绑定具体问题，请补充后再判断用途。</p>
+							<p>未关联具体监测问题。</p>
 						)}
-						<h4>原始依据（点击查看）</h4>
+						<h4>参考证据</h4>
 						<EvidenceRef ids={article.evidence_ids} index={evidenceIndex} />
 						{article.outline.length > 0 && (
 							<>
@@ -205,7 +206,7 @@ function ArticleEditor({
 							name="contentMarkdown"
 							label="正文（Markdown）"
 							rules={[{ required: true, message: "正文不能为空" }]}
-							extra="按实际问题决定长短与结构，无须固定章节；Markdown 格式按需使用，正文变化会生成新版本。"
+							extra="保存后生成新版本。"
 						>
 							<Input.TextArea className="article-textarea" autoSize={{ minRows: 20, maxRows: 40 }} />
 						</Form.Item>
@@ -260,6 +261,7 @@ export function Articles({ project }: { project: Project }) {
 			),
 		]);
 		setArticles(list);
+		if (list.page > list.totalPages) setPage(list.totalPages);
 		setRuns(runList.items);
 	}, [project.id, page, status, batchId]);
 	useEffect(() => {
@@ -340,8 +342,13 @@ export function Articles({ project }: { project: Project }) {
 			align: "right",
 			render: (_, row) => (
 				<div className="article-actions">
-					<Button variant="ghost" size="small" icon={<IconPencil size={14} />} onClick={() => setEditing(row.id)}>
-						编辑
+					<Button
+						variant="ghost"
+						size="small"
+						icon={canWrite ? <IconPencil size={14} /> : <IconEye size={14} />}
+						onClick={() => setEditing(row.id)}
+					>
+						{canWrite ? "编辑" : "查看"}
 					</Button>
 					<Button
 						variant="ghost"
@@ -389,10 +396,10 @@ export function Articles({ project }: { project: Project }) {
 			breadcrumb={project.name}
 			eyebrow="优化文章"
 			title="优化文章"
-			description="每条 GEO 建议对应一篇可编辑草稿；发布后填写地址即可复测验收。"
 			extra={
 				<>
 					<Button
+						permission="workbench.run"
 						variant="secondary"
 						icon={<IconSparkles size={16} />}
 						onClick={() => navigation.openWorkbench("基于最近一份已批准报告的 GEO 建议逐条生成优化文章。")}

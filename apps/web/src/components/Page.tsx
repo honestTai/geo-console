@@ -1,5 +1,6 @@
-import { Breadcrumb, Spin, Typography } from "antd";
-import type { ReactNode } from "react";
+import { Alert, Breadcrumb, Spin, Typography } from "antd";
+import { type ReactNode, useContext } from "react";
+import { ProjectReadOnlyContext } from "../access";
 import type { View } from "../types";
 import { useWorkspaceNavigation } from "../ui/navigation";
 import "./Page.css";
@@ -32,6 +33,7 @@ export function Page({
 	children?: ReactNode;
 }) {
 	const { openView, openProjectList, panelViews } = useWorkspaceNavigation();
+	const readOnly = useContext(ProjectReadOnlyContext);
 	const currentCrumb = { title: <span className="page-crumb-current">{eyebrow}</span> };
 	const crumbs = [
 		...(breadcrumb
@@ -72,7 +74,10 @@ export function Page({
 				{extra && <div className="page-extra">{extra}</div>}
 			</header>
 			<Spin spinning={Boolean(loading)} delay={LOADING_DELAY_MS} classNames={{ root: "page-loading" }}>
-				<div className="page-body">{children}</div>
+				<div className="page-body">
+					{readOnly && <Alert showIcon type="info" title="客户已封档，仅可查看和下载历史资料。" />}
+					{children}
+				</div>
 			</Spin>
 		</section>
 	);

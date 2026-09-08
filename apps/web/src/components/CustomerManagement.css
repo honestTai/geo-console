@@ -1,0 +1,21 @@
+.customer-delete-confirm {
+	margin-top: var(--space-5);
+}
+
+.customer-table .ant-table-cell {
+	overflow-wrap: anywhere;
+}
+
+.customer-table .ant-btn-link {
+	padding-inline: 0;
+	height: auto;
+	white-space: normal;
+	text-align: left;
+}
+
+.customer-actions {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: var(--space-2) var(--space-4);
+}
