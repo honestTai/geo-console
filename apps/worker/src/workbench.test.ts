@@ -120,6 +120,24 @@ async function readPlan(database: Awaited<ReturnType<typeof seedSession>>) {
 }
 
 describe("AI 工作台会话", () => {
+	it("客户上下文不再返回软删除文章", async () => {
+		const database = await seedSession();
+		try {
+			await database.query(
+				`INSERT INTO optimization_articles(id,project_id,recommendation_title,title,summary,content_markdown)
+				 VALUES ('visible','project','测试建议','保留文章','摘要','正文'),('deleted','project','测试建议','删除文章','摘要','正文')`,
+			);
+			await database.query("UPDATE optimization_articles SET deleted_at=now() WHERE id='deleted'");
+			const { tools } = await toolHarness(database, await loadTestSession(database));
+			const result = await pick(tools, "read_project_context").execute("read-context", {});
+			expect((result.details as { articles: Array<{ id: string }> }).articles.map((article) => article.id)).toEqual([
+				"visible",
+			]);
+		} finally {
+			await database.close();
+		}
+	});
+
 	it("用户消息入队为会话回合并写入事件流", async () => {
 		const database = await seedSession();
 		try {

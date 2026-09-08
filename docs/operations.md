@@ -1,5 +1,9 @@
 # 运行与故障处理
 
+## 内容运营队列与交付
+
+文章质检在 Semantic Worker 的独立一槽执行，`article_quality` 最多两次、5 分钟租约，耗尽由 queue-recovery 收尾；没有通过且仍有效的质检和人工审核不能发布。检查失败看 article_quality_runs/attempts 与当前权限，不覆盖历史重试。人工发布失败或结果不明需要操作员核对后推进，系统不会重发。新表纳入数据库备份，现有机构需显式获得新权限。详见 `docs/content-operations.md`。
+
 ## 客户封档与删除
 
 0027 后，封档返回 409 时先检查该客户的 pending/leased jobs、queued/running 分析和 running/waiting_job 会话。允许任务完成或从工作台停止会话后重试，不直接修改证据来消除阻塞。封档/删除会停用周期计划，后台协调器跳过该客户；历史待审批内容仍保留。删除是访问层逻辑删除，备份和保留规则仍覆盖原始行及对象。禁止回退不检查 deleted_at 的旧服务，详见 `docs/customer-management.md`。

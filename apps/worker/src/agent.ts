@@ -17,13 +17,14 @@ import { readAgentMeasurementContext } from "./agent-measurement-context";
 import { authorizeAction, withAuthorizedAction } from "./authorization";
 import { authorizeDraftExecution, boundExecutionActor, parseActor } from "./authorization/execution";
 import { assertBatchCaptureContract } from "./capture-contract";
+import { knowledgeForAgentRun } from "./customer-knowledge";
 import { getHRouterConfig } from "./hrouter";
 import { currentMeasurement } from "./measurement";
 import { type Paginated, type PaginationInput, paginated } from "./pagination";
 import { HttpInputError, parseJsonColumn } from "./utils";
 import { createWebSearchTool, listWebSearchEvidence, WEB_SEARCH_LIMITS } from "./web-search";
 
-const PROMPT_VERSION = "geo-agent.v9-plain-language";
+const PROMPT_VERSION = "geo-agent.v10-customer-knowledge";
 
 /** 允许联网搜索的草稿用途：研究买家问题与客户画像需要公开网页；报告、质检与诊断只看批次证据。 */
 const WEB_SEARCH_PURPOSES = new Set<AgentPurpose>(["prompt_research", "customer_profile"]);
@@ -476,6 +477,8 @@ export async function createDomainTools(
 				]);
 				return toolResult({
 					project: project.rows[0] ?? null,
+					customerKnowledge:
+						purpose === "optimization_article" ? await knowledgeForAgentRun(database, projectId, runId) : [],
 					...measurementContext,
 					measurementScope:
 						"涉及检测结论时，以 frozenBatchConfig 与本运行绑定的 metricSnapshot/readerGuide 为准；project 是当前资料，可能在检测后编辑过。readerGuide 缺失时不得自行推算。",
@@ -1183,7 +1186,7 @@ export async function approveAgentRun(
 				if (!recommendation) throw new HttpInputError("优化文章缺少对应的 GEO 建议", 409);
 				const existing = (
 					await transaction.query<{ id: string; version: number }>(
-						"SELECT id,version FROM optimization_articles WHERE narrative_run_id=$1 AND recommendation_index=$2",
+						"SELECT id,version FROM optimization_articles WHERE narrative_run_id=$1 AND recommendation_index=$2 AND deleted_at IS NULL",
 						[target?.narrativeRunId ?? null, target?.recommendationIndex ?? 0],
 					)
 				).rows[0];

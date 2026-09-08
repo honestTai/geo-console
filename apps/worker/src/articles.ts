@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { ExecutionActor } from "@geo/authorization";
 import type { Database, OptimizationArticleStatus } from "@geo/core";
-import { publicationPlanSchema } from "@geo/evidence";
+import { ARTICLE_QUALITY_POLICY_VERSION, publicationPlanSchema } from "@geo/evidence";
 import { z } from "zod";
 import { enqueueAgentDraft } from "./agent";
+import { articleVersion, assertArticlePublishable, getArticleQuality } from "./article-quality";
 import { type Paginated, type PaginationInput, paginated } from "./pagination";
-import { HttpInputError, parseJsonColumn } from "./utils";
+import { HttpInputError, parseJsonColumn, stableJson } from "./utils";
 
 export type ArticleRecommendation = {
 	deliveryType: string;
@@ -60,7 +61,7 @@ export async function generateArticlesForBatch(
 	const existing = new Set(
 		(
 			await database.query<{ recommendation_index: number }>(
-				"SELECT recommendation_index FROM optimization_articles WHERE narrative_run_id=$1",
+				"SELECT recommendation_index FROM optimization_articles WHERE narrative_run_id=$1 AND deleted_at IS NULL",
 				[approved.narrativeRunId],
 			)
 		).rows.map((row) => row.recommendation_index),
@@ -112,25 +113,54 @@ export async function listArticles(
 	database: Database,
 	projectId: string,
 	input: PaginationInput,
-	filters: { batchId?: string | null; status?: string | null } = {},
+	filters: {
+		batchId?: string | null;
+		status?: string | null;
+		qualityStatus?: string | null;
+		reviewStatus?: string | null;
+		publicationStatus?: string | null;
+		search?: string | null;
+	} = {},
 ): Promise<Paginated<Record<string, unknown>>> {
+	const filtered = `WITH operations AS (SELECT a.*,
+	 CASE WHEN qr.id IS NULL THEN 'pending' WHEN qr.article_version<>a.version OR qr.contract->>'policyVersion'<>'${ARTICLE_QUALITY_POLICY_VERSION}' OR EXISTS(
+	  SELECT 1 FROM jsonb_array_elements(qr.sources) source WHERE source->>'kind'='knowledge' AND NOT EXISTS(
+	   SELECT 1 FROM customer_knowledge_assets ka JOIN customer_knowledge_revisions kr ON kr.asset_id=ka.id AND kr.revision=ka.current_revision
+	   WHERE ka.id=source->>'assetId' AND ka.project_id=a.project_id AND ka.status='approved' AND ka.current_revision=(source->>'revision')::int AND (kr.valid_until IS NULL OR kr.valid_until>now()))) THEN 'stale'
+	  WHEN qr.status='needs_review' AND qa.eligible AND qv.decision='approve' THEN 'passed' ELSE qr.status END AS quality_status,
+	 CASE WHEN er.id IS NULL THEN 'pending' WHEN er.article_version<>a.version THEN 'stale'
+	  WHEN er.decision='approve' THEN 'approved' ELSE 'rejected' END AS review_status,
+	 COALESCE(po.status,CASE WHEN a.status='published' THEN 'verified' ELSE 'unplanned' END) AS publication_status
+	 FROM optimization_articles a
+	 LEFT JOIN LATERAL (SELECT * FROM article_quality_runs WHERE article_id=a.id ORDER BY created_at DESC,id DESC LIMIT 1) qr ON true
+	 LEFT JOIN article_quality_attempts qa ON qa.id=qr.selected_attempt_id AND qa.run_id=qr.id
+	 LEFT JOIN LATERAL (SELECT decision FROM article_quality_reviews WHERE run_id=qr.id ORDER BY created_at DESC,id DESC LIMIT 1) qv ON true
+	 LEFT JOIN LATERAL (SELECT id,article_version,decision FROM article_editorial_reviews WHERE article_id=a.id ORDER BY created_at DESC,id DESC LIMIT 1) er ON true
+	 LEFT JOIN LATERAL (SELECT status FROM publication_orders WHERE article_id=a.id AND article_version=a.version ORDER BY updated_at DESC,id DESC LIMIT 1) po ON true
+	 WHERE a.project_id=$1 AND a.deleted_at IS NULL
+	 AND ($2::text IS NULL OR a.batch_id=$2) AND ($3::text IS NULL OR a.status=$3)
+	 AND ($6::text IS NULL OR a.title ILIKE '%'||$6||'%' OR a.summary ILIKE '%'||$6||'%'))
+	 SELECT * FROM operations WHERE ($4::text IS NULL OR quality_status=$4) AND ($5::text IS NULL OR review_status=$5 OR ($5='unapproved' AND review_status<>'approved'))
+	 AND ($7::text IS NULL OR publication_status=$7)`;
+	const params = [
+		projectId,
+		filters.batchId ?? null,
+		filters.status ?? null,
+		filters.qualityStatus ?? null,
+		filters.reviewStatus ?? null,
+		filters.search ?? input.search ?? null,
+		filters.publicationStatus ?? null,
+	];
 	const total = Number(
-		(
-			await database.query<{ count: number }>(
-				`SELECT count(*)::int AS count FROM optimization_articles WHERE project_id=$1
-				 AND ($2::text IS NULL OR batch_id=$2) AND ($3::text IS NULL OR status=$3)`,
-				[projectId, filters.batchId ?? null, filters.status ?? null],
-			)
-		).rows[0]?.count ?? 0,
+		(await database.query<{ count: number }>(`SELECT count(*)::int AS count FROM (${filtered}) results`, params))
+			.rows[0]?.count ?? 0,
 	);
 	const rows = (
 		await database.query<Record<string, unknown>>(
 			`SELECT id,project_id,batch_id,source_run_id,narrative_run_id,recommendation_index,recommendation_title,
 			 recommendation_priority,title,summary,status,published_url,version,length(content_markdown) AS content_length,
-			 created_at,updated_at FROM optimization_articles WHERE project_id=$1
-			 AND ($2::text IS NULL OR batch_id=$2) AND ($3::text IS NULL OR status=$3)
-			 ORDER BY created_at DESC LIMIT $4 OFFSET $5`,
-			[projectId, filters.batchId ?? null, filters.status ?? null, input.pageSize, input.offset],
+			 quality_status,review_status,publication_status,created_at,updated_at FROM (${filtered}) results ORDER BY created_at DESC,id DESC LIMIT $8 OFFSET $9`,
+			[...params, input.pageSize, input.offset],
 		)
 	).rows;
 	return paginated(rows, total, input);
@@ -138,7 +168,10 @@ export async function listArticles(
 
 export async function getArticle(database: Database, articleId: string): Promise<Record<string, unknown> | null> {
 	const row = (
-		await database.query<Record<string, unknown>>("SELECT * FROM optimization_articles WHERE id=$1", [articleId])
+		await database.query<Record<string, unknown>>(
+			"SELECT * FROM optimization_articles WHERE id=$1 AND deleted_at IS NULL",
+			[articleId],
+		)
 	).rows[0];
 	if (!row) return null;
 	const targetIds = parseJsonColumn<string[]>(row.target_prompt_ids as string | string[]);
@@ -155,8 +188,11 @@ export async function getArticle(database: Database, articleId: string): Promise
 				batch.config as string | Record<string, unknown>,
 			).prompts ?? [])
 		: [];
+	const quality = await getArticleQuality(database, articleId);
 	return {
 		...row,
+		quality_status: quality.qualityStatus,
+		review_status: quality.editorialStatus,
 		outline: parseJsonColumn(row.outline as string | string[]),
 		fact_gaps: parseJsonColumn(row.fact_gaps as string | string[]),
 		evidence_ids: parseJsonColumn(row.evidence_ids as string | string[]),
@@ -169,6 +205,7 @@ export async function getArticle(database: Database, articleId: string): Promise
 }
 
 const articleUpdateSchema = z.object({
+	version: z.number().int().positive().optional(),
 	title: z.string().trim().min(1).max(120).optional(),
 	summary: z.string().trim().max(600).nullable().optional(),
 	status: z.enum(["draft", "reviewing", "published"]).optional(),
@@ -196,13 +233,29 @@ function validatePublicationUpdate(data: z.infer<typeof articleUpdateSchema>, cu
 	}
 }
 
+function articleContentChanged(data: z.infer<typeof articleUpdateSchema>, current: Record<string, unknown>) {
+	return (
+		(data.title !== undefined && data.title !== current.title) ||
+		(data.summary !== undefined && data.summary !== current.summary) ||
+		(data.contentMarkdown !== undefined && data.contentMarkdown !== current.content_markdown) ||
+		(data.publicationPlan !== undefined && stableJson(data.publicationPlan) !== stableJson(current.publication_plan))
+	);
+}
+
 export async function updateArticle(database: Database, articleId: string, input: unknown): Promise<void> {
 	const data = articleUpdateSchema.parse(input);
 	return database.transaction(async (transaction) => {
 		await transaction.query("SELECT id FROM optimization_articles WHERE id=$1 FOR UPDATE", [articleId]);
 		const current = await getArticle(transaction, articleId);
 		if (!current) throw new HttpInputError("优化文章不存在", 404);
+		if (data.version !== undefined && data.version !== current.version)
+			throw new HttpInputError("文章已被更新，请刷新后重新编辑", 409);
 		validatePublicationUpdate(data, current);
+		if (data.status === "published") {
+			if (articleContentChanged(data, current))
+				throw new HttpInputError("请先保存文章新版本并完成审核质检，再登记发布", 409);
+			await assertArticlePublishable(transaction, articleId, Number(current.version));
+		}
 		const status: OptimizationArticleStatus | null = data.status ?? null;
 		const result = await transaction.query(
 			`UPDATE optimization_articles SET
@@ -232,7 +285,10 @@ export async function updateArticle(database: Database, articleId: string, input
 }
 
 export async function deleteArticle(database: Database, articleId: string): Promise<void> {
-	const result = await database.query("DELETE FROM optimization_articles WHERE id=$1", [articleId]);
+	const result = await database.query(
+		"UPDATE optimization_articles SET deleted_at=now(),updated_at=now() WHERE id=$1 AND deleted_at IS NULL",
+		[articleId],
+	);
 	if (result.affectedRows !== 1) throw new HttpInputError("优化文章不存在", 404);
 }
 
@@ -247,9 +303,10 @@ export async function regenerateArticle(
 			batch_id: string | null;
 			narrative_run_id: string | null;
 			recommendation_index: number;
-		}>("SELECT project_id,batch_id,narrative_run_id,recommendation_index FROM optimization_articles WHERE id=$1", [
-			articleId,
-		])
+		}>(
+			"SELECT project_id,batch_id,narrative_run_id,recommendation_index FROM optimization_articles WHERE id=$1 AND deleted_at IS NULL",
+			[articleId],
+		)
 	).rows[0];
 	if (!article) throw new HttpInputError("优化文章不存在", 404);
 	if (!article.batch_id || !article.narrative_run_id) throw new HttpInputError("该文章缺少来源报告，无法重新生成", 409);
@@ -264,3 +321,33 @@ export async function regenerateArticle(
 }
 
 export const newArticleId = (): string => randomUUID();
+
+const articleExportSchema = z.strictObject({ articleIds: z.array(z.string().min(1)).min(1).max(100) });
+export async function exportArticles(database: Database, projectId: string, input: unknown) {
+	const { articleIds } = articleExportSchema.parse(input);
+	const ids = [...new Set(articleIds)];
+	const rows = (
+		await database.query<{ id: string }>(
+			"SELECT id FROM optimization_articles WHERE project_id=$1 AND deleted_at IS NULL AND id=ANY($2::text[]) ORDER BY created_at,id",
+			[projectId, ids],
+		)
+	).rows;
+	if (rows.length !== ids.length) throw new HttpInputError("所选文章不存在或不属于当前客户", 404);
+	const files = [];
+	for (const row of rows) {
+		const article = await articleVersion(database, row.id);
+		files.push({
+			articleId: row.id,
+			version: article.version,
+			title: article.title,
+			filename: `${Array.from(article.title)
+				.map((character) => (character.charCodeAt(0) < 32 ? "_" : character))
+				.join("")
+				.replace(/[<>:"/\\|?*]/g, "_")
+				.slice(0, 90)}-v${article.version}.md`,
+			content: `# ${article.title}\n\n${article.summary ? `${article.summary}\n\n` : ""}${article.contentMarkdown}\n`,
+			contentHash: article.contentHash,
+		});
+	}
+	return { files };
+}

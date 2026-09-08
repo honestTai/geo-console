@@ -1,5 +1,9 @@
 # 架构与数据边界
 
+全工作台视觉布局统一由 Shell/Page/theme/primitives 管理：256px 白侧栏、64px 顶栏、48px 桌面留白、30px H1，客户和页面切换在顶栏。TaskManagementLayout 是 Remediation 的展示组件，任务列表和详情抽屉继续调用原接口；运行摘要使用现有 AgentRun 分页，不新增 Worker 心跳、全局队列或回收站契约。此次布局重排不改变原始证据和后台流程。
+
+内容运营新增：`content-routes.ts` → `article-quality.ts/articles.ts`、`customer-knowledge.ts`、`publications.ts`、`project-operations.ts`。0028-0031 保存文章不可变版本、质检与审核历史、客户知识版本、人工发布渠道/工单/回执。Semantic Worker 增加独立一槽文章质检，无新部署服务。前端通过原有 React/antd、动态权限导航和白色侧栏/蓝色主题提供文章、资料与发布工作台。当前仅人工发布，不保存第三方登录凭据、不执行外部发文。详见 `docs/content-operations.md`。
+
 客户生命周期由 `project-lifecycle.ts` 事务处理，`project-state.ts` 接入 HTTP/文件/后台授权。0027 增加封档时间、逻辑删除时间及数据库写保护；封档后只读，删除后所有项目访问入口关闭，证据行与对象继续保留。状态切换前确认没有未结束任务，并停用周期计划；详细并发与发布约束见 `docs/customer-management.md`。Web 通过项目只读上下文控制动作，机构设置仍使用机构权限。
 
 文章交付结构与正文写法分离：Agent 绑定实际建议/问题/证据，按发布位置选择自由形式，并在 `publicationPlan.contentStrategy` 保存形式理由与篇幅依据；不再强制采购者、固定字数或两段大纲。Web/PDF/Word 共用该冻结计划，旧内容不回填。新提交必填策略，历史 schema 兼容；没有新增模型调用、服务或 migration。见 `docs/reader-report-workflow.md`。
@@ -58,7 +62,7 @@ Tauri 2 桌面客户端是所有用户的正式产品：正式版嵌入 Web 构�
 - 问题知识库按机构和行业维护；新客户分析先复用同业问题，再追加 Agent 发现的新问题候选，只有成员主动添加或在确认监测范围时勾选“同步写入行业知识库”的记录才成为后续共享知识。
 - 系统超管拥有机构授权、动态角色、用户角色/客户范围和多租户状态视图；封禁机构会立即撤销其非超管会话。
 - 所有运营列表使用有界服务端分页或游标分页；报告正文和固定 Provider 目录不是无限列表。
-- 工作台前端按视图拆分：`App.tsx` 只做认证/项目/视图装配，`components/` 一视图一文件，共享类型、权限门控、分页与反馈原件分别收敛在 `types.ts`、`access.tsx`、`ui/primitives.tsx`、`hooks/`;UI 控件统一使用 antd 6(emerald 主题 token、zh-CN locale)，不再手写 modal/table/tab/pagination，规则见 `references/frontend.md`(geo-development skill)。装饰色收敛为品牌绿(主按钮/链接/选中态/logo)+中性灰,内容区次级分组用小节平铺。
+- 工作台前端按视图拆分：`App.tsx` 只做认证/项目/视图装配，`components/` 一视图一文件，共享类型、权限门控、分页与反馈原件分别收敛在 `types.ts`、`access.tsx`、`ui/primitives.tsx`、`hooks/`。UI 使用 antd 6、蓝色主操作、白色侧栏和 zh-CN locale；状态保留语义色，内容区次级分组用小节平铺。规则见 `references/frontend.md`(geo-development skill)。
 - 登录页、客户列表和工作台顶栏提供帮助入口，在新标签打开公开 `/help/`。帮助中心按所有已实现页面维护逐按钮说明、禁用条件、证据/审批边界和排障；公开截图必须先替换客户、域名、邮箱、输入值和长 ID，不得携带线上凭据或客户内容。
 - 平台设置用本地真实品牌 Logo 的平台导航切换五个平台，每次只渲染当前平台表单；HRouter GPT 配置保持独立。
 - 桌面使用固定侧栏；390px 移动端使用可横向滚动的底部图标导航，避免菜单增加后压缩点击目标。

@@ -1,6 +1,14 @@
 import type { PublicationPlan } from "@geo/evidence";
-import { IconEye, IconPencil, IconRefresh, IconSparkles, IconTrash } from "@tabler/icons-react";
-import { App, Drawer, Form, Input, Popconfirm, Segmented, Select, Table, type TableProps, Tag } from "antd";
+import {
+	IconDownload,
+	IconEye,
+	IconPencil,
+	IconRefresh,
+	IconShieldCheck,
+	IconSparkles,
+	IconTrash,
+} from "@tabler/icons-react";
+import { Alert, App, Drawer, Form, Input, Popconfirm, Segmented, Select, Table, type TableProps, Tag } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, useAgentRunPolling, usePermission } from "../access";
 import { api, patch, post } from "../api";
@@ -18,12 +26,41 @@ import {
 } from "../types";
 import { FormattedAnswer } from "../ui/markdown";
 import { useWorkspaceNavigation } from "../ui/navigation";
-import { Empty, EvidenceRef, FilterBar, IdChip, Pagination, SectionTitle, shortDate } from "../ui/primitives";
+import {
+	downloadText,
+	Empty,
+	EvidenceRef,
+	FilterBar,
+	IdChip,
+	Pagination,
+	SectionTitle,
+	shortDate,
+} from "../ui/primitives";
 import "./Articles.css";
+import { ArticleQuality, editorialStatusLabel, qualityStatusLabel } from "./ArticleQuality";
 import { Page } from "./Page";
 import { PublicationPlanFields, PublicationPlanView } from "./PublicationPlan";
 
 const priorityLabel: Record<string, string> = { high: "高优先级", medium: "中优先级", low: "低优先级" };
+const publicationStatusLabel: Record<string, string> = {
+	unplanned: "未安排",
+	draft: "工单草稿",
+	ready: "待发布",
+	in_progress: "执行中",
+	submitted: "待验收",
+	verified: "已发布",
+	failed: "发布失败",
+	cancelled: "已取消",
+	outcome_unknown: "结果待确认",
+};
+
+function ArticleTargetQuestions({ article }: { article: Article }) {
+	return article.target_questions?.length ? (
+		article.target_questions.map((question) => <p key={question.id}>{question.question}</p>)
+	) : (
+		<p>未关联具体监测问题。</p>
+	);
+}
 
 function ArticleEditor({
 	articleId,
@@ -39,7 +76,7 @@ function ArticleEditor({
 	const { message } = App.useApp();
 	const [article, setArticle] = useState<Article | null>(null);
 	const evidenceIndex = useEvidenceIndex(article?.batch_id, article?.project_id);
-	const [mode, setMode] = useState<"edit" | "preview">(canWrite ? "edit" : "preview");
+	const [mode, setMode] = useState<"edit" | "preview" | "quality">(canWrite ? "edit" : "preview");
 	const [form] = Form.useForm<{
 		title: string;
 		summary: string;
@@ -81,6 +118,7 @@ function ArticleEditor({
 		setBusy(true);
 		try {
 			await patch(`/api/articles/${articleId}`, {
+				version: article?.version,
 				title: values.title,
 				summary: values.summary || null,
 				status: values.status,
@@ -112,15 +150,16 @@ function ArticleEditor({
 			onClose={onClose}
 			title={article ? article.title : "加载中"}
 			className="article-drawer"
+			rootClassName="article-drawer-root"
 			extra={
 				<div className="article-drawer-actions">
 					<Segmented
-						disabled={!canWrite}
 						value={mode}
-						onChange={(value) => setMode(value as "edit" | "preview")}
+						onChange={(value) => setMode(value as "edit" | "preview" | "quality")}
 						options={[
-							{ value: "edit", label: "编辑", icon: <IconPencil size={14} /> },
+							{ value: "edit", label: "编辑", disabled: !canWrite, icon: <IconPencil size={14} /> },
 							{ value: "preview", label: "预览", icon: <IconEye size={14} /> },
+							{ value: "quality", label: "审核质检", icon: <IconShieldCheck size={14} /> },
 						]}
 					/>
 					{canWrite && (
@@ -143,11 +182,7 @@ function ArticleEditor({
 						</p>
 						{article.recommendation_action && <p className="article-source-action">{article.recommendation_action}</p>}
 						<h4>关联监测问题</h4>
-						{article.target_questions?.length ? (
-							article.target_questions.map((q) => <p key={q.id}>{q.question}</p>)
-						) : (
-							<p>未关联具体监测问题。</p>
-						)}
+						<ArticleTargetQuestions article={article} />
 						<h4>参考证据</h4>
 						<EvidenceRef ids={article.evidence_ids} index={evidenceIndex} />
 						{article.outline.length > 0 && (
@@ -179,7 +214,7 @@ function ArticleEditor({
 					<Form
 						form={form}
 						layout="vertical"
-						className={mode === "preview" ? "article-form article-form-hidden" : "article-form"}
+						className={mode !== "edit" ? "article-form article-form-hidden" : "article-form"}
 						disabled={!canWrite}
 					>
 						<PublicationPlanFields />
@@ -206,7 +241,6 @@ function ArticleEditor({
 							name="contentMarkdown"
 							label="正文（Markdown）"
 							rules={[{ required: true, message: "正文不能为空" }]}
-							extra="保存后生成新版本。"
 						>
 							<Input.TextArea className="article-textarea" autoSize={{ minRows: 20, maxRows: 40 }} />
 						</Form.Item>
@@ -222,6 +256,14 @@ function ArticleEditor({
 							{summary && <p className="article-preview-summary">{summary}</p>}
 							<FormattedAnswer value={content || "（正文为空）"} />
 						</article>
+					)}
+					{mode === "quality" && (
+						<ArticleQuality
+							article={article}
+							onChanged={async () => {
+								await Promise.all([load(), onSaved()]);
+							}}
+						/>
 					)}
 				</div>
 			)}
@@ -242,28 +284,53 @@ export function Articles({ project }: { project: Project }) {
 	});
 	const [page, setPage] = useState(1);
 	const [status, setStatus] = useState<string>("all");
+	const [qualityStatus, setQualityStatus] = useState("all");
+	const [publicationStatus, setPublicationStatus] = useState("all");
+	const [reviewStatus, setReviewStatus] = useState("all");
+	const [search, setSearch] = useState("");
+	const [selection, setSelection] = useState<React.Key[]>([]);
+	const [loading, setLoading] = useState(false);
+	const [error, setError] = useState<string | null>(null);
 	const [batchId, setBatchId] = useState<string>("all");
 	const [runs, setRuns] = useState<AgentRun[]>([]);
 	const [editing, setEditing] = useState<string | null>(null);
 	const [busy, setBusy] = useState<string | null>(null);
+	useEffect(() => {
+		const [kind, value] = (navigation.viewFilter ?? "").split(":");
+		setQualityStatus(kind === "quality" ? value : "all");
+		setReviewStatus(kind === "review" ? (value === "pending" ? "unapproved" : value) : "all");
+		setPage(1);
+	}, [navigation.viewFilter]);
 	const finishedBatches = useMemo(
 		() => project.batches.filter((batch) => ["complete", "partial"].includes(batch.status)),
 		[project.batches],
 	);
 	const load = useCallback(async () => {
-		const params = new URLSearchParams({ page: String(page), pageSize: String(DEFAULT_PAGE_SIZE) });
-		if (status !== "all") params.set("status", status);
-		if (batchId !== "all") params.set("batchId", batchId);
-		const [list, runList] = await Promise.all([
-			api<Paginated<ArticleSummary>>(`/api/projects/${project.id}/articles?${params}`),
-			api<Paginated<AgentRun>>(
-				`/api/projects/${project.id}/agent-runs?purposes=optimization_article&pageSize=${DEFAULT_PAGE_SIZE}`,
-			),
-		]);
-		setArticles(list);
-		if (list.page > list.totalPages) setPage(list.totalPages);
-		setRuns(runList.items);
-	}, [project.id, page, status, batchId]);
+		setLoading(true);
+		try {
+			const params = new URLSearchParams({ page: String(page), pageSize: String(DEFAULT_PAGE_SIZE) });
+			if (status !== "all") params.set("status", status);
+			if (qualityStatus !== "all") params.set("qualityStatus", qualityStatus);
+			if (publicationStatus !== "all") params.set("publicationStatus", publicationStatus);
+			if (reviewStatus !== "all") params.set("reviewStatus", reviewStatus);
+			if (search) params.set("search", search);
+			if (batchId !== "all") params.set("batchId", batchId);
+			const [list, runList] = await Promise.all([
+				api<Paginated<ArticleSummary>>(`/api/projects/${project.id}/articles?${params}`),
+				api<Paginated<AgentRun>>(
+					`/api/projects/${project.id}/agent-runs?purposes=optimization_article&pageSize=${DEFAULT_PAGE_SIZE}`,
+				),
+			]);
+			setArticles(list);
+			if (list.page > list.totalPages) setPage(list.totalPages);
+			setRuns(runList.items);
+			setError(null);
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : "文章加载失败");
+		} finally {
+			setLoading(false);
+		}
+	}, [project.id, page, status, batchId, qualityStatus, reviewStatus, publicationStatus, search]);
 	useEffect(() => {
 		void load().catch((reason) => message.error(reason instanceof Error ? reason.message : "文章加载失败"));
 	}, [load, message]);
@@ -307,7 +374,7 @@ export function Articles({ project }: { project: Project }) {
 		{
 			title: "来源建议",
 			dataIndex: "recommendation_title",
-			width: 260,
+			width: 200,
 			render: (value: string, row) => (
 				<div className="article-cell">
 					<span>{value}</span>
@@ -322,23 +389,68 @@ export function Articles({ project }: { project: Project }) {
 			),
 		},
 		{
-			title: "状态",
-			dataIndex: "status",
+			title: "发布",
+			dataIndex: "publication_status",
 			width: 100,
-			render: (value: ArticleStatus) => <Tag className={`article-status ${value}`}>{articleStatusLabel[value]}</Tag>,
+			render: (value: string) => (
+				<Tag
+					color={
+						value === "verified"
+							? "success"
+							: value === "failed"
+								? "error"
+								: value === "outcome_unknown"
+									? "warning"
+									: undefined
+					}
+				>
+					{publicationStatusLabel[value ?? "unplanned"] ?? value}
+				</Tag>
+			),
+		},
+		{
+			title: "内容审核",
+			dataIndex: "review_status",
+			width: 100,
+			render: (value?: string) => (
+				<Tag color={value === "approved" ? "success" : value === "rejected" ? "error" : undefined}>
+					{editorialStatusLabel[value ?? "pending"]}
+				</Tag>
+			),
+		},
+		{
+			title: "文章质检",
+			dataIndex: "quality_status",
+			width: 100,
+			render: (value?: string) => (
+				<Tag
+					color={
+						value === "passed"
+							? "success"
+							: value === "failed"
+								? "error"
+								: value === "needs_review" || value === "stale"
+									? "warning"
+									: undefined
+					}
+				>
+					{qualityStatusLabel[value ?? "pending"]}
+				</Tag>
+			),
 		},
 		{
 			title: "字数",
 			dataIndex: "content_length",
-			width: 90,
+			width: 70,
 			align: "right",
 			render: (value: number) => value.toLocaleString(),
 		},
-		{ title: "更新", dataIndex: "updated_at", width: 130, render: (value: string) => shortDate(value) },
+		{ title: "更新", dataIndex: "updated_at", width: 120, render: (value: string) => shortDate(value) },
 		{
 			title: "",
 			key: "actions",
-			width: 150,
+			width: 110,
+			fixed: "right",
 			align: "right",
 			render: (_, row) => (
 				<div className="article-actions">
@@ -346,10 +458,10 @@ export function Articles({ project }: { project: Project }) {
 						variant="ghost"
 						size="small"
 						icon={canWrite ? <IconPencil size={14} /> : <IconEye size={14} />}
+						title={canWrite ? "编辑文章" : "查看文章"}
+						aria-label={canWrite ? "编辑文章" : "查看文章"}
 						onClick={() => setEditing(row.id)}
-					>
-						{canWrite ? "编辑" : "查看"}
-					</Button>
+					/>
 					<Button
 						variant="ghost"
 						size="small"
@@ -394,10 +506,38 @@ export function Articles({ project }: { project: Project }) {
 	return (
 		<Page
 			breadcrumb={project.name}
-			eyebrow="优化文章"
-			title="优化文章"
+			eyebrow="内容中心"
+			title="文章管理"
 			extra={
 				<>
+					<Button
+						variant="secondary"
+						icon={<IconDownload size={16} />}
+						disabled={!selection.length}
+						busy={busy === "export"}
+						onClick={async () => {
+							setBusy("export");
+							try {
+								const params = new URLSearchParams();
+								for (const id of selection) params.append("articleId", String(id));
+								const result = await api<{ files: Array<{ title: string; version: number; content: string }> }>(
+									`/api/projects/${project.id}/articles/export?${params}`,
+								);
+								downloadText(
+									`articles-${new Date().toISOString().slice(0, 10)}.md`,
+									result.files.map((file) => file.content).join("\n\n---\n\n"),
+									"text/markdown;charset=utf-8",
+								);
+								message.success(`已导出 ${result.files.length} 篇文章`);
+							} catch (reason) {
+								message.error(reason instanceof Error ? reason.message : "导出失败");
+							} finally {
+								setBusy(null);
+							}
+						}}
+					>
+						批量导出{selection.length ? ` (${selection.length})` : ""}
+					</Button>
 					<Button
 						permission="workbench.run"
 						variant="secondary"
@@ -425,6 +565,17 @@ export function Articles({ project }: { project: Project }) {
 				</>
 			}
 		>
+			{error && (
+				<Alert
+					type="error"
+					title={error}
+					action={
+						<Button variant="link" onClick={() => void load()}>
+							重试
+						</Button>
+					}
+				/>
+			)}
 			{generating.length > 0 && (
 				<SectionTitle
 					title="正在生成"
@@ -433,6 +584,15 @@ export function Articles({ project }: { project: Project }) {
 				/>
 			)}
 			<FilterBar>
+				<Input.Search
+					allowClear
+					placeholder="搜索标题或摘要"
+					className="article-search"
+					onSearch={(value) => {
+						setSearch(value.trim());
+						setPage(1);
+					}}
+				/>
 				<Segmented
 					value={status}
 					onChange={(value) => {
@@ -445,6 +605,43 @@ export function Articles({ project }: { project: Project }) {
 							value,
 							label: articleStatusLabel[value],
 						})),
+					]}
+				/>
+				<Select
+					aria-label="文章发布状态"
+					value={publicationStatus}
+					onChange={(value) => {
+						setPublicationStatus(value);
+						setPage(1);
+					}}
+					options={[
+						{ value: "all", label: "全部发布状态" },
+						...Object.entries(publicationStatusLabel).map(([value, label]) => ({ value, label })),
+					]}
+				/>
+				<Select
+					aria-label="内容审核状态"
+					value={reviewStatus}
+					onChange={(value) => {
+						setReviewStatus(value);
+						setPage(1);
+					}}
+					options={[
+						{ value: "all", label: "全部审核状态" },
+						{ value: "unapproved", label: "待审核或修改" },
+						...Object.entries(editorialStatusLabel).map(([value, label]) => ({ value, label })),
+					]}
+				/>
+				<Select
+					aria-label="文章质检状态"
+					value={qualityStatus}
+					onChange={(value) => {
+						setQualityStatus(value);
+						setPage(1);
+					}}
+					options={[
+						{ value: "all", label: "全部质检状态" },
+						...Object.entries(qualityStatusLabel).map(([value, label]) => ({ value, label })),
 					]}
 				/>
 				<Select
@@ -463,7 +660,7 @@ export function Articles({ project }: { project: Project }) {
 					]}
 				/>
 			</FilterBar>
-			{articles.total === 0 && !generating.length ? (
+			{articles.total === 0 && !generating.length && !loading ? (
 				<Empty
 					title="还没有优化文章"
 					detail="先在复测报告里批准报告叙述，然后从上方选择批次生成文章；或直接让 AI 工作台跑完整个流程。"
@@ -471,13 +668,19 @@ export function Articles({ project }: { project: Project }) {
 			) : (
 				<>
 					<Table<ArticleSummary>
+						loading={loading}
+						rowSelection={{
+							selectedRowKeys: selection,
+							onChange: (keys) => setSelection(keys),
+							preserveSelectedRowKeys: true,
+						}}
 						rowKey="id"
 						size="middle"
 						pagination={false}
 						dataSource={articles.items}
 						columns={columns}
 						className="article-table"
-						scroll={{ x: 760 }}
+						scroll={{ x: 1050 }}
 					/>
 					<Pagination
 						page={articles.page}

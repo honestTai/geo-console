@@ -14,6 +14,10 @@ export const resourceResolvers = {
 	report_share:
 		"SELECT r.organization_id,r.project_id,s.created_by AS owner_user_id FROM report_shares s JOIN report_snapshots r ON r.id=s.report_id WHERE s.id=$1",
 	article: "SELECT organization_id,project_id FROM optimization_articles WHERE id=$1",
+	article_quality: "SELECT organization_id,project_id FROM article_quality_runs WHERE id=$1",
+	knowledge_asset: "SELECT organization_id,project_id FROM customer_knowledge_assets WHERE id=$1",
+	publication_channel: "SELECT organization_id,project_id FROM publication_channels WHERE id=$1",
+	publication_order: "SELECT organization_id,project_id FROM publication_orders WHERE id=$1",
 	drift_alert:
 		"SELECT p.organization_id,p.id AS project_id FROM drift_alerts d JOIN projects p ON p.id=d.project_id WHERE d.id=$1",
 	member: "SELECT organization_id,id AS owner_user_id FROM users WHERE id=$1",

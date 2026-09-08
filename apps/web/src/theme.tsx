@@ -7,10 +7,10 @@ import type { ReactNode } from "react";
 dayjs.locale("zh-cn");
 
 /** 与 styles.css :root 保持一致的品牌与中性色。 */
-export const brandColor = "#16a34a";
-export const inkColor = "#101828";
-export const lineColor = "#e4e7ec";
-export const sidebarColor = "#101828";
+export const brandColor = "#155dfb";
+export const inkColor = "#111827";
+export const lineColor = "#e5e7eb";
+export const sidebarColor = "#ffffff";
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
 	return (
@@ -19,18 +19,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 			theme={{
 				token: {
 					colorPrimary: brandColor,
-					colorLink: "#15803d",
+					colorLink: "#1d4ed8",
 					colorLinkHover: brandColor,
 					colorText: inkColor,
 					colorTextSecondary: "#475467",
 					colorTextTertiary: "#667085",
 					colorBorder: lineColor,
 					colorBorderSecondary: "#eef0f3",
-					colorBgLayout: "#f6f7f9",
+					colorBgLayout: "#f9fafb",
 					borderRadius: 6,
-					borderRadiusLG: 10,
+					borderRadiusLG: 8,
 					borderRadiusSM: 4,
-					controlHeight: 36,
+					controlHeight: 40,
 					controlHeightSM: 28,
 					controlHeightLG: 42,
 					fontSize: 14,
@@ -38,7 +38,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 					boxShadowSecondary: "0 8px 24px rgba(16, 24, 40, 0.10)",
 				},
 				components: {
-					Layout: { headerBg: sidebarColor, siderBg: sidebarColor, bodyBg: "#f6f7f9" },
+					Layout: { headerBg: sidebarColor, siderBg: sidebarColor, bodyBg: "#f9fafb" },
 					Button: {
 						fontWeight: 600,
 						paddingInline: 14,
@@ -46,17 +46,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 						defaultShadow: "none",
 						primaryShadow: "none",
 					},
-					Card: { paddingLG: 20, headerFontSize: 15, headerHeight: 52 },
+					Card: { paddingLG: 24, headerFontSize: 16, headerHeight: 60 },
 					Table: {
-						headerBg: "#f8f9fb",
+						headerBg: "#fafbfc",
 						headerColor: "#475467",
-						cellPaddingBlock: 12,
-						cellPaddingInline: 14,
+						cellPaddingBlock: 16,
+						cellPaddingInline: 20,
 						rowHoverBg: "#f8f9fb",
 					},
 					Form: { itemMarginBottom: 16, labelColor: "#475467", labelFontSize: 13 },
 					Input: { paddingInline: 12 },
-					Select: { optionSelectedBg: "#ecfdf3" },
+					Select: { optionSelectedBg: "#eff6ff" },
 					Tag: { defaultBg: "#f2f4f7", defaultColor: "#475467" },
 					Tabs: { titleFontSize: 14, horizontalItemPadding: "10px 0", horizontalMargin: "0 0 20px 0" },
 					Modal: { titleFontSize: 16 },

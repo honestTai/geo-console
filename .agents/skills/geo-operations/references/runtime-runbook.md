@@ -1,5 +1,7 @@
 # GEO Console Runtime Runbook
 
+内容运营排障先看 `docs/content-operations.md`：article_quality 由 Semantic Worker 独立一槽处理，检查版本/知识修订/审批/租约。失效结果必须新建质检，不修改历史。发布工单仅人工执行，submitted 是回执待复核，verified 只代表对应版本交付已核对。无自动 CMS 或浏览器发文。0028-0031 和 API/Web/Agent/Semantic Worker 保持同版，备份覆盖全部新增表；既有机构新权限不自动授予。
+
 客户封档/删除 409 先看 jobs、AI 会话和分析运行是否结束；不通过删证据解锁。0027 提供数据库写保护，封档/逻辑删除后计划与协调器停止推进。删除客户的旧分享和 artifacts 应为 404；若旧服务仍可读取，需统一更新 API/Workers，禁止回退到未检查 deleted_at 的版本。备份包含状态字段和全部证据，详见 `docs/customer-management.md`。
 
 可读报告/文章排障：新模板仅用于新冻结快照；0026 为文章可空计划和定位策略加法，发布须 API/Agent/Report/Web 同版本。文章排队先确认 content，历史未分类需重生成批准，不自动付费回填。引用 409/打不开区分跨客户、缺失对象、正文或文件权限，不替换记录/放宽隔离。备份计划、冻结全文与 PNG/raw；回滚不删列，保留新模板渲染能力。见 `docs/reader-report-workflow.md`。

@@ -1,8 +1,6 @@
-import { Alert, Breadcrumb, Spin, Typography } from "antd";
+import { Alert, Spin, Typography } from "antd";
 import { type ReactNode, useContext } from "react";
 import { ProjectReadOnlyContext } from "../access";
-import type { View } from "../types";
-import { useWorkspaceNavigation } from "../ui/navigation";
 import "./Page.css";
 
 /** 加载指示延迟：短于这个时间的请求不闪 loading，避免切换视图/批次时的抖动。 */
@@ -18,9 +16,9 @@ export function Page({
 	loading,
 	children,
 }: {
-	/** 面包屑前缀，如当前客户名；点击返回客户列表，与 eyebrow 组成 "客户 / 页面" */
+	/** Customer context; visible switching is provided by Shell. */
 	breadcrumb?: string;
-	/** 页面类别小标签，同时作为面包屑末级；有客户上下文时末级带面板切换下拉 */
+	/** Accessible section label. */
 	eyebrow: string;
 	title: string;
 	description?: ReactNode;
@@ -32,37 +30,12 @@ export function Page({
 	loading?: boolean;
 	children?: ReactNode;
 }) {
-	const { openView, openProjectList, panelViews } = useWorkspaceNavigation();
 	const readOnly = useContext(ProjectReadOnlyContext);
-	const currentCrumb = { title: <span className="page-crumb-current">{eyebrow}</span> };
-	const crumbs = [
-		...(breadcrumb
-			? [
-					{
-						title: (
-							<button type="button" className="page-crumb-link" onClick={openProjectList}>
-								{breadcrumb}
-							</button>
-						),
-					},
-				]
-			: []),
-		breadcrumb && panelViews.length
-			? {
-					...currentCrumb,
-					menu: {
-						items: panelViews.map((item) => ({ key: item.id, label: item.label })),
-						onClick: ({ key }: { key: string }) => openView(key as View),
-					},
-				}
-			: currentCrumb,
-	];
 	return (
-		<section className={className ? `page ${className}` : "page"}>
+		<section className={className ? `page ${className}` : "page"} aria-label={eyebrow} data-customer={breadcrumb}>
 			<header className="page-head">
 				<div className="page-head-text">
-					<Breadcrumb className="page-breadcrumb" items={crumbs} />
-					<Typography.Title level={2} className="page-title">
+					<Typography.Title level={1} className="page-title">
 						{title}
 					</Typography.Title>
 					{description && (

@@ -813,7 +813,7 @@ export async function createWorkbenchTools(
 						[projectId],
 					),
 					database.query(
-						"SELECT id,batch_id,title,status,recommendation_title FROM optimization_articles WHERE project_id=$1 ORDER BY created_at DESC LIMIT 20",
+						"SELECT id,batch_id,title,status,recommendation_title FROM optimization_articles WHERE project_id=$1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 20",
 						[projectId],
 					),
 					database.query(

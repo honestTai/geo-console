@@ -18,6 +18,8 @@ description: Develop or review GEO Console application code, including the Web/A
 
 ## 开发边界
 
+- 内容运营修改先读 `docs/content-operations.md`：文章版本/知识修订/质检和人工审核必须一致；发布工单固定版本及渠道，回执只证明人工交付。用户当前只选择人工发布，不接自动 CMS 或浏览器发文。新表必须接入项目写保护和资源授权。
+
 - 使用 Node.js 24、`corepack pnpm` 和 workspace 依赖；不得绕过 `pnpm-workspace.yaml` 的供应链限制。
 - 运行时代码必须适用于任意客户和行业。不得加入 Mock 回答、Seed 指标、示例公司或行业默认值；测试夹具必须明确只存在于测试中。
 - 新采集只写 `geo.query-capture.v2` / `llm_search_api`。旧 `consumer_surface` v1 证据只读，不能和 v2 批次或趋势混算。

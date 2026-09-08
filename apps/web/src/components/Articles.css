@@ -3,6 +3,11 @@
 	min-width: 200px;
 }
 
+.article-search {
+	width: 260px;
+	max-width: 100%;
+}
+
 .article-cell {
 	display: grid;
 	gap: 3px;
@@ -67,6 +72,10 @@
 
 .article-drawer .ant-drawer-header {
 	gap: var(--space-4);
+}
+.article-drawer-root .ant-drawer-content-wrapper {
+	max-width: calc(100vw - 24px);
+	transition-property: transform, box-shadow;
 }
 
 .article-editor {
@@ -215,5 +224,19 @@
 
 	.article-form-grid {
 		grid-template-columns: 1fr;
+	}
+}
+@media (max-width: 600px) {
+	.article-drawer-root .ant-drawer-content-wrapper {
+		max-width: 100vw;
+	}
+	.article-drawer .ant-drawer-header {
+		flex-wrap: wrap;
+	}
+	.article-drawer .ant-drawer-header-title {
+		flex-basis: 100%;
+	}
+	.article-drawer-actions {
+		justify-content: flex-end;
 	}
 }

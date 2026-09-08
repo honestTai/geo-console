@@ -362,7 +362,7 @@ async function createReportSnapshotLocked(
 		await database.query<Record<string, unknown>>(
 			`SELECT a.title,a.summary,a.recommendation_title,a.status,a.published_url,a.publication_plan,a.evidence_ids,a.target_prompt_ids
 		 FROM optimization_articles a JOIN agent_runs r ON r.id=a.source_run_id
-		 WHERE a.batch_id=$1 AND a.narrative_run_id=$2 AND r.status='approved' ORDER BY a.recommendation_index`,
+		 WHERE a.batch_id=$1 AND a.narrative_run_id=$2 AND a.deleted_at IS NULL AND r.status='approved' ORDER BY a.recommendation_index`,
 			[input.batchId, approvedNarrative.id],
 		)
 	).rows.map((a) => ({

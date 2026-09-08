@@ -13,6 +13,7 @@ import {
 	Articles,
 	Attribution,
 	AuditLogs,
+	CustomerKnowledge,
 	CustomerManagement,
 	Diagnosis,
 	Evidence,
@@ -22,6 +23,7 @@ import {
 	Onboarding,
 	OrganizationManagement,
 	Overview,
+	Publications,
 	RbacManagement,
 	Remediation,
 	Report,
@@ -63,6 +65,7 @@ export function App() {
 	evidenceProject.current = projectId;
 	const [project, setProject] = useState<Project | null>(null);
 	const [view, setView] = useState<View>("overview");
+	const [viewFilter, setViewFilter] = useState<string | null>(null);
 	const [creating, setCreating] = useState(false);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
@@ -90,7 +93,11 @@ export function App() {
 	);
 	const workspaceNavigation = useMemo<WorkspaceNavigation>(
 		() => ({
-			openView: setView,
+			openView: (next, filter) => {
+				setViewFilter(filter ?? null);
+				setView(next);
+			},
+			viewFilter,
 			openProjectList: () => {
 				setProjectId(null);
 				setProject(null);
@@ -130,7 +137,7 @@ export function App() {
 				setView("workbench");
 			},
 		}),
-		[availableViews, projectId],
+		[availableViews, projectId, viewFilter],
 	);
 
 	const loadProjects = useCallback(async () => {
@@ -410,7 +417,10 @@ export function App() {
 						setProjectId(null);
 						setProject(null);
 					}}
-					onSelectView={setView}
+					onSelectView={(next) => {
+						setViewFilter(null);
+						setView(next);
+					}}
 				>
 					<ViewBoundary resetKey={`${projectId}:${view}`}>
 						<ProjectReadOnlyContext.Provider value={project?.status === "archived" && !managementViews.includes(view)}>
@@ -420,7 +430,8 @@ export function App() {
 								</div>
 							) : !["active", "archived"].includes(project.status) &&
 								!managementViews.includes(view) &&
-								view !== "workbench" ? (
+								view !== "workbench" &&
+								view !== "customerKnowledge" ? (
 								<Onboarding
 									project={project}
 									refresh={async () => {
@@ -464,6 +475,8 @@ export function App() {
 									{view === "attribution" && <Attribution project={project} />}
 									{view === "report" && <Report project={project} />}
 									{view === "articles" && <Articles project={project} />}
+									{view === "customerKnowledge" && <CustomerKnowledge key={project.id} project={project} />}
+									{view === "publications" && <Publications key={project.id} project={project} />}
 									{view === "knowledge" && (
 										<KnowledgeBase project={project} canWrite={hasPermission(user, "knowledge.manage")} />
 									)}

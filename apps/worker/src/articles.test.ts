@@ -269,7 +269,7 @@ describe("优化文章", () => {
 		}
 	});
 
-	it("编辑只改允许字段，正文变化时版本递增", async () => {
+	it("标题与正文变化都递增版本并重置草稿状态，删除保留历史", async () => {
 		const database = await seed();
 		try {
 			await database.query(
@@ -283,14 +283,14 @@ describe("优化文章", () => {
 			});
 			let article = await getArticle(database, "article");
 			expect(article?.title).toBe("新标题");
-			expect(article?.status).toBe("reviewing");
-			expect(article?.version).toBe(1);
+			expect(article?.status).toBe("draft");
+			expect(article?.version).toBe(2);
 			await updateArticle(database, "article", { contentMarkdown: "新正文" });
 			article = await getArticle(database, "article");
-			expect(article?.version).toBe(2);
+			expect(article?.version).toBe(3);
 			expect(article?.content_markdown).toBe("新正文");
 			await expect(updateArticle(database, "article", { contentMarkdown: " \n " })).rejects.toThrow();
-			expect((await getArticle(database, "article"))?.version).toBe(2);
+			expect((await getArticle(database, "article"))?.version).toBe(3);
 			await expect(updateArticle(database, "article", { publishedUrl: "not a url" })).rejects.toThrow();
 			await deleteArticle(database, "article");
 			expect(await getArticle(database, "article")).toBeNull();
@@ -386,14 +386,15 @@ describe("优化文章", () => {
 				}),
 			).rejects.toThrow("待补充事实");
 			expect((await getArticle(database, "article"))?.version).toBe(1);
-			await updateArticle(database, "article", {
-				status: "published",
-				publishedUrl: "https://brand.example/a",
-				publicationPlan,
-				contentMarkdown: "仅测试的已核对正文",
-			});
-			expect((await getArticle(database, "article"))?.status).toBe("published");
-			await expect(updateArticle(database, "article", { publishedUrl: null })).rejects.toThrow("实际发布地址");
+			await expect(
+				updateArticle(database, "article", {
+					status: "published",
+					publishedUrl: "https://brand.example/a",
+					publicationPlan,
+					contentMarkdown: "仅测试的已核对正文",
+				}),
+			).rejects.toThrow("先保存文章新版本");
+			expect((await getArticle(database, "article"))?.status).toBe("draft");
 		} finally {
 			await database.close();
 		}

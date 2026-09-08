@@ -6,6 +6,7 @@ import {
 	bigint,
 	boolean,
 	check,
+	foreignKey,
 	index,
 	integer,
 	jsonb,
@@ -1115,12 +1116,18 @@ export const optimizationArticles = pgTable(
 		evidenceIds: jsonb("evidence_ids").$type<string[]>().notNull().default([]),
 		targetPromptIds: jsonb("target_prompt_ids").$type<string[]>().notNull().default([]),
 		publishedUrl: text("published_url"),
+		deletedAt: timestamp("deleted_at", { withTimezone: true }),
 		version: integer("version").notNull().default(1),
 		createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
 		createdAt,
 		updatedAt,
 	},
-	(table) => [index("optimization_articles_project_idx").on(table.projectId, table.createdAt)],
+	(table) => [
+		index("optimization_articles_project_idx").on(table.projectId, table.createdAt),
+		uniqueIndex("optimization_articles_narrative_idx")
+			.on(table.narrativeRunId, table.recommendationIndex)
+			.where(sql`${table.narrativeRunId} IS NOT NULL AND ${table.deletedAt} IS NULL`),
+	],
 );
 
 export type ReportType = "quick_audit" | "remediation" | "retest";
@@ -1407,3 +1414,276 @@ export const authorizationPolicies = pgTable(
 		index("authorization_policies_kind_idx").on(table.kind, table.httpMethod),
 	],
 );
+
+export const articleVersions = pgTable(
+	"article_versions",
+	{
+		id: id("id"),
+		articleId: text("article_id")
+			.notNull()
+			.references(() => optimizationArticles.id),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id),
+		version: integer("version").notNull(),
+		snapshot: jsonb("snapshot").notNull(),
+		createdAt,
+	},
+	(t) => [uniqueIndex("article_versions_article_version_idx").on(t.articleId, t.version)],
+);
+export const articleQualityRuns = pgTable(
+	"article_quality_runs",
+	{
+		id: id("id"),
+		articleId: text("article_id")
+			.notNull()
+			.references(() => optimizationArticles.id),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id),
+		articleVersion: integer("article_version").notNull(),
+		contentHash: text("content_hash").notNull(),
+		inputHash: text("input_hash").notNull(),
+		snapshot: jsonb("snapshot").notNull(),
+		sources: jsonb("sources").notNull(),
+		contract: jsonb("contract").notNull(),
+		executionActor: jsonb("execution_actor").$type<ExecutionActor>().notNull(),
+		status: text("status").notNull().default("pending"),
+		selectedAttemptId: text("selected_attempt_id"),
+		errorMessage: text("error_message"),
+		createdAt,
+		updatedAt,
+		completedAt: timestamp("completed_at", { withTimezone: true }),
+	},
+	(t) => [
+		foreignKey({
+			columns: [t.articleId, t.articleVersion],
+			foreignColumns: [articleVersions.articleId, articleVersions.version],
+		}),
+		index("article_quality_runs_article_idx").on(t.articleId, t.createdAt, t.id),
+		check("article_quality_runs_status_check", sql`${t.status} IN ('pending','running','failed','needs_review')`),
+	],
+);
+export const articleQualityAttempts = pgTable(
+	"article_quality_attempts",
+	{
+		id: id("id"),
+		runId: text("run_id")
+			.notNull()
+			.references(() => articleQualityRuns.id),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id),
+		attempt: integer("attempt").notNull(),
+		result: jsonb("result"),
+		validation: jsonb("validation").notNull().default([]),
+		rawResponse: jsonb("raw_response").notNull(),
+		eligible: boolean("eligible").notNull().default(false),
+		usage: jsonb("usage"),
+		createdAt,
+	},
+	(t) => [uniqueIndex("article_quality_attempts_run_attempt_idx").on(t.runId, t.attempt)],
+);
+export const articleQualityReviews = pgTable(
+	"article_quality_reviews",
+	{
+		id: id("id"),
+		runId: text("run_id")
+			.notNull()
+			.references(() => articleQualityRuns.id),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id),
+		decision: text("decision").notNull(),
+		note: text("note").notNull(),
+		actor: jsonb("actor").$type<ExecutionActor>().notNull(),
+		createdAt,
+	},
+	(t) => [check("article_quality_reviews_decision_check", sql`${t.decision} IN ('approve','reject')`)],
+);
+export const articleEditorialReviews = pgTable(
+	"article_editorial_reviews",
+	{
+		id: id("id"),
+		articleId: text("article_id")
+			.notNull()
+			.references(() => optimizationArticles.id),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id),
+		articleVersion: integer("article_version").notNull(),
+		contentHash: text("content_hash").notNull(),
+		decision: text("decision").notNull(),
+		note: text("note").notNull(),
+		actor: jsonb("actor").$type<ExecutionActor>().notNull(),
+		createdAt,
+	},
+	(t) => [
+		foreignKey({
+			columns: [t.articleId, t.articleVersion],
+			foreignColumns: [articleVersions.articleId, articleVersions.version],
+		}),
+		check("article_editorial_reviews_decision_check", sql`${t.decision} IN ('approve','reject')`),
+	],
+);
+export const customerKnowledgeAssets = pgTable(
+	"customer_knowledge_assets",
+	{
+		id: id("id"),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id),
+		title: text("title").notNull(),
+		kind: text("kind").notNull(),
+		status: text("status").notNull().default("draft"),
+		currentRevision: integer("current_revision").notNull().default(1),
+		createdBy: text("created_by").references(() => users.id),
+		createdAt,
+		updatedAt,
+	},
+	(t) => [
+		index("customer_knowledge_assets_project_idx").on(t.projectId, t.status, t.updatedAt),
+		check("customer_knowledge_assets_kind_check", sql`${t.kind} IN ('product','case','fact','material')`),
+		check("customer_knowledge_assets_status_check", sql`${t.status} IN ('draft','approved','archived')`),
+	],
+);
+export const customerKnowledgeRevisions = pgTable(
+	"customer_knowledge_revisions",
+	{
+		id: id("id"),
+		assetId: text("asset_id")
+			.notNull()
+			.references(() => customerKnowledgeAssets.id),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id),
+		revision: integer("revision").notNull(),
+		title: text("title").notNull(),
+		kind: text("kind").notNull(),
+		content: text("content").notNull(),
+		sourceUrl: text("source_url"),
+		sourceNote: text("source_note").notNull(),
+		validUntil: timestamp("valid_until", { withTimezone: true }),
+		contentHash: text("content_hash").notNull(),
+		createdBy: text("created_by").references(() => users.id),
+		createdAt,
+	},
+	(t) => [uniqueIndex("customer_knowledge_revisions_asset_revision_idx").on(t.assetId, t.revision)],
+);
+export const customerKnowledgeReviews = pgTable(
+	"customer_knowledge_reviews",
+	{
+		id: id("id"),
+		revisionId: text("revision_id")
+			.notNull()
+			.references(() => customerKnowledgeRevisions.id),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id),
+		decision: text("decision").notNull(),
+		note: text("note").notNull(),
+		actor: jsonb("actor").$type<ExecutionActor>().notNull(),
+		createdAt,
+	},
+	(t) => [check("customer_knowledge_reviews_decision_check", sql`${t.decision} IN ('approve','reject','archive')`)],
+);
+export const publicationChannels = pgTable("publication_channels", {
+	id: id("id"),
+	organizationId: text("organization_id")
+		.notNull()
+		.references(() => organizations.id),
+	projectId: text("project_id")
+		.notNull()
+		.references(() => projects.id),
+	name: text("name").notNull(),
+	platform: text("platform").notNull(),
+	accountName: text("account_name").notNull(),
+	profileUrl: text("profile_url"),
+	targetUrl: text("target_url"),
+	instructions: text("instructions").notNull().default(""),
+	enabled: boolean("enabled").notNull().default(true),
+	revision: integer("revision").notNull().default(1),
+	createdAt,
+	updatedAt,
+});
+export const publicationOrders = pgTable(
+	"publication_orders",
+	{
+		id: id("id"),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id),
+		articleId: text("article_id")
+			.notNull()
+			.references(() => optimizationArticles.id),
+		articleVersion: integer("article_version").notNull(),
+		articleSnapshot: jsonb("article_snapshot").notNull(),
+		channelId: text("channel_id")
+			.notNull()
+			.references(() => publicationChannels.id),
+		channelSnapshot: jsonb("channel_snapshot").notNull(),
+		assignedTo: text("assigned_to").references(() => users.id),
+		scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+		status: text("status").notNull().default("draft"),
+		notes: text("notes").notNull().default(""),
+		revision: integer("revision").notNull().default(1),
+		createdBy: text("created_by").references(() => users.id),
+		createdAt,
+		updatedAt,
+		completedAt: timestamp("completed_at", { withTimezone: true }),
+	},
+	(t) => [
+		foreignKey({
+			columns: [t.articleId, t.articleVersion],
+			foreignColumns: [articleVersions.articleId, articleVersions.version],
+		}),
+		index("publication_orders_project_idx").on(t.projectId, t.status, t.scheduledAt, t.createdAt),
+		uniqueIndex("publication_orders_active_idx")
+			.on(t.articleId, t.articleVersion, t.channelId)
+			.where(sql`${t.status} NOT IN ('failed','cancelled')`),
+		check(
+			"publication_orders_status_check",
+			sql`${t.status} IN ('draft','ready','in_progress','submitted','verified','failed','cancelled','outcome_unknown')`,
+		),
+	],
+);
+export const publicationReceipts = pgTable("publication_receipts", {
+	id: id("id"),
+	orderId: text("order_id")
+		.notNull()
+		.references(() => publicationOrders.id),
+	projectId: text("project_id")
+		.notNull()
+		.references(() => projects.id),
+	resultUrl: text("result_url").notNull(),
+	note: text("note").notNull(),
+	actor: jsonb("actor").$type<ExecutionActor>().notNull(),
+	submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const publicationEvents = pgTable("publication_events", {
+	id: id("id"),
+	orderId: text("order_id")
+		.notNull()
+		.references(() => publicationOrders.id),
+	projectId: text("project_id")
+		.notNull()
+		.references(() => projects.id),
+	fromStatus: text("from_status"),
+	toStatus: text("to_status").notNull(),
+	note: text("note").notNull(),
+	actor: jsonb("actor").$type<ExecutionActor>().notNull(),
+	receiptId: text("receipt_id").references(() => publicationReceipts.id),
+	createdAt,
+});
