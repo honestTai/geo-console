@@ -1,5 +1,7 @@
 # GEO Console Project Map
 
+品牌等待：`ui/BrandLoading.tsx/css` 提供 Z 描绘标记和字标，ThemeProvider 通过 ConfigProvider 统一 Spin/Table/Button/Select 指示器；App、ViewBoundary、趋势/设置/归因/证据/文章详情消费同一展示件。保留 Page 延迟、具体业务状态和错误重试，见 docs/ui-refinement.md。
+
 全工作台参考布局：Shell(256/64/48 尺寸及顶栏导航) → Page(唯一 H1/操作) → shared primitives/theme(表格/空态/表单/统计)；Remediation 用 TaskManagementLayout 做主列表、已完成折叠、统计和运行区，任务详情复用 TaskItem 抽屉。无新增后端/迁移/队列行为，运行状态不能推断 Worker 在线。布局验证见 docs/content-operations.md。
 
 内容运营：migration 0028-0031 → `article-quality.ts/articles.ts`（版本、质检、审核和导出）、`customer-knowledge.ts`（资料版本与批准）、`publications.ts`（人工渠道、工单与回执）、`project-operations.ts`（权限内待办/业务反馈）。`content-routes.ts` 由已授权的 API dispatcher 调用；新增资源登记在 authorization/resources。`semantic-runtime.ts` 独立一槽执行 article_quality；`queue-recovery.ts` 收尾耗尽租约。Web 对应 ArticleQuality、CustomerKnowledge、Publications、OperationsOverview；App/lazy-views/workspace-views 装配，theme/Shell 为用户指定浅色蓝色。事实边界、恢复和测试见 `docs/content-operations.md`。

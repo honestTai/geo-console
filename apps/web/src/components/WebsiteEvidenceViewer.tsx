@@ -1,8 +1,9 @@
-import { Alert, Drawer, Spin } from "antd";
+import { Alert, Drawer } from "antd";
 import { useEffect, useState } from "react";
 import { Button } from "../access";
 import { api } from "../api";
 import type { WebsiteAuditRecord } from "../types";
+import { BrandLoading } from "../ui/BrandLoading";
 import { date, IdChip } from "../ui/primitives";
 import { AuditEvidenceDrawer } from "./WebsiteAudit";
 
@@ -55,7 +56,7 @@ export function WebsiteEvidenceViewer({
 				{error ? (
 					<Alert showIcon type="error" title={error} />
 				) : !record ? (
-					<Spin />
+					<BrandLoading label="正在读取官网证据" />
 				) : (
 					<>
 						<h3>{record.snapshot.title ?? "网页快照"}</h3>

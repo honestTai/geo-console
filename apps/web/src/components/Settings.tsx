@@ -1,4 +1,4 @@
-import { IconKey, IconLoader2, IconRefresh } from "@tabler/icons-react";
+import { IconKey, IconRefresh } from "@tabler/icons-react";
 import { App, AutoComplete, Descriptions, Form, Input, Select, Space, Switch, Tabs, Tooltip } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../access";
@@ -14,6 +14,7 @@ import {
 	type WebSearchTestStatus,
 	webSearchStatusLabels,
 } from "../types";
+import { BrandLoading } from "../ui/BrandLoading";
 import { SectionTitle, shortDate } from "../ui/primitives";
 import { downloadJson, TransferButtons, transferFileName } from "../ui/transfer";
 import { Page } from "./Page";
@@ -142,7 +143,7 @@ export function ProviderPanel({
 							}
 							placeholder="选择或输入模型 ID"
 							allowClear
-							notFoundContent={modelsLoading ? "正在读取模型…" : null}
+							notFoundContent={modelsLoading ? <BrandLoading compact label="正在读取模型列表" /> : null}
 						/>
 					</Form.Item>
 					<Form.Item label="API 地址">
@@ -409,7 +410,7 @@ export function Settings() {
 									.includes(input.toLowerCase())
 							}
 							placeholder={models.length ? "选择或输入 GPT 模型" : "输入 GPT 模型 ID，如 gpt-5.5"}
-							notFoundContent={busy === "hrouter-models" ? "正在读取模型…" : null}
+							notFoundContent={busy === "hrouter-models" ? <BrandLoading compact label="正在读取模型列表" /> : null}
 							allowClear
 						/>
 					</Form.Item>
@@ -554,10 +555,7 @@ export function Settings() {
 						runAction={action}
 					/>
 				) : (
-					<div className="chart-loading">
-						<IconLoader2 className="spin" size={17} />
-						<span>正在加载平台配置</span>
-					</div>
+					<BrandLoading label="正在读取平台配置" />
 				)}
 			</div>
 		</Page>

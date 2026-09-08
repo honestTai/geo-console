@@ -1,5 +1,6 @@
 import { Component, type ReactNode, Suspense } from "react";
 import { Button } from "../access";
+import { BrandLoading } from "../ui/BrandLoading";
 import "./ViewBoundary.css";
 
 /** An unavailable lazy chunk must not blank the entire console or trigger an automatic reload loop. */
@@ -20,16 +21,6 @@ export class ViewBoundary extends Component<{ children: ReactNode; resetKey: str
 					<Button onClick={() => window.location.reload()}>刷新并重试</Button>
 				</section>
 			);
-		return (
-			<Suspense
-				fallback={
-					<div className="view-load-state" role="status" aria-live="polite">
-						正在加载功能…
-					</div>
-				}
-			>
-				{this.props.children}
-			</Suspense>
-		);
+		return <Suspense fallback={<BrandLoading label="正在打开功能页面" />}>{this.props.children}</Suspense>;
 	}
 }

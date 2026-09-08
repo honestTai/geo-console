@@ -1,10 +1,11 @@
 import { IconSettings } from "@tabler/icons-react";
-import { Alert, Skeleton, Spin, Statistic } from "antd";
+import { Alert, Skeleton, Statistic } from "antd";
 import { type ReactNode, useEffect, useState } from "react";
 import { Button, useBatch } from "../access";
 import { api } from "../api";
 import { useDelayedLoading } from "../hooks/useDelayedLoading";
 import { type BatchSummary, batchKindLabel, type Project, shortDate, type Task, type TrendResponse } from "../types";
+import { BrandLoading } from "../ui/BrandLoading";
 import { Empty, percentage, SectionTitle } from "../ui/primitives";
 import { LineTrendChart, MentionBarChart, overallMetric, overallPercent, perPlatformMention } from "./charts";
 import { Measurement } from "./Measurement";
@@ -101,12 +102,7 @@ export function OverviewTrendPanel({
 	if (!latest) {
 		content = <Empty title="还没有监测批次" detail="建立首个基线后，这里会显示关键指标随批次的变化趋势。" />;
 	} else if (loading) {
-		content = (
-			<div className="chart-loading">
-				<Spin size="small" />
-				<span>正在加载趋势</span>
-			</div>
-		);
+		content = <BrandLoading label="正在读取趋势" />;
 	} else if (!trends || trends.comparable.length === 0) {
 		content = (
 			<Empty

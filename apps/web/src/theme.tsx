@@ -3,6 +3,7 @@ import zhCN from "antd/locale/zh_CN";
 import dayjs from "dayjs";
 import "dayjs/locale/zh-cn";
 import type { ReactNode } from "react";
+import { BrandLoadingMark } from "./ui/BrandLoading";
 
 dayjs.locale("zh-cn");
 
@@ -16,6 +17,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 	return (
 		<ConfigProvider
 			locale={zhCN}
+			spin={{ indicator: <BrandLoadingMark /> }}
+			button={{ loadingIcon: <BrandLoadingMark inline /> }}
+			select={{ loadingIcon: <BrandLoadingMark inline /> }}
 			theme={{
 				token: {
 					colorPrimary: brandColor,
@@ -38,6 +42,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 					boxShadowSecondary: "0 8px 24px rgba(16, 24, 40, 0.10)",
 				},
 				components: {
+					Spin: { dotSize: 32, dotSizeSM: 20, dotSizeLG: 48 },
 					Layout: { headerBg: sidebarColor, siderBg: sidebarColor, bodyBg: "#f9fafb" },
 					Button: {
 						fontWeight: 600,
