@@ -1,4 +1,4 @@
-/* 应用外壳：深色侧边栏 + 一行紧凑顶栏 + 居中限宽工作区 */
+/* White navigation, compact header and an unframed work area. */
 .app-shell {
 	min-height: 100vh;
 }
@@ -13,6 +13,7 @@
 	position: sticky;
 	top: 0;
 	height: 100vh;
+	border-right: 1px solid var(--line);
 }
 
 .app-sider-inner {
@@ -30,23 +31,23 @@
 }
 
 .app-sider-brand strong {
-	color: #ffffff;
+	color: var(--ink);
 }
 
 .app-sider-brand small {
-	color: rgba(255, 255, 255, 0.55);
+	color: var(--ink-3);
 }
 
 .app-sider .app-sider-switch {
 	margin: 0 0 var(--space-3);
-	background: rgba(255, 255, 255, 0.06);
-	border: 1px solid rgba(255, 255, 255, 0.12);
-	color: rgba(255, 255, 255, 0.85);
+	background: var(--surface-2);
+	border: 1px solid var(--line);
+	color: var(--ink-2);
 }
 
 .app-sider .app-sider-switch:hover {
-	background: rgba(255, 255, 255, 0.12);
-	border-color: rgba(255, 255, 255, 0.22);
+	background: var(--brand-soft);
+	border-color: var(--brand-line);
 }
 
 /* 品牌与返回按钮固定，菜单过长时只有菜单区滚动 */
@@ -58,7 +59,7 @@
 	background: transparent;
 	border-inline-end: none;
 	scrollbar-width: thin;
-	scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+	scrollbar-color: var(--line-strong) transparent;
 }
 
 .app-sider .app-sider-menu .ant-menu-item {
@@ -69,7 +70,7 @@
 
 .app-sider .app-sider-menu .ant-menu-item-group-title {
 	font-size: 11px;
-	letter-spacing: 0.08em;
+	letter-spacing: 0;
 	text-transform: uppercase;
 	padding: var(--space-3) 10px var(--space-1);
 }
@@ -91,12 +92,12 @@
 	position: sticky;
 	top: 0;
 	z-index: 20;
-	height: 56px;
+	height: 64px;
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 	gap: var(--space-4);
-	padding: 0 var(--space-7);
+	padding: 0 32px;
 	background: rgba(255, 255, 255, 0.92);
 	backdrop-filter: blur(8px);
 	border-bottom: 1px solid var(--line);
@@ -165,11 +166,43 @@
 }
 
 .workspace {
-	padding: var(--space-6) var(--space-7) var(--space-8);
+	padding: 32px 48px 48px;
 	min-width: 0;
 	max-width: var(--content-max);
 	width: 100%;
 	margin: 0 auto;
+}
+.topbar-customer,
+.topbar-view {
+	border: 0;
+	padding: 4px 0;
+	background: transparent;
+	cursor: pointer;
+	color: var(--ink-2);
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+.topbar-customer:hover,
+.topbar-view:hover {
+	color: var(--brand);
+}
+.topbar-view {
+	padding-left: 16px;
+	margin-left: 8px;
+	border-left: 1px solid var(--line);
+	font-size: 13px;
+}
+.topbar-customer:focus-visible,
+.topbar-view:focus-visible {
+	outline: 2px solid var(--brand);
+	outline-offset: 4px;
+}
+@media (max-width: 600px) {
+	.topbar-view {
+		display: none;
+	}
 }
 
 .workspace.workspace-wide {

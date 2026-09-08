@@ -1,0 +1,70 @@
+.article-quality {
+	min-width: 0;
+	display: grid;
+	gap: 18px;
+}
+.article-quality h3 {
+	margin: 0;
+	font-size: 15px;
+}
+.article-quality p {
+	margin: 0;
+	line-height: 1.7;
+}
+.article-quality-heading,
+.article-quality-toolbar,
+.article-quality-statuses {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px;
+}
+.article-quality-heading {
+	justify-content: space-between;
+}
+.article-quality-heading .ant-select {
+	min-width: 240px;
+	max-width: 100%;
+}
+.article-quality-statuses {
+	padding-block: 14px;
+	border-block: 1px solid var(--line);
+}
+.article-quality-statuses > span {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+.article-quality-summary {
+	color: var(--ink-2);
+}
+.article-quality-issue {
+	display: grid;
+	gap: 10px;
+	padding-block: 16px;
+	border-bottom: 1px solid var(--line);
+	overflow-wrap: anywhere;
+}
+.article-quality-issue > div:first-child {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+}
+.article-quality-issue > div:first-child > span:last-child {
+	color: var(--ink-3);
+}
+.article-quality-issue blockquote {
+	margin: 0;
+	padding: 10px 14px;
+	border-left: 3px solid var(--line);
+	background: var(--surface-2);
+	color: var(--ink-2);
+}
+.article-quality-suggestion {
+	color: var(--ink-2);
+}
+.article-quality-issue ul {
+	margin: 0;
+	color: var(--ink-3);
+}

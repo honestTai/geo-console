@@ -1,0 +1,103 @@
+.content-form-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0 20px;
+}
+.content-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px;
+	margin-bottom: 20px;
+}
+.content-toolbar .ant-select {
+	min-width: 200px;
+	max-width: 100%;
+}
+.content-evidence-text {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font: inherit;
+	line-height: 1.8;
+	padding: 20px 0;
+	border-top: 1px solid var(--line);
+	border-bottom: 1px solid var(--line);
+}
+.content-operations .ant-table-cell {
+	overflow-wrap: anywhere;
+}
+.content-operations .ant-table-cell .ant-btn-link {
+	max-width: 100%;
+	height: auto;
+	white-space: normal;
+	text-align: left;
+	justify-content: flex-start;
+	padding-inline: 0;
+}
+.content-operations .ant-table-cell .ant-btn-link > span {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+.content-operations .ant-table table {
+	table-layout: fixed;
+}
+.content-summary {
+	color: var(--ink-3);
+	font-size: 12px;
+	line-height: 1.6;
+}
+.content-operations .ant-tabs-nav {
+	margin-bottom: 24px;
+}
+.ant-drawer .ant-drawer-content-wrapper {
+	max-width: 100vw;
+	transition-property: transform, box-shadow;
+}
+.operations-strip {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 24px;
+	margin: 0 0 28px;
+}
+.operations-item {
+	min-width: 0;
+	text-align: left;
+	padding: 20px 24px;
+	min-height: 94px;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background: var(--surface);
+	box-shadow: var(--shadow-1);
+	cursor: pointer;
+}
+.operations-item:hover {
+	border-color: var(--brand);
+}
+.operations-item:focus-visible {
+	outline: 2px solid var(--brand);
+	outline-offset: 3px;
+}
+.operations-item span {
+	color: var(--ink-3);
+	display: block;
+	font-size: 13px;
+}
+.operations-item strong {
+	color: var(--ink);
+	display: block;
+	margin-top: 6px;
+	font-size: 25px;
+	font-variant-numeric: tabular-nums;
+}
+.operations-item[data-active="true"] strong {
+	color: var(--brand);
+}
+@media (max-width: 900px) {
+	.operations-strip {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 16px;
+	}
+	.content-form-grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}

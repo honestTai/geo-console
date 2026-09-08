@@ -21,13 +21,12 @@
 	flex-direction: column;
 	gap: 4px;
 	min-height: 196px;
-	padding: 20px;
+	padding: 24px;
 }
 
 .project-home-card:hover {
 	border-color: var(--line-strong);
-	box-shadow: var(--shadow-2);
-	transform: translateY(-2px);
+	box-shadow: var(--shadow-1);
 }
 
 .project-home-card-head {

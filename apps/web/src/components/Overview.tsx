@@ -8,6 +8,7 @@ import { type BatchSummary, batchKindLabel, type Project, shortDate, type Task, 
 import { Empty, percentage, SectionTitle } from "../ui/primitives";
 import { LineTrendChart, MentionBarChart, overallMetric, overallPercent, perPlatformMention } from "./charts";
 import { Measurement } from "./Measurement";
+import { OperationsOverview } from "./OperationsOverview";
 import { Page } from "./Page";
 import { ProjectProfileEditor } from "./ProjectProfileEditor";
 import { ScopeEditor } from "./ScopeEditor";
@@ -218,6 +219,7 @@ export function Overview({ project, refresh }: { project: Project; refresh(): Pr
 					编辑客户信息{!project.website_url ? " / 补充官网" : ""}
 				</Button>
 			</div>
+			<OperationsOverview key={project.id} projectId={project.id} />
 			{editingProfile && (
 				<ProjectProfileEditor project={project} onClose={() => setEditingProfile(false)} refresh={refresh} />
 			)}

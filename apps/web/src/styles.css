@@ -4,23 +4,23 @@
 	font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
 	font-size: 14px;
 	color: #101828;
-	background: #f6f7f9;
+	background: #f8fafc;
 	font-synthesis: none;
-	/* 色板：中性冷灰 slate + 单一 emerald 强调 */
-	--ink: #101828;
+	/* Light operations workspace: white surfaces, blue commands, semantic status accents. */
+	--ink: #111827;
 	--ink-2: #475467;
 	--ink-3: #667085;
 	--ink-4: #98a2b3;
-	--bg: #f6f7f9;
+	--bg: #f9fafb;
 	--surface: #ffffff;
 	--surface-2: #f2f4f7;
-	--line: #e4e7ec;
+	--line: #e5e7eb;
 	--line-strong: #c9cfd8;
-	--brand: #16a34a;
-	--brand-bright: #22c55e;
-	--brand-strong: #15803d;
-	--brand-soft: #ecfdf3;
-	--brand-line: #b9e4c8;
+	--brand: #155dfb;
+	--brand-bright: #3b82f6;
+	--brand-strong: #1d4ed8;
+	--brand-soft: #eff6ff;
+	--brand-line: #bfdbfe;
 	--danger: #dc2626;
 	--danger-strong: #b91c1c;
 	--danger-soft: #fef3f2;
@@ -31,8 +31,8 @@
 	--info-strong: #0369a1;
 	--info-soft: #eff6fc;
 	--success-soft: #ecfdf3;
-	--sidebar-bg: #101828;
-	--sidebar-line: rgba(255, 255, 255, 0.09);
+	--sidebar-bg: #ffffff;
+	--sidebar-line: #e4e7ec;
 	--sidebar-text: #475467;
 	/* 间距刻度（4/8/12/16/20/24/32/48） */
 	--space-1: 4px;
@@ -43,14 +43,14 @@
 	--space-6: 24px;
 	--space-7: 32px;
 	--space-8: 48px;
-	--content-max: 1320px;
-	--control-h: 36px;
+	--content-max: 1440px;
+	--control-h: 40px;
 	/* 圆角 */
 	--radius-s: 6px;
-	--radius: 10px;
-	--radius-l: 14px;
+	--radius: 8px;
+	--radius-l: 8px;
 	/* 阴影 */
-	--shadow-1: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.07);
+	--shadow-1: 0 1px 3px rgba(17, 24, 39, 0.08);
 	--shadow-2: 0 10px 28px rgba(16, 24, 40, 0.12);
 	--shadow-3: 0 20px 52px rgba(16, 24, 40, 0.2);
 	/* 过渡 */
@@ -612,9 +612,10 @@ a {
 	align-items: center;
 	justify-content: center;
 	text-align: center;
-	border: 1px dashed #c9cdd4;
+	border: 1px solid var(--line);
 	border-radius: var(--radius-l);
-	background: rgba(255, 255, 255, 0.6);
+	background: var(--surface);
+	box-shadow: var(--shadow-1);
 	padding: 40px 34px;
 }
 
@@ -633,14 +634,20 @@ a {
 	line-height: 1.7;
 	margin: 0 0 20px;
 }
+.ant-table-cell .empty,
+.wb-main .empty {
+	border: 0;
+	box-shadow: none;
+	background: transparent;
+}
 
 /* ---- 客户项目首页 ---- */
 
 .project-home {
 	min-height: 100vh;
-	max-width: 1180px;
+	max-width: 1440px;
 	margin: auto;
-	padding: 26px 32px 64px;
+	padding: 24px 48px 48px;
 }
 
 .project-home > header {
@@ -656,15 +663,14 @@ a {
 }
 
 .home-title {
-	padding: 66px 0 36px;
-	border-bottom: 1px solid var(--line);
-	margin-bottom: 28px;
+	padding: 32px 0 0;
+	margin-bottom: 24px;
 }
 
 .home-title h1 {
-	font-size: 34px;
+	font-size: 30px;
 	margin: 10px 0 8px;
-	letter-spacing: 0.01em;
+	letter-spacing: 0;
 }
 
 .home-title p {
@@ -678,7 +684,7 @@ a {
 .project-grid {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-	gap: 16px;
+	gap: 24px;
 }
 
 .card-arrow {

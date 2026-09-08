@@ -1,24 +1,15 @@
-import { IconCheck, IconFileText, IconPlus, IconTrash } from "@tabler/icons-react";
-import { Alert, Card, DatePicker, Input, Popconfirm, Segmented, Select, Space, Tag } from "antd";
+import { IconCheck, IconFileText, IconTrash } from "@tabler/icons-react";
+import { Alert, Card, DatePicker, Input, Popconfirm, Select, Space, Tag } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useState } from "react";
 import { Button, useAgentRunPolling, usePermission } from "../access";
 import { api, patch, post } from "../api";
 import { useEvidenceIndex } from "../hooks/useEvidenceIndex";
 import { usePaginated } from "../hooks/usePagination";
-import {
-	type AgentRun,
-	batchKindLabel,
-	DEFAULT_PAGE_SIZE,
-	type Paginated,
-	type Project,
-	type Task,
-	taskStatusLabels,
-} from "../types";
+import { type AgentRun, type Paginated, type Project, type Task, taskStatusLabels } from "../types";
 import { useWorkspaceNavigation } from "../ui/navigation";
-import { Empty, Pagination, shortDate } from "../ui/primitives";
 import { AgentDraftCard } from "./AgentDraft";
-import { Page } from "./Page";
+import { TaskManagementLayout } from "./TaskManagementLayout";
 import "./Remediation.css";
 
 export function Remediation({ project, refresh }: { project: Project; refresh(): Promise<void> }) {
@@ -44,8 +35,6 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 		[project.id],
 	);
 	const agentRuns = agentRunsPage.items;
-	const [taskPage, setTaskPage] = useState(1);
-	const visibleTasks = project.tasks.slice((taskPage - 1) * DEFAULT_PAGE_SIZE, taskPage * DEFAULT_PAGE_SIZE);
 	useAgentRunPolling(agentRuns, agentRunsPage.reload);
 	const activeRuns = agentRuns.filter((run) =>
 		["queued", "running", "awaiting_approval", "failed"].includes(run.status),
@@ -53,12 +42,6 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 	// 草稿引用的证据按其批次翻译；待审批草稿通常都来自当前选中的完成批次
 	const draftBatchId = activeRuns.find((run) => run.batch_id)?.batch_id ?? selectedBatch ?? null;
 	const evidenceIndex = useEvidenceIndex(draftBatchId, project.id);
-	// 草稿与任务改成互斥面板，避免长页面上下堆叠；有待审批草稿时默认停在草稿面板提醒先处理。
-	const [panel, setPanel] = useState<"drafts" | "tasks">("tasks");
-	const [panelTouched, setPanelTouched] = useState(false);
-	useEffect(() => {
-		if (!panelTouched && activeRuns.length > 0) setPanel("drafts");
-	}, [panelTouched, activeRuns.length]);
 	async function call(id: string, action: () => Promise<unknown>) {
 		setBusy(id);
 		setError(null);
@@ -73,108 +56,53 @@ export function Remediation({ project, refresh }: { project: Project; refresh():
 		}
 	}
 	return (
-		<Page
-			breadcrumb={project.name}
-			eyebrow="整改中心"
-			title="整改任务"
-			description="Agent 只出草稿，负责人核对后批准；发布后填写地址，系统重抓验收。"
-			extra={
-				<div className="actions">
-					<Select
-						aria-label="来源批次"
-						className="remediation-batch"
-						value={selectedBatch}
-						placeholder="没有已完成批次"
-						disabled={!finishedBatches.length}
-						onChange={setSelectedBatch}
-						options={finishedBatches.map((batch) => ({
-							value: batch.id,
-							label: `${batchKindLabel(batch.kind)} · ${shortDate(batch.created_at)}`,
-						}))}
+		<TaskManagementLayout
+			projectName={project.name}
+			tasks={project.tasks}
+			runs={agentRuns}
+			runTotal={agentRunsPage.total}
+			runPage={agentRunsPage.page}
+			runPageSize={agentRunsPage.pageSize}
+			onRunPage={(page) => void agentRunsPage.reload(page).catch(() => undefined)}
+			finishedBatches={finishedBatches}
+			selectedBatch={selectedBatch}
+			onSelectBatch={setSelectedBatch}
+			busy={busy}
+			error={
+				error || agentRunsPage.error ? (
+					<Alert
+						type="error"
+						showIcon
+						title={error ?? (agentRunsPage.error instanceof Error ? agentRunsPage.error.message : "运行记录加载失败")}
 					/>
-					<Button
-						permission="agent.run"
-						variant="secondary"
-						disabled={!selectedBatch}
-						busy={busy === "agent-plan"}
-						onClick={() =>
-							selectedBatch &&
-							call("agent-plan", () => post(`/api/batches/${selectedBatch}/agent`, { purpose: "remediation" }))
-						}
-					>
-						HRouter Agent 规划草稿
-					</Button>
-					<Button
-						permission="remediation.manage"
-						disabled={!selectedBatch}
-						busy={busy === "create"}
-						icon={<IconPlus size={17} />}
-						onClick={() =>
-							selectedBatch &&
-							call("create", () => post(`/api/projects/${project.id}/tasks/from-findings`, { batchId: selectedBatch }))
-						}
-					>
-						从已批准诊断建任务
-					</Button>
-				</div>
+				) : null
 			}
-		>
-			{error && <Alert type="error" showIcon title={error} />}
-			<Segmented
-				className="remediation-panel-switch"
-				value={panel}
-				onChange={(value) => {
-					setPanelTouched(true);
-					setPanel(value as "drafts" | "tasks");
-				}}
-				options={[
-					{ value: "tasks", label: `整改任务 ${project.tasks.length || ""}` },
-					{ value: "drafts", label: `Agent 草稿 ${activeRuns.length || ""}` },
-				]}
-			/>
-			{panel === "drafts" &&
-				(activeRuns.length === 0 ? (
-					<Empty title="没有待处理的 Agent 草稿" detail="点右上角「HRouter Agent 规划草稿」生成整改规划或内容简报。" />
-				) : (
-					<>
-						<div className="agent-draft-list">
-							{activeRuns.map((run) => (
-								<AgentDraftCard
-									key={run.id}
-									run={run}
-									evidenceIndex={evidenceIndex}
-									onOpenEvidence={(id, kind) => navigation.openEvidence(id, run.batch_id, kind)}
-									tasks={project.tasks}
-									busy={busy === run.id}
-									onReject={() => call(run.id, () => post(`/api/agent-runs/${run.id}/reject`))}
-									onApprove={() => call(run.id, () => post(`/api/agent-runs/${run.id}/approve`))}
-								/>
-							))}
-						</div>
-						<Pagination {...agentRunsPage} onPage={(page) => void agentRunsPage.reload(page)} />
-					</>
-				))}
-			{panel === "tasks" && (
-				<>
-					{project.tasks.length === 0 ? (
-						<Empty title="还没有整改任务" detail="先完成诊断，再把有证据的结论转换为可跟踪任务。" />
-					) : (
-						<div className="remediation-list">
-							{visibleTasks.map((task) => (
-								<TaskItem key={task.id} task={task} busy={busy === task.id} act={(action) => call(task.id, action)} />
-							))}
-						</div>
-					)}
-					<Pagination
-						page={taskPage}
-						pageSize={DEFAULT_PAGE_SIZE}
-						total={project.tasks.length}
-						totalPages={Math.max(1, Math.ceil(project.tasks.length / DEFAULT_PAGE_SIZE))}
-						onPage={setTaskPage}
-					/>
-				</>
+			onCreate={() => {
+				if (selectedBatch)
+					void call("create", () =>
+						post(`/api/projects/${project.id}/tasks/from-findings`, { batchId: selectedBatch }),
+					);
+			}}
+			onPlan={() => {
+				if (selectedBatch)
+					void call("agent-plan", () => post(`/api/batches/${selectedBatch}/agent`, { purpose: "remediation" }));
+			}}
+			onRefresh={() => void call("refresh", () => Promise.resolve())}
+			renderTask={(task) => (
+				<TaskItem key={task.id} task={task} busy={busy === task.id} act={(action) => call(task.id, action)} />
 			)}
-		</Page>
+			renderDraft={(run) => (
+				<AgentDraftCard
+					run={run}
+					evidenceIndex={evidenceIndex}
+					onOpenEvidence={(id, kind) => navigation.openEvidence(id, run.batch_id, kind)}
+					tasks={project.tasks}
+					busy={busy === run.id}
+					onReject={() => call(run.id, () => post(`/api/agent-runs/${run.id}/reject`))}
+					onApprove={() => call(run.id, () => post(`/api/agent-runs/${run.id}/approve`))}
+				/>
+			)}
+		/>
 	);
 }
 

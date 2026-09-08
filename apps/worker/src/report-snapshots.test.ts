@@ -151,6 +151,12 @@ describe("不可变报告快照", () => {
 					],
 				);
 
+				await database.query(
+					`INSERT INTO optimization_articles (id,project_id,batch_id,source_run_id,narrative_run_id,recommendation_index,recommendation_title,title,summary,content_markdown)
+					 VALUES ('visible-article','project','batch','narrative-run','narrative-run',0,'建议','保留文章','摘要','正文'),
+					 ('deleted-article','project','batch','narrative-run','narrative-run',1,'建议','已删除文章','摘要','正文')`,
+				);
+				await database.query("UPDATE optimization_articles SET deleted_at=now() WHERE id='deleted-article'");
 				await seedMetricSnapshot(database, "batch");
 				expect(await advanceReportWorkflow(database, "batch", { actor: { kind: "local" } })).toMatchObject({
 					state: "documents_queued",
@@ -163,6 +169,11 @@ describe("不可变报告快照", () => {
 				).items[0] as { id: string };
 				const snapshot = await getReportSnapshot(database, created.id);
 				expect(snapshot?.payload_hash).toMatch(/^[a-f0-9]{64}$/);
+				expect(snapshot?.payload).toMatchObject({ articles: [{ title: "保留文章" }] });
+				await database.query("UPDATE optimization_articles SET deleted_at=now() WHERE id='visible-article'");
+				const historical = await getReportSnapshot(database, created.id);
+				expect(historical?.payload_hash).toBe(snapshot?.payload_hash);
+				expect(historical?.payload).toMatchObject({ articles: [{ title: "保留文章" }] });
 				expect(renderReportHtml(snapshot ?? {})).toContain("API 回答不等同于对应消费端 App");
 				expect(renderReportHtml(snapshot ?? {})).toContain("服务响应需要改善");
 				expect(renderReportHtml(snapshot ?? {})).toContain("https://brand.example/case");

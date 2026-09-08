@@ -1,12 +1,23 @@
-import { IconArrowLeft, IconGlobe, IconHelpCircle, IconMenu2 } from "@tabler/icons-react";
-import { Alert, Button as AntdButton, ConfigProvider, Drawer, Layout, Menu, type MenuProps, Tag, Tooltip } from "antd";
+import { IconArrowLeft, IconChevronDown, IconGlobe, IconHelpCircle, IconMenu2 } from "@tabler/icons-react";
+import {
+	Alert,
+	Button as AntdButton,
+	ConfigProvider,
+	Drawer,
+	Dropdown,
+	Layout,
+	Menu,
+	type MenuProps,
+	Tag,
+	Tooltip,
+} from "antd";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { Project, View } from "../types";
 import "./Shell.css";
 
 export type ShellNavigationItem = { id: View; label: string; icon: typeof IconGlobe; group?: string };
 
-const groupOrder = ["客户工作台", "机构管理", "系统管理"];
+const groupOrder = ["客户工作台", "监测与诊断", "内容与整改", "交付与复测", "机构管理", "系统管理"];
 
 function useNarrow(): boolean {
 	const [narrow, setNarrow] = useState(() => window.matchMedia("(max-width: 900px)").matches);
@@ -76,15 +87,15 @@ export function AppShell({
 			theme={{
 				components: {
 					Menu: {
-						darkItemBg: "#101828",
-						darkSubMenuItemBg: "#101828",
-						darkItemColor: "rgba(255, 255, 255, 0.68)",
-						darkItemHoverBg: "rgba(255, 255, 255, 0.08)",
-						darkItemSelectedBg: "#16a34a",
-						darkItemSelectedColor: "#ffffff",
-						darkGroupTitleColor: "rgba(255, 255, 255, 0.38)",
+						itemBg: "#ffffff",
+						subMenuItemBg: "#ffffff",
+						itemColor: "#475467",
+						itemHoverBg: "#f2f4f7",
+						itemSelectedBg: "#dbeafe",
+						itemSelectedColor: "#1d4ed8",
+						groupTitleColor: "#98a2b3",
 						itemMarginInline: 0,
-						itemHeight: 32,
+						itemHeight: 36,
 						iconMarginInlineEnd: 10,
 					},
 				},
@@ -92,7 +103,7 @@ export function AppShell({
 		>
 			<Menu
 				className="app-sider-menu"
-				theme="dark"
+				theme="light"
 				mode="inline"
 				inlineIndent={12}
 				selectedKeys={[view]}
@@ -136,15 +147,15 @@ export function AppShell({
 					open={drawerOpen}
 					onClose={() => setDrawerOpen(false)}
 					size={264}
-					styles={{ body: { padding: 0, background: "#101828" }, header: { display: "none" } }}
+					styles={{ body: { padding: 0, background: "#ffffff" }, header: { display: "none" } }}
 				>
 					{siderBody}
 				</Drawer>
 			) : (
 				<Layout.Sider
 					className="app-sider"
-					theme="dark"
-					width={236}
+					theme="light"
+					width={256}
 					collapsedWidth={64}
 					collapsible
 					collapsed={collapsed}
@@ -162,13 +173,34 @@ export function AppShell({
 							</button>
 						)}
 						<div className="topbar-project">
-							<strong>{title ?? project?.name ?? "加载项目"}</strong>
+							<button
+								className="topbar-customer"
+								type="button"
+								onClick={onSwitchProject}
+								title="切换客户"
+								aria-label={project ? `切换客户：${project.name}` : "返回客户列表"}
+							>
+								<strong>{title ?? project?.name ?? "加载项目"}</strong>
+							</button>
 							{project?.domain && (
 								<Tag className="topbar-domain" icon={<IconGlobe size={13} />}>
 									{project.domain || "暂未填写官网"}
 								</Tag>
 							)}
 							{!project && subtitle && <span className="topbar-subtitle">{subtitle}</span>}
+							{navigation.length > 0 && (
+								<Dropdown
+									menu={{
+										items: navigation.map((item) => ({ key: item.id, label: item.label })),
+										onClick: ({ key }) => onSelectView(key as View),
+									}}
+								>
+									<button className="topbar-view" type="button">
+										{navigation.find((item) => item.id === view)?.label ?? "工作台"}
+										<IconChevronDown size={14} />
+									</button>
+								</Dropdown>
+							)}
 						</div>
 					</div>
 					<div className="topbar-right">

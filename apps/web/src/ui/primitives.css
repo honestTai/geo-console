@@ -25,7 +25,7 @@
 	font-weight: 650;
 	display: flex;
 	align-items: center;
-	gap: var(--space-2);
+	gap: var(--space-3);
 }
 
 .section-title-count {
@@ -58,13 +58,15 @@
 	justify-content: space-between;
 	gap: var(--space-3) var(--space-4);
 	flex-wrap: wrap;
-	margin-bottom: var(--space-5);
+	margin-bottom: 24px;
+	padding-bottom: 20px;
+	border-bottom: 1px solid var(--line);
 }
 
 .filter-bar-fields {
 	display: flex;
 	align-items: center;
-	gap: var(--space-2);
+	gap: 12px;
 	flex-wrap: wrap;
 	min-width: 0;
 	flex: 1 1 auto;
@@ -75,6 +77,11 @@
 	width: auto;
 	flex: 0 1 320px;
 	min-width: 200px;
+}
+.filter-bar-fields > .ant-input-search {
+	width: 320px;
+	max-width: 100%;
+	flex: 0 1 320px;
 }
 
 .filter-bar-fields > .ant-select {
@@ -96,14 +103,15 @@
 	--kpi-columns: 5;
 	display: grid;
 	grid-template-columns: repeat(var(--kpi-columns), minmax(0, 1fr));
-	gap: var(--space-4);
+	gap: 24px;
 }
 
 .kpi-card {
 	background: var(--surface);
 	border: 1px solid var(--line);
 	border-radius: var(--radius);
-	padding: var(--space-4) var(--space-5);
+	padding: 22px 24px;
+	box-shadow: var(--shadow-1);
 	display: grid;
 	gap: 4px;
 	align-content: start;

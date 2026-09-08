@@ -1,4 +1,10 @@
 import { lazy } from "react";
+export const CustomerKnowledge = lazy(() =>
+	import("./components/CustomerKnowledge").then((module) => ({ default: module.CustomerKnowledge })),
+);
+export const Publications = lazy(() =>
+	import("./components/Publications").then((module) => ({ default: module.Publications })),
+);
 
 // Feature modules load on demand; importing this registry does not load every management/report dependency.
 export const Articles = lazy(() => import("./components/Articles").then((module) => ({ default: module.Articles })));

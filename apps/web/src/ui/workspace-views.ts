@@ -20,6 +20,8 @@ import {
 import type { View } from "../types";
 
 export const views: Array<{ id: View; label: string; icon: typeof IconActivity }> = [
+	{ id: "customerKnowledge", label: "客户知识资产", icon: IconBook2 },
+	{ id: "publications", label: "发布工作台", icon: IconRoute },
 	{ id: "workbench", label: "AI 工作台", icon: IconSparkles },
 	{ id: "overview", label: "项目总览", icon: IconBuilding },
 	{ id: "monitor", label: "AI 监测", icon: IconActivity },
@@ -58,6 +60,8 @@ export const navigationIcons: Record<string, typeof IconActivity> = {
 	users: IconUsers,
 };
 export const projectPagePermissions = [
+	"page.customer_knowledge",
+	"page.publications",
 	"page.workbench",
 	"page.overview",
 	"page.monitor",

@@ -7,7 +7,8 @@ export type EvidenceFocus = { evidenceId: string; batchId: string | null; kind: 
 export type PanelViewItem = { id: View; label: string };
 
 export type WorkspaceNavigation = {
-	openView(view: View): void;
+	openView(view: View, filter?: string): void;
+	viewFilter?: string | null;
 	/** 返回客户项目列表（等同侧栏“← 客户”按钮）。 */
 	openProjectList(): void;
 	/** 当前客户下可切换的面板（客户工作台视图），页头面包屑用它做面板切换下拉。 */

@@ -599,6 +599,9 @@ export type ArticleSummary = {
 	title: string;
 	summary: string | null;
 	status: ArticleStatus;
+	quality_status?: import("@geo/evidence").ArticleQualityStatus;
+	review_status?: import("@geo/evidence").ArticleEditorialStatus;
+	publication_status?: string;
 	published_url: string | null;
 	version: number;
 	content_length: number;
@@ -743,6 +746,8 @@ export type ProviderSetting = {
 };
 export type ProviderDraft = Partial<ProviderSetting> & { apiKey?: string; secondaryApiKey?: string };
 export type View =
+	| "customerKnowledge"
+	| "publications"
 	| "workbench"
 	| "articles"
 	| "overview"

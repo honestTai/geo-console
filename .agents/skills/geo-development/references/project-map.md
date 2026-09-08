@@ -1,5 +1,9 @@
 # GEO Console Project Map
 
+全工作台参考布局：Shell(256/64/48 尺寸及顶栏导航) → Page(唯一 H1/操作) → shared primitives/theme(表格/空态/表单/统计)；Remediation 用 TaskManagementLayout 做主列表、已完成折叠、统计和运行区，任务详情复用 TaskItem 抽屉。无新增后端/迁移/队列行为，运行状态不能推断 Worker 在线。布局验证见 docs/content-operations.md。
+
+内容运营：migration 0028-0031 → `article-quality.ts/articles.ts`（版本、质检、审核和导出）、`customer-knowledge.ts`（资料版本与批准）、`publications.ts`（人工渠道、工单与回执）、`project-operations.ts`（权限内待办/业务反馈）。`content-routes.ts` 由已授权的 API dispatcher 调用；新增资源登记在 authorization/resources。`semantic-runtime.ts` 独立一槽执行 article_quality；`queue-recovery.ts` 收尾耗尽租约。Web 对应 ArticleQuality、CustomerKnowledge、Publications、OperationsOverview；App/lazy-views/workspace-views 装配，theme/Shell 为用户指定浅色蓝色。事实边界、恢复和测试见 `docs/content-operations.md`。
+
 客户生命周期：`project-lifecycle.ts`（锁定、重授权、任务检查、封档/逻辑删除）→ `project-state.ts` + authorization HTTP/artifact/execution → migration 0027 数据库写保护；CustomerManagement/ProjectLifecycleDialog 管理筛选和二次确认，access 的 ProjectReadOnlyContext 控制工作台动作。新项目子表须补充写保护映射。实现与回滚边界见 `docs/customer-management.md`。
 
 界面与文案：Page.css 统一提示上下间距，primitives Pagination 管理页码/每页条数，Articles.css 管理抽屉列宽和证据长文本；文案审阅范围见 `docs/ui-refinement.md`。Agent v9 增加自然行文要求，生成内容仍绑定原证据与审核流程。
@@ -56,7 +60,7 @@ Tauri 2 桌面客户端加载同一个工作台构建，是所有角色的正式
 | 指标分母与汇总 | `packages/metrics/src/visibility.ts` | batch/report UI |
 | HTTP、RBAC、租户隔离、公开分享 | `apps/worker/src/index.ts`、`auth.ts`、`tenancy.ts` | `apps/web/src/api.ts` |
 | 动态权限目录与分页 | `apps/worker/src/rbac.ts`、`pagination.ts`、`permissions/authorization_policies/roles` migration | API、Web/Tauri 导航与列表 |
-| Web 外壳与页头导航 | `apps/web/src/components/Shell.tsx`、`Page.tsx`、`ui/navigation.tsx`（NavigationContext：`openView/openProjectList/panelViews/openEvidence/openBatch/openWorkbench`） | 全部客户工作台页面（面包屑前级返回客户列表、末级下拉切换面板） |
+| Web 外壳与页头导航 | `apps/web/src/components/Shell.tsx`、`Page.tsx`、`ui/navigation.tsx` | 全部页面；顶栏客户切换/授权页面下拉，Page 只渲染唯一主标题；原证据/批次/工作台定位不变 |
 | 结构化运行日志 | `packages/logging`、`apps/log-service`、`service_logs` migration | API、Capture/Agent/Report Worker、Web 日志中心 |
 | 行业问题知识库 | `apps/worker/src/knowledge-base.ts`、`packages/core/src/schema.ts` | onboarding、Web 知识库 |
 | 配置导入导出（平台设置/知识库/监测范围） | `apps/worker/src/config-transfer.ts`、`apps/web/src/ui/transfer.tsx`、`apps/web/src/ui/scope-bundle.ts` | Settings、知识库、ScopeEditor |
@@ -95,7 +99,7 @@ Tauri 2 桌面客户端加载同一个工作台构建，是所有角色的正式
 
 `App.tsx` 的组件注册表只负责把服务端 `navigation_key` 映射到真实组件（含 `workbench`、`articles`），并通过 `ui/navigation.tsx` 提供跨视图跳转（证据定位、批次定位 `openBatch`、工作台预填指令）；标签、顺序和可见性来自 `/api/rbac/navigation`。切换业务视图会重新拉取项目，AI 监测页停留期间定期刷新批次列表，工作台拿到 `current_batch_id` 时立即刷新——后台创建的批次不依赖整页刷新。工作台 events 路由在原权限路径上支持最长 25 秒的长轮询并同时返回会话快照；浏览器兼容会话通过它接收模型与工具增量，桌面会话则立即显示本地 Agent 文本流，并用该路由恢复服务端工具事件、最终消息和会话状态。桌面运行时按会话动态加载并在工作台空闲时预载，单客户端可同时保留多个活动会话，不经过 Agent Worker 的双槽队列。AI 监测页内“批次记录/同配置趋势/周期监测/调用成本”用 Segmented 分面板互斥展示（Monitoring.tsx，监测任务活动条与漂移告警保持常驻）。`useAgentRunPolling` 可指定触发轮询的 run 状态（文章页把 `awaiting_approval` 也算进去），建档页在竞品核实 `pending` 期间轮询项目，报告页 PDF 前台等待超时后转入快照轮询。工作台包含业务页面、机构管理、超管机构状态和分层 RBAC 编辑器。运营列表统一分页，运行日志使用不累积全部结果的游标翻页。证据回答使用安全结构化 Markdown；报告使用单一可续跑工作流展示叙述、质检、冻结和文档状态。
 
-图表、KPI 与平台卡只消费真实 API 响应；无批次时使用空状态，不能把视觉验收 fixture 放入 `apps/web/public` 或正式构建。UI 不再是单文件应用壳：`App.tsx` 只做装配，`components/` 一视图一文件，共享类型/权限/分页/反馈分别收敛在 `types.ts`、`access.tsx`、`ui/primitives.tsx`、`hooks/`;UI 控件统一走 antd 6，拆分与选用规则见 `.agents/skills/geo-development/references/frontend.md`。视觉纪律:品牌绿只用于主按钮/链接/选中态/logo,其余静态装饰一律中性灰,内容区次级分组小节平铺,不用嵌套 Tabs/Collapse。新增共享业务规则时不要继续堆入组件，应放回拥有该规则的 package/worker service。
+图表、KPI 与平台卡只消费真实 API 响应；无批次时使用空状态，视觉 fixture 不得进入 `apps/web/public` 或正式构建。App 只做装配，组件、类型、权限、分页和反馈遵循 frontend reference。用户指定的蓝色浅色主题由 theme/Shell/styles 管理，状态用语义色，次级内容平铺。建档编辑同步以实际范围内容变化为依据，普通项目轮询不清空本地编辑。共享业务规则归所属 package/worker service。
 
 `landing/` 是独立静态官网，部署在根路径；`landing/help/` 是公开帮助中心和同源 PDF，登录页、客户列表与工作台顶栏在新标签打开它；`apps/web` 使用 Vite base `/app/`。官网演示同步工作台菜单顺序和浅色布局，并为菜单、运行操作、设置、成员和日志提供窄屏交互；示意数据必须显式标注，不能请求业务 API、写数据库或被工作台导入。帮助截图通过独立 WebBridge 会话从线上真实界面取证，并在写入公开目录前替换客户名、域名、邮箱、输入值和长 ID；帮助页自身不得访问业务 API。
 

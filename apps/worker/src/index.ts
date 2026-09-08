@@ -44,6 +44,7 @@ import {
 	savePolicy,
 } from "./authorization/configuration";
 import { exportKnowledge, exportSettings, importKnowledge, importSettings } from "./config-transfer";
+import { handleContentRoutes } from "./content-routes";
 import {
 	claimDesktopTurn,
 	completeDesktopTurn,
@@ -774,6 +775,9 @@ async function handleWorkbenchRoutes(
 			await listArticles(database, articles[0], parsePagination(url), {
 				batchId: url.searchParams.get("batchId"),
 				status: url.searchParams.get("status"),
+				qualityStatus: url.searchParams.get("qualityStatus"),
+				reviewStatus: url.searchParams.get("reviewStatus"),
+				publicationStatus: url.searchParams.get("publicationStatus"),
 			}),
 		);
 		return true;
@@ -1186,6 +1190,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 	}
 
 	const handled =
+		(await handleContentRoutes(database, request, response, path, identity)) ||
 		(await handleProjectRoutes(request, response, path, identity)) ||
 		(await handleProjectDataRoutes(request, response, path)) ||
 		(await handleBatchTaskRoutes(request, response, path, identity)) ||

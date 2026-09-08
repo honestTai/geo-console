@@ -89,11 +89,18 @@ export function Onboarding({ project, refresh }: { project: Project; refresh(): 
 	const [aliases, setAliases] = useState(project.aliases ?? [project.name]);
 	const [competitors, setCompetitors] = useState<Competitor[]>(project.competitors ?? []);
 	const [prompts, setPrompts] = useState<Prompt[]>(project.prompts ?? []);
+	const scopeSource = JSON.stringify({
+		id: project.id,
+		aliases: project.aliases,
+		competitors: project.competitors,
+		prompts: project.prompts,
+	});
 	useEffect(() => {
-		setAliases(project.aliases ?? []);
-		setCompetitors(project.competitors ?? []);
-		setPrompts(project.prompts ?? []);
-	}, [project]);
+		const source = JSON.parse(scopeSource) as Pick<Project, "aliases" | "competitors" | "prompts">;
+		setAliases(source.aliases ?? []);
+		setCompetitors(source.competitors ?? []);
+		setPrompts(source.prompts ?? []);
+	}, [scopeSource]);
 	const researchRuns = usePaginated<AgentRun>(
 		(page, pageSize) => {
 			const params = new URLSearchParams({

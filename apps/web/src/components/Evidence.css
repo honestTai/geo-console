@@ -7,7 +7,7 @@
 .evidence-layout {
 	display: grid;
 	grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
-	gap: var(--space-5);
+	gap: 24px;
 	align-items: start;
 }
 

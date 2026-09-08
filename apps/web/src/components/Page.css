@@ -6,9 +6,10 @@
 	display: flex;
 	justify-content: space-between;
 	align-items: flex-start;
-	gap: 20px;
+	gap: 24px;
 	flex-wrap: wrap;
-	margin-bottom: 20px;
+	margin-bottom: 26px;
+	min-height: 64px;
 }
 
 .page-head-text {
@@ -41,7 +42,10 @@
 
 .page-title.ant-typography {
 	margin: 0 0 6px;
-	font-size: 22px;
+	font-size: 30px;
+	line-height: 1.2;
+	font-weight: 700;
+	letter-spacing: 0;
 }
 
 .page-description.ant-typography {
@@ -52,9 +56,58 @@
 .page-extra {
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: 12px;
 	flex-wrap: wrap;
-	padding-top: 26px;
+	padding-top: 8px;
+}
+.page-extra .ant-btn {
+	min-height: 40px;
+}
+.page-body > .ant-table-wrapper,
+.page-body > .ant-tabs > .ant-tabs-content-holder > .ant-tabs-content > .ant-tabs-tabpane > .ant-table-wrapper {
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	overflow: hidden;
+	box-shadow: var(--shadow-1);
+}
+.page-body > .ant-table-wrapper .ant-table {
+	border-radius: 0;
+}
+.page-body > .pagination-bar {
+	margin-top: 16px;
+}
+.page-body > .empty {
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	box-shadow: var(--shadow-1);
+}
+.page-body .ant-tabs-nav {
+	margin-bottom: 24px;
+}
+.page-body
+	.ant-table-wrapper:not(.ant-card .ant-table-wrapper):not(.task-board-tool .ant-table-wrapper):not(
+		.task-board-history .ant-table-wrapper
+	) {
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	overflow: hidden;
+	box-shadow: var(--shadow-1);
+}
+.page-body .ant-table-wrapper .ant-table-empty .ant-table-tbody > tr > td {
+	padding-block: 48px;
+}
+.page-body .ant-table-wrapper .ant-table-thead > tr > th {
+	font-weight: 500;
+}
+.page-body > .ant-tabs > .ant-tabs-content-holder {
+	padding-top: 8px;
+}
+.page-body > .ant-form {
+	padding-block: 24px;
+	border-top: 1px solid var(--line);
 }
 
 @media (max-width: 900px) {
@@ -75,6 +128,14 @@
 .page-body {
 	min-width: 0;
 	display: flow-root;
+}
+.page-body > .actions {
+	margin-bottom: 24px;
+}
+.page-body > .audit-log-panel {
+	margin-top: 0;
+	padding-top: 0;
+	border-top: 0;
 }
 
 .page-body .ant-alert {

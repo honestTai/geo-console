@@ -1,4 +1,5 @@
 export * from "./answer-analysis";
+export * from "./article-quality";
 export * from "./publication";
 export {
 	type ApiCaptureEvidence,
