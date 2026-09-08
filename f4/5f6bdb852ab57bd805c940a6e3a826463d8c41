@@ -1,0 +1,32 @@
+.agents/skills/geo-development/references/frontend.md
+  s_692ae6564ef0f0::t_01ee5a79bebbf9 9-10
+apps/web/src/components/Monitoring.css
+  s_692ae6564ef0f0::t_7b99f9919b5620 25-57
+apps/web/src/components/Report.css
+  s_692ae6564ef0f0::t_34bf74fb9cc385 78-83
+  s_692ae6564ef0f0::t_7b99f9919b5620 61-77
+docs/ui-refinement.md
+  s_692ae6564ef0f0::t_01ee5a79bebbf9 9-11
+  s_692ae6564ef0f0::t_34bf74fb9cc385 3-8
+apps/web/src/components/Monitoring.tsx
+  s_692ae6564ef0f0::t_7b99f9919b5620 84,87-101,259-262
+apps/web/src/components/WebsiteAudit.css
+  s_692ae6564ef0f0::t_34bf74fb9cc385 29
+  s_692ae6564ef0f0::t_7b99f9919b5620 27-28,30-57,60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f45f6bdb852ab57bd805c940a6e3a826463d8c41",
+  "prompts": {},
+  "sessions": {
+    "s_692ae6564ef0f0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07ede-8eb2-73c1-9b60-7e88e462a5ac",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "honest.tai <honest.tai@outlook.com>"
+    }
+  }
+}
