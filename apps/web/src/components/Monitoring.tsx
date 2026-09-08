@@ -81,8 +81,23 @@ export function captureLogMessage(capture: Capture): string {
 	return capture.failureMessage && capture.failureMessage !== label ? `${label} · ${capture.failureMessage}` : label;
 }
 
-const costOperationLabels: Record<string, string> = {
+const costProviderLabels: Record<string, string> = {
 	hrouter_gpt: "GPT 分析",
+};
+const costOperationLabels: Record<string, string> = {
+	customer_profile: "客户画像",
+	prompt_research: "问题研究",
+	report_narrative: "报告叙述",
+	quality_review: "报告质检",
+	diagnosis: "差距诊断",
+	remediation: "整改规划",
+	content_brief: "内容简报",
+	optimization_article: "文章生成",
+	article_quality: "文章质检",
+	answer_analysis: "回答解读",
+	semantic_parse: "语义解析",
+	workbench: "工作台对话",
+	web_search: "联网搜索",
 };
 
 /** 周期监测面板：启用开关 + 周期/重复次数/平台表单。 */
@@ -241,8 +256,10 @@ function CostsPanel({ costs }: { costs: CostGroup[] }) {
 					{costs.map((group) => (
 						<div key={`${group.providerId}-${group.operation}`}>
 							<span>
-								{costOperationLabels[group.providerId] ?? providerLabel(group.providerId)}
-								{group.operation && group.operation !== "capture" ? ` · ${group.operation.replace("agent:", "")}` : ""}
+								{costProviderLabels[group.providerId] ?? providerLabel(group.providerId)}
+								{group.operation && group.operation !== "capture"
+									? ` · ${costOperationLabels[group.operation.replace(/^agent:/, "")] ?? group.operation}`
+									: ""}
 							</span>
 							<b>
 								{group.requests} 次请求 · {group.totalTokens.toLocaleString("zh-CN")} Token

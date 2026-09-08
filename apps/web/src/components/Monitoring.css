@@ -22,6 +22,39 @@
 	margin-bottom: var(--space-5);
 }
 
+.cost-strip {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+	gap: var(--space-6);
+	margin-block: var(--space-5) var(--space-6);
+}
+
+.cost-strip > div {
+	display: grid;
+	align-content: start;
+	gap: var(--space-2);
+	min-width: 0;
+	padding: var(--space-5);
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	background: var(--surface);
+	box-shadow: var(--shadow-1);
+	overflow-wrap: anywhere;
+}
+
+.cost-strip span,
+.cost-strip small {
+	font-size: 12px;
+	line-height: 1.6;
+	color: var(--ink-3);
+}
+
+.cost-strip b {
+	font-size: 14px;
+	line-height: 1.6;
+	font-variant-numeric: tabular-nums;
+}
+
 .monitor-alert-section {
 	margin: 14px 0;
 }

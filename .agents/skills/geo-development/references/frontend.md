@@ -6,6 +6,8 @@
 
 Page.css 为 Alert 与前后内容保留 16px 间距；不要让提示与表格共用一条边。Pagination 不同时调用页码和页大小回调，少量记录隐藏页码条，页码区需上下内边距。文章抽屉的两列均 min-width:0，引用芯片与长问题受列宽约束。文案写具体状态或动作，删掉反复的“真实”“不会伪造”等自我说明，费用/范围/失败语义需准确保留。见 `docs/ui-refinement.md`。
 
+调用成本与官网审计的重复卡片间距为24px，子项 min-width:0，网格最小列宽不能小于子卡片的最小宽度。审计卡最多两列，窄内容区改单列；报告检查与长来源域名按容器宽度换行。私有布局分别归 Monitoring.css、WebsiteAudit.css、Report.css；不要在全局重复覆盖这些卡片规则。
+
 文章 `PublicationPlanView/Fields` 增加内容形式、选择理由和篇幅依据；自由文本，不做固定文章类型下拉或字数目标。新生成由实际问题/证据/渠道决定，短答允许无大纲；旧计划缺 `contentStrategy` 明确提示，不自动补模板。编辑中不完整的计划也应可预览，保存时校验必填项。见 `docs/reader-report-workflow.md`。
 
 客户解释优先：复用 `MetricLabel` 可键盘操作的释义，监测/报告 `MeasurementExplanation` 展示实际分母、纳入原因与原文入口。不暴露内部状态或把缺失当 0。EvidenceRef 即使不在当前索引也按全局元数据定位真实历史证据，缺失/权限不足明确提示。文章 PublicationPlan 展示/编辑用途、读者、平台/栏目、依据类别和验收；推荐渠道不是已发布。见 `docs/reader-report-workflow.md`。

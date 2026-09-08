@@ -24,9 +24,40 @@
 
 /* 检查卡内容列：类别小灰字 + 标题 + 描述 */
 
+.audit-check-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, max(400px, 45%)), 1fr));
+	gap: var(--space-6);
+	margin-top: var(--space-5);
+}
+
+.audit-check-card {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	align-items: start;
+	gap: var(--space-4);
+	min-width: 0;
+	padding: var(--space-6);
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	background: var(--surface);
+	box-shadow: var(--shadow-1);
+	overflow-wrap: anywhere;
+}
+
+.audit-check-card strong {
+	font-size: 14px;
+	line-height: 1.6;
+}
+
+.audit-check-card p {
+	font-size: 12px;
+	color: var(--ink-3);
+}
+
 .audit-check-body {
 	display: grid;
-	gap: var(--space-2);
+	gap: var(--space-3);
 	min-width: 0;
 }
 

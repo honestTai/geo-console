@@ -58,6 +58,29 @@
 	gap: var(--space-2);
 }
 
+.report-audit-checks {
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+	gap: 0 var(--space-6);
+}
+
+.report-audit-checks > div {
+	grid-template-columns: 48px minmax(0, 0.45fr) minmax(0, 1fr);
+	gap: var(--space-3);
+	padding-block: var(--space-4);
+}
+
+.report-audit-checks b,
+.report-audit-checks p {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.source-ranking b {
+	min-width: 0;
+	overflow-wrap: anywhere;
+	line-height: 1.6;
+}
+
 /* 报告正文：左栏正文 + 右栏目录锚点（Anchor 默认 affix，随窗口吸附） */
 .report-doc-layout {
 	display: flex;

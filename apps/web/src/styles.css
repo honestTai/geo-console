@@ -1626,46 +1626,6 @@ input[type="radio"] {
 
 /* ---- 漂移告警 / 成本条 ---- */
 
-.cost-strip {
-	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-	gap: 10px;
-	background: transparent;
-	border: none;
-	border-radius: var(--radius-l);
-	margin: 14px 0;
-	box-shadow: none;
-	overflow: visible;
-}
-
-.cost-strip > div {
-	flex: 1;
-	min-width: 230px;
-	background: var(--surface);
-	padding: 12px 14px;
-	border: 1px solid var(--line);
-	border-radius: var(--radius-l);
-	box-shadow: var(--shadow-1);
-}
-
-.cost-strip span,
-.cost-strip b,
-.cost-strip small {
-	display: block;
-}
-
-.cost-strip span,
-.cost-strip small {
-	font-size: 12px;
-	color: var(--ink-3);
-}
-
-.cost-strip b {
-	font-size: 13px;
-	margin: 4px 0;
-	font-variant-numeric: tabular-nums;
-}
-
 /* ---- 报告工作台 ---- */
 
 .report-workspace {
@@ -2100,12 +2060,6 @@ input[type="radio"] {
 	.home-actions {
 		gap: 6px;
 	}
-
-	.cost-strip {
-		display: grid;
-		grid-template-columns: 1fr;
-		overflow: visible;
-	}
 }
 
 @media print {
@@ -2512,45 +2466,6 @@ input[type="radio"] {
 /* 官网审计：分数概览卡（对齐演示 audit-demo-overview） */
 
 /* 官网审计：检查卡片网格（对齐演示 audit-demo-grid / audit-demo-item） */
-
-.audit-check-grid {
-	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: 10px;
-	margin-top: 14px;
-}
-
-.audit-check-card {
-	display: grid;
-	grid-template-columns: auto minmax(0, 1fr);
-	gap: 4px 10px;
-	padding: 13px 14px;
-	border: 1px solid var(--line);
-	border-radius: var(--radius);
-	background: var(--surface);
-	box-shadow: var(--shadow-1);
-}
-
-.audit-check-card > .check-state {
-	grid-row: span 2;
-}
-
-.audit-check-card strong {
-	font-size: 12.5px;
-}
-
-.audit-check-card p {
-	margin: 0;
-	font-size: 11.5px;
-	color: var(--ink-3);
-	line-height: 1.55;
-}
-
-.audit-check-card code {
-	grid-column: 2;
-	font-size: 11px;
-	color: var(--ink-4);
-}
 
 @media (max-width: 900px) {
 }
