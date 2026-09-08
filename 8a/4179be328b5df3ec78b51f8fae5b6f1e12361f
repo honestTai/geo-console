@@ -1,0 +1,289 @@
+apps/worker/src/queue-recovery.ts
+  s_692ae6564ef0f0::t_48100a3c943e55 10,13
+  s_692ae6564ef0f0::t_aa275b8039e200 14-17
+apps/worker/src/content-operations.test.ts
+  s_692ae6564ef0f0::t_1d6beb234234be 1-5,19,27-28,74,81,213,234-235
+  s_692ae6564ef0f0::t_aa275b8039e200 6-18,20-26,29-73,75-80,82-212,214-233
+apps/worker/src/workbench.test.ts
+  s_692ae6564ef0f0::t_fb97acae1aaa5e 123-133,135-140
+  s_692ae6564ef0f0::t_a75d114fec5bbd 134
+apps/worker/src/articles.test.ts
+  s_692ae6564ef0f0::t_24cf1ca1744489 272,286-287,290,293
+  s_692ae6564ef0f0::t_8418372d34c72c 397
+  s_692ae6564ef0f0::t_39f3cd9c96a7a3 389-396
+apps/web/src/components/ArticleQuality.css
+  s_692ae6564ef0f0::t_39f3cd9c96a7a3 1-70
+apps/web/src/ui/primitives.css
+  s_692ae6564ef0f0::t_eb52f36fc23790 81-85
+  s_692ae6564ef0f0::t_47039d11b6312b 61-63,69
+  s_692ae6564ef0f0::t_d5b6e6603eeaf8 28,106,113-114
+apps/web/src/types.ts
+  s_692ae6564ef0f0::t_a7f97692054399 602-603
+  s_692ae6564ef0f0::t_20759c04d45e2a 604
+  s_692ae6564ef0f0::t_cf2047ef226f22 749-750
+apps/web/src/styles.css
+  s_692ae6564ef0f0::t_d5b6e6603eeaf8 10,14,17,19,47,53
+  s_692ae6564ef0f0::t_eb52f36fc23790 637-642
+  s_692ae6564ef0f0::t_ab490075f523b2 615,617-618
+  s_692ae6564ef0f0::t_ee2487070f9103 7,9,20-23,34-35,46,50-51
+  s_692ae6564ef0f0::t_5cbfea6139a164 648,650,666-667,671,673,687
+apps/web/src/App.tsx
+  s_692ae6564ef0f0::t_cf2047ef226f22 16,68,100,140,478-479
+  s_692ae6564ef0f0::t_aa275b8039e200 26,96-99,420-423,433-434
+apps/worker/src/article-quality.test.ts
+  s_692ae6564ef0f0::t_39f3cd9c96a7a3 3-11,16-33,39-52,55-67,73-74,87-92,95-99,103-109,112-123,127-129,135-161,165-176,184-202,206-212,214-219,221-223
+  s_692ae6564ef0f0::t_8418372d34c72c 1-2,12-15,34-38,53-54,68-72,75-86,93-94,100-102,110-111,124-126,130-134,162-164,177-183,203-205,213,220,224,306
+  s_692ae6564ef0f0::t_ee00ce158b4a6e 225-228,238-242,246,250
+  s_692ae6564ef0f0::t_4c508d5c9ea07e 251-264,266-274,276-283,285-299,301-305
+  s_692ae6564ef0f0::t_8ac8ab3c99fad7 229-237,243-245,247-249
+  s_692ae6564ef0f0::t_cf5fe1633467c3 265,275,284,300
+packages/core/migrations/0028_article_quality.sql
+  s_692ae6564ef0f0::t_dc798336077cd3 1-33,36-64,75-85
+  s_692ae6564ef0f0::t_bca055e378f562 65-74
+  s_692ae6564ef0f0::t_a7c178f2d623ea 34-35
+apps/web/src/components/OperationsOverview.tsx
+  s_692ae6564ef0f0::t_4a3dee6eb2c75a 9-23,114,119
+  s_692ae6564ef0f0::t_aa275b8039e200 25-30,33,84-94,96-113,115-118,120-124
+  s_692ae6564ef0f0::t_f03f5722ad7014 2-8,128
+  s_692ae6564ef0f0::t_a81deade13ab5e 1,41,46
+  s_692ae6564ef0f0::t_669af00746a035 24,31-32,34-40,42-45,47-83,95,125-127
+.agents/skills/geo-development/SKILL.md
+  s_692ae6564ef0f0::t_9565db8a3b844e 21-22
+apps/worker/src/customer-knowledge.ts
+  s_692ae6564ef0f0::t_d9c3a400fa2c28 1-4,8-10,20,25,31-35,42-43,50-51,65-66,71-74,84-85,97-99,107-108,163-164,178,212-215,266
+  s_692ae6564ef0f0::t_aa275b8039e200 7,242-265
+  s_692ae6564ef0f0::t_669af00746a035 11-19,21-24,26-30,36-41,44-49,52-64,67-70,75-83,86-96,100-106,109-162,165-177,179-211,216-239
+  s_692ae6564ef0f0::t_2621197833cbae 5-6,240-241
+apps/web/src/ui/workspace-views.ts
+  s_692ae6564ef0f0::t_cf2047ef226f22 23-24,63-64
+packages/evidence/src/article-quality.ts
+  s_692ae6564ef0f0::t_39f3cd9c96a7a3 70-74,81-82,90-91
+  s_692ae6564ef0f0::t_dc798336077cd3 1-69,75-80,83-89,93
+  s_692ae6564ef0f0::t_bca055e378f562 92
+apps/web/src/components/Articles.css
+  s_692ae6564ef0f0::t_a7f97692054399 6-10
+  s_692ae6564ef0f0::t_4fa8ac28b2cc2b 78
+  s_692ae6564ef0f0::t_ca6d5ac232acee 230-241
+  s_692ae6564ef0f0::t_367313d9ed9417 77,79,229,242
+  s_692ae6564ef0f0::t_9227def0dbd9eb 76
+packages/core/migrations/0029_customer_knowledge.sql
+  s_692ae6564ef0f0::t_d9c3a400fa2c28 1-30
+apps/worker/src/publications.ts
+  s_692ae6564ef0f0::t_935a8fdc5b4836 1-7,9-15,21,30-35,51-52,107-110,121-123,131-132,139,141-142,170-174,180-182,204,212-213,272-273,287,406-407,446
+  s_692ae6564ef0f0::t_4a3dee6eb2c75a 304-326,364-365
+  s_692ae6564ef0f0::t_50a49076baf1a6 327
+  s_692ae6564ef0f0::t_669af00746a035 16-20,22-29,36-50,53-106,111-120,124-130,133-138,140,143-169,175-179,183-203,205-211,214-271,274-286,288-303,328-363,366-405,408-445
+  s_692ae6564ef0f0::t_aa275b8039e200 8
+apps/worker/src/project-operations.ts
+  s_692ae6564ef0f0::t_48100a3c943e55 1-4,24,47,99
+  s_692ae6564ef0f0::t_669af00746a035 5-23,25-46,48-69
+  s_692ae6564ef0f0::t_aa275b8039e200 70-89,93-97
+  s_692ae6564ef0f0::t_a81deade13ab5e 90-92,98
+apps/worker/src/semantic-runtime.ts
+  s_692ae6564ef0f0::t_141611e4344c89 5,21,38-43,64
+.agents/skills/geo-development/references/project-map.md
+  s_692ae6564ef0f0::t_9565db8a3b844e 5-6
+  s_692ae6564ef0f0::t_a16bf7615929ca 102
+  s_692ae6564ef0f0::t_4f6d2d6596b440 3-4,63
+apps/worker/src/article-quality.ts
+  s_692ae6564ef0f0::t_8a8058ca2398f4 81,114
+  s_692ae6564ef0f0::t_eb87a7fe2dd8f9 1-49,57-63,67-69,75-76,80,98,101-103,109-110,128-130,138-144,151-159,173-176,193-194,216-217,228-233,235-237,244,251-252,255,274-278,303-304,311-317,321,330,337-348,363-370,373-375,378-389,398-399,404-406,420-429,432,450-453,457-459,464,469-472,475-476,479,499-507,510,515,520-523,526,537,541-542
+  s_692ae6564ef0f0::t_9d4505368a3162 190,318-320
+  s_692ae6564ef0f0::t_a1e10bed25dd28 115
+  s_692ae6564ef0f0::t_4c508d5c9ea07e 465-466,473-474,508-509
+  s_692ae6564ef0f0::t_aa275b8039e200 234
+  s_692ae6564ef0f0::t_39f3cd9c96a7a3 50-56,64-66,70-74,77-79,82-97,99-100,104-108,111-113,116-127,131-137,145-150,160-172,177-189,191-192,195-215,218-227,238-243,245-250,253-254,256-273,279-302,305-310,322-329,331-336,349-362,371-372,376-377,390-397,400-403,407-419,430-431,433-449,454-456,460-463,467-468,477-478,480-498,511-514,516-519,524-525,527-536,538-540
+.agents/skills/geo-development/references/domain-contracts.md
+  s_692ae6564ef0f0::t_fb97acae1aaa5e 5-6
+  s_692ae6564ef0f0::t_9565db8a3b844e 3,7
+  s_9ca841cb24f1de::t_faedabf77b1881 4,8
+.agents/skills/geo-operations/references/runtime-runbook.md
+  s_692ae6564ef0f0::t_9565db8a3b844e 3
+  s_9ca841cb24f1de::t_1a08bcac0e8e4e 4
+apps/web/src/components/TaskManagementLayout.tsx
+  s_692ae6564ef0f0::t_37f41fb03002f0 1-14,18-25,31-47,49,51-77,79-128,130-380
+  s_692ae6564ef0f0::t_94d6639df80719 15-17,26-30,48,50,78,129,381
+apps/web/src/components/TaskManagementLayout.css
+  s_692ae6564ef0f0::t_ebca579e3ef605 283-285
+  s_692ae6564ef0f0::t_37f41fb03002f0 1-58,60-88,90-93,95-282,286-307
+  s_692ae6564ef0f0::t_9464d6623d9583 59,89,94
+apps/web/src/components/Workbench.css
+  s_692ae6564ef0f0::t_47039d11b6312b 5,23-24,120
+docs/architecture.md
+  s_692ae6564ef0f0::t_a16bf7615929ca 65
+  s_692ae6564ef0f0::t_4f6d2d6596b440 3-4
+  s_692ae6564ef0f0::t_9565db8a3b844e 5
+  s_9ca841cb24f1de::t_b39a87449ef409 6
+apps/web/src/components/ProjectHome.css
+  s_692ae6564ef0f0::t_47039d11b6312b 24,29
+apps/worker/src/report-snapshots.ts
+  s_692ae6564ef0f0::t_e6e73e26af923b 365
+apps/web/src/lazy-views.tsx
+  s_692ae6564ef0f0::t_aa275b8039e200 2-7
+docs/operations.md
+  s_692ae6564ef0f0::t_9565db8a3b844e 3-5
+  s_9ca841cb24f1de::t_39df086be7c8c4 6
+apps/web/src/components/Settings.css
+  s_692ae6564ef0f0::t_47039d11b6312b 12,19,36
+apps/worker/src/workbench.ts
+  s_692ae6564ef0f0::t_e6e73e26af923b 816
+apps/web/src/components/Overview.tsx
+  s_692ae6564ef0f0::t_501bc2169d359e 11,222
+packages/core/migrations/0030_manual_publications.sql
+  s_692ae6564ef0f0::t_d9c3a400fa2c28 1-37
+apps/web/src/components/Page.tsx
+  s_692ae6564ef0f0::t_9464d6623d9583 38
+  s_692ae6564ef0f0::t_d5b6e6603eeaf8 1,19,21,35
+docs/deployment.md
+  s_692ae6564ef0f0::t_9565db8a3b844e 3
+  s_9ca841cb24f1de::t_346eceef728702 4
+apps/worker/src/articles.ts
+  s_692ae6564ef0f0::t_20759c04d45e2a 121,132-133,139,143-144,152,162
+  s_692ae6564ef0f0::t_e1032ec23bf41a 151
+  s_692ae6564ef0f0::t_5343f2e8321d68 9
+  s_692ae6564ef0f0::t_39f3cd9c96a7a3 4,116-120,122-123,145-150,153,155-156,171-174,251-252,288-291,306-309,329-334,339-342,348-350
+  s_692ae6564ef0f0::t_9d4505368a3162 236,239-240,243-244
+  s_692ae6564ef0f0::t_bca055e378f562 126-129,191,194-195
+  s_692ae6564ef0f0::t_498b4dd574cf17 64
+  s_692ae6564ef0f0::t_cda1f9df3beb50 237-238,241-242,255-256,343-347
+  s_692ae6564ef0f0::t_a080e41722de8c 7,125,130-131,134-138,140-142,163,208,254,257-258,324-328,335-338,351-353
+apps/web/src/components/Page.css
+  s_692ae6564ef0f0::t_eb52f36fc23790 132-139
+  s_692ae6564ef0f0::t_d5b6e6603eeaf8 9,45-48,59,62,66-67
+  s_692ae6564ef0f0::t_37f41fb03002f0 63-65,68-110
+  s_692ae6564ef0f0::t_9464d6623d9583 11-12,61
+apps/worker/src/content-routes.ts
+  s_692ae6564ef0f0::t_aa275b8039e200 15
+  s_692ae6564ef0f0::t_669af00746a035 7-12,16-25,29-62,64-94,96-109,111-141,143-146,148-155
+  s_692ae6564ef0f0::t_48100a3c943e55 1-6,13-14,26-27,63,95,110,142,147,156-158
+  s_692ae6564ef0f0::t_cb20a8c268c13c 28
+docs/content-operations.md
+  s_692ae6564ef0f0::t_9565db8a3b844e 1-6,13-26,29-38,41
+  s_692ae6564ef0f0::t_4f6d2d6596b440 7-8
+  s_692ae6564ef0f0::t_42d5a2177e6b79 9-10
+  s_692ae6564ef0f0::t_f3b9f9018961d3 39
+  s_692ae6564ef0f0::t_fb97acae1aaa5e 27-28
+  s_692ae6564ef0f0::t_a16bf7615929ca 40
+  s_692ae6564ef0f0::t_b520d6409e13e2 11-12
+apps/web/src/components/ContentOperations.css
+  s_692ae6564ef0f0::t_ca6d5ac232acee 41-43,51-54
+  s_692ae6564ef0f0::t_ab490075f523b2 58-59,65-67,69
+  s_692ae6564ef0f0::t_669af00746a035 1-28,44-50,55-57,60-64,71-95,100-103
+  s_692ae6564ef0f0::t_5927545106da62 29-40
+  s_692ae6564ef0f0::t_eb52f36fc23790 68,70,96-99
+apps/worker/src/index.ts
+  s_692ae6564ef0f0::t_48100a3c943e55 47,1193
+  s_692ae6564ef0f0::t_ea27fe52486fa6 778-779
+  s_692ae6564ef0f0::t_f14af286488774 780
+apps/web/src/theme.tsx
+  s_692ae6564ef0f0::t_ee2487070f9103 13,22,31,59
+  s_692ae6564ef0f0::t_d5b6e6603eeaf8 10-12,29,33,41,49,51,53-54
+apps/web/src/components/Shell.css
+  s_692ae6564ef0f0::t_ee2487070f9103 1,16,34,38,43-45,49-50,62,73
+  s_692ae6564ef0f0::t_d5b6e6603eeaf8 95,100,169
+  s_692ae6564ef0f0::t_37f41fb03002f0 175-206
+packages/core/src/access.ts
+  s_692ae6564ef0f0::t_37be96c237f154 179-187
+  s_692ae6564ef0f0::t_aa275b8039e200 2-17
+apps/web/src/components/Articles.tsx
+  s_692ae6564ef0f0::t_a7f97692054399 11,40,79,121,158,160,162,217,287,289-293,309-310,392,509-510,621-624,634-637,646,663,671
+  s_692ae6564ef0f0::t_149f28353df7b4 58-62
+  s_692ae6564ef0f0::t_a1e10bed25dd28 57,63,185
+  s_692ae6564ef0f0::t_210d42b17d0fc4 298-303,631
+  s_692ae6564ef0f0::t_39f3cd9c96a7a3 2-10,29-38,260-266,311-313,315-332,410-413,415-423,425-439,513-520,525-540,568-578,587-595,625-630,632-633,638-645,672-676
+  s_692ae6564ef0f0::t_13aabb3ee72a23 377,394,424,444,448,452-453,461-462,464,683
+  s_692ae6564ef0f0::t_20759c04d45e2a 288,314,333,393,610-612
+  s_692ae6564ef0f0::t_ee00ce158b4a6e 521-524
+  s_692ae6564ef0f0::t_855b0fd979a29c 45-55,395-409,613-620
+  s_692ae6564ef0f0::t_9227def0dbd9eb 153
+  s_9ca841cb24f1de::t_30abb0e7cd00bf 56,267
+apps/web/src/components/ArticleQuality.tsx
+  s_692ae6564ef0f0::t_39f3cd9c96a7a3 11-46,55-57,62-67,71-73,76-81,92-104,112-124,127-249,255-383
+  s_692ae6564ef0f0::t_9e90bb94740d6f 1-10,47-54,58-61,68-69,74-75,82-91,105-111,125-126,384
+  s_692ae6564ef0f0::t_cda1f9df3beb50 251-254
+  s_692ae6564ef0f0::t_9d4505368a3162 70,250
+apps/web/src/components/Onboarding.tsx
+  s_692ae6564ef0f0::t_ca6d5ac232acee 92-97,99
+  s_692ae6564ef0f0::t_95972e0e41b332 100-103
+apps/web/src/ui/task-management-layout.test.tsx
+  s_692ae6564ef0f0::t_ebca579e3ef605 2-52
+  s_692ae6564ef0f0::t_fc8e1701073912 1,53-54
+packages/evidence/src/index.ts
+  s_692ae6564ef0f0::t_dc798336077cd3 2
+.agents/skills/geo-development/references/frontend.md
+  s_692ae6564ef0f0::t_4f6d2d6596b440 3,65,76,83
+  s_692ae6564ef0f0::t_7ba211565cc8af 4,57
+apps/worker/src/agent.ts
+  s_692ae6564ef0f0::t_2621197833cbae 20,27
+  s_692ae6564ef0f0::t_f14af286488774 1189
+  s_692ae6564ef0f0::t_aa275b8039e200 480-481
+packages/core/migrations/0031_content_workflow_authorization.sql
+  s_692ae6564ef0f0::t_498b4dd574cf17 1-4
+  s_692ae6564ef0f0::t_fd30d79b151779 48-49
+  s_692ae6564ef0f0::t_2621197833cbae 50-51
+  s_692ae6564ef0f0::t_141611e4344c89 5-47
+apps/web/src/ui/navigation.tsx
+  s_692ae6564ef0f0::t_cf2047ef226f22 10-11
+packages/core/src/schema.ts
+  s_692ae6564ef0f0::t_aa275b8039e200 1125-1130,1418-1616,1618-1673,1675-1688
+  s_692ae6564ef0f0::t_11ff54aa9f7c78 1417,1617,1674,1689
+  s_692ae6564ef0f0::t_d208e1bfa00301 1119
+  s_692ae6564ef0f0::t_a4e4fb640e6920 9
+apps/web/src/components/Shell.tsx
+  s_692ae6564ef0f0::t_ee2487070f9103 20,90-96,98,106,150,157
+  s_692ae6564ef0f0::t_37f41fb03002f0 2-13,183-184,191-203
+  s_692ae6564ef0f0::t_ebca579e3ef605 176-182
+  s_692ae6564ef0f0::t_d5b6e6603eeaf8 1,158
+apps/web/src/components/Publications.tsx
+  s_692ae6564ef0f0::t_f03f5722ad7014 1,18-28,100,734
+  s_692ae6564ef0f0::t_669af00746a035 2-17,29-99,101-266,268-733
+  s_692ae6564ef0f0::t_501bc2169d359e 267
+apps/worker/src/report-snapshots.test.ts
+  s_692ae6564ef0f0::t_ac3a6b580c319b 172,176
+  s_692ae6564ef0f0::t_e6e73e26af923b 154-159,173-175
+docs/capability-matrix.md
+  s_692ae6564ef0f0::t_4f6d2d6596b440 3-4
+  s_692ae6564ef0f0::t_9565db8a3b844e 5
+  s_692ae6564ef0f0::t_a16bf7615929ca 41
+  s_9ca841cb24f1de::t_5a06b68b8c5d64 6
+apps/worker/src/authorization/resources.ts
+  s_692ae6564ef0f0::t_141611e4344c89 17-20
+apps/web/src/components/CustomerKnowledge.tsx
+  s_692ae6564ef0f0::t_cf2047ef226f22 1-12,48,107,127,391
+  s_692ae6564ef0f0::t_669af00746a035 13-47,49-106,108-126,128-130,134-390
+  s_692ae6564ef0f0::t_501bc2169d359e 132
+  s_692ae6564ef0f0::t_ca6d5ac232acee 131
+  s_692ae6564ef0f0::t_5927545106da62 133
+apps/web/src/components/Remediation.tsx
+  s_692ae6564ef0f0::t_903fbfa2571b12 1-2,12,105
+  s_692ae6564ef0f0::t_ebca579e3ef605 71-76,78
+  s_692ae6564ef0f0::t_37f41fb03002f0 9,59-70,80-103
+apps/web/src/components/Evidence.css
+  s_692ae6564ef0f0::t_a2e8a93a3b416d 10
+apps/web/src/components/Report.css
+  s_692ae6564ef0f0::t_a5c355fbeb686f 6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8a4179be328b5df3ec78b51f8fae5b6f1e12361f",
+  "prompts": {},
+  "sessions": {
+    "s_692ae6564ef0f0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07ede-8eb2-73c1-9b60-7e88e462a5ac",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "honest.tai <honest.tai@outlook.com>"
+    },
+    "s_9ca841cb24f1de": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07e83-aa65-7ef3-a8ed-86f931c61450",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "honest.tai <honest.tai@outlook.com>"
+    }
+  }
+}
