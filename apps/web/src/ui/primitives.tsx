@@ -54,6 +54,7 @@ export function Pagination({
 	total,
 	onPage,
 	onPageSize,
+	loading = false,
 }: {
 	page: number;
 	pageSize: number;
@@ -61,6 +62,7 @@ export function Pagination({
 	totalPages: number;
 	onPage(page: number): void;
 	onPageSize?(pageSize: number): void;
+	loading?: boolean;
 }) {
 	if (total === 0) return null;
 	return (
@@ -68,13 +70,17 @@ export function Pagination({
 			className="pagination-bar"
 			current={page}
 			pageSize={pageSize}
+			disabled={loading}
+			size="small"
+			showLessItems
+			hideOnSinglePage={!onPageSize || total <= 10}
 			total={total}
 			showSizeChanger={!!onPageSize && total > 10}
 			pageSizeOptions={[10, 20, 50]}
-			showTotal={(t) => `共 ${t} 条`}
+			showTotal={(t, range) => `第 ${range[0]}–${range[1]} 条，共 ${t} 条`}
 			onChange={(nextPage, nextPageSize) => {
 				if (nextPageSize !== pageSize) onPageSize?.(nextPageSize);
-				if (nextPage !== page || nextPageSize === pageSize) onPage(nextPage);
+				else if (nextPage !== page) onPage(nextPage);
 			}}
 		/>
 	);

@@ -23,6 +23,9 @@ export function apiErrorResponse(
 	} else if (error instanceof LogServiceUnavailableError) {
 		status = 503;
 		message = "运行日志服务暂时不可用，请稍后重试";
+	} else if (error && typeof error === "object" && "code" in error && ["PZ001", "PZ002"].includes(String(error.code))) {
+		status = error.code === "PZ001" ? 409 : 404;
+		message = error.code === "PZ001" ? "客户已封档，仅可查看历史资料" : "客户项目不存在";
 	} else if (error instanceof z.ZodError) {
 		status = 400;
 		const labels: Record<string, string> = {

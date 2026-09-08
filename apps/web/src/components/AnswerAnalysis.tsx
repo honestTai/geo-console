@@ -23,20 +23,11 @@ function AnalysisRunFeedback({ data }: { data: AnswerAnalysisView }) {
 			<div className="aa-empty">
 				<strong>把“被提及”展开为“被怎样评价”</strong>
 				<p>生成后可查看：全文概览、核心观点、品牌评价维度、推荐理由和条件、品牌比较、全文分段与歧义。</p>
-				<p className="muted">
-					按需调用机构已配置的模型，可能产生费用；打开页面不会自动调用模型。既有排名与指标不受影响。
-				</p>
+				<p className="muted">生成分析会调用模型，可能产生费用。分析结果不影响监测排名与指标。</p>
 			</div>
 		);
 	if (["queued", "running"].includes(data.status))
-		return (
-			<Alert
-				type="info"
-				showIcon
-				title="正在异步解读完整回答，页面会自动更新；可离开后再查看。"
-				description={data.error ?? "不会用关键词匹配或其他模型的回答补齐分析。"}
-			/>
-		);
+		return <Alert type="info" showIcon title="正在分析回答，可稍后回来查看。" description={data.error} />;
 	if (data.status === "failed")
 		return <Alert type="error" showIcon title={data.error ?? "完整分析失败，请核对模型配置后重新生成。"} />;
 	if (data.status === "needs_review")
@@ -45,7 +36,7 @@ function AnalysisRunFeedback({ data }: { data: AnswerAnalysisView }) {
 				type="warning"
 				showIcon
 				title="以下解读尚不完整或存在语义歧义，请核对原文。"
-				description={data.issues.join("；") || "不能把待核对结果当作确定结论。"}
+				description={data.issues.join("；") || "部分判断仍需人工确认。"}
 			/>
 		);
 	return null;
@@ -189,13 +180,7 @@ export function AnswerAnalysis({ batchId, capture }: { batchId: string; capture:
 					<AnalysisMetadata data={data} />
 				</>
 			)}
-			{tooLong && (
-				<Alert
-					type="warning"
-					showIcon
-					title="原文超过当前完整分析长度上限（60,000 个 UTF-16 单元），不会截断后伪称完整分析。"
-				/>
-			)}
+			{tooLong && <Alert type="warning" showIcon title="原文过长，暂不支持全文分析。" />}
 			<p className="aa-disclosure">
 				此处是对已保存 AI 回答的语义解读，不是事实核验、人工审核或上游排序机制说明，不进入正式排名与漂移计算。
 			</p>
@@ -206,7 +191,7 @@ export function AnswerAnalysis({ batchId, capture }: { batchId: string; capture:
 						type="info"
 						showIcon
 						title={`已定位 ${selectedSpan.segmentId} 的对应引文`}
-						description="高亮保留原始文本和空格；引文可追溯不代表语义判断一定正确。"
+						description="请结合上下文核对高亮引文与分析结果。"
 					/>
 				)}
 				<HighlightedAnswer answer={capture.answerText ?? ""} span={selectedSpan} markRef={mark} />

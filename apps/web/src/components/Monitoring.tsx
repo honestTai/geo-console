@@ -23,7 +23,7 @@ import {
 	type TimelineProps,
 } from "antd";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button } from "../access";
+import { Button, usePermission } from "../access";
 import { api, post, put } from "../api";
 import {
 	type Batch,
@@ -72,11 +72,11 @@ function PlatformCheckboxes({ value, onChange }: { value: ProviderId[]; onChange
 export function runActivityStatus(status: string, active: boolean, captured: number): string {
 	if (status === "partial") return "采集已结束 · 部分样本失败或未执行，已有证据保留";
 	if (!active) return "采集已结束 · 语义解析状态请查看上方测量面板";
-	return captured > 0 ? `采集中 · 已写入 ${captured} 条证据` : "任务已创建 · 等待 Capture Worker";
+	return captured > 0 ? `采集中 · 已保存 ${captured} 条回答` : "任务已创建 · 等待采集";
 }
 
 export function captureLogMessage(capture: Capture): string {
-	if (capture.status === "complete") return "回答与原始响应已存证";
+	if (capture.status === "complete") return "回答与原始响应已保存";
 	const label = captureStatusLabel(capture.status);
 	return capture.failureMessage && capture.failureMessage !== label ? `${label} · ${capture.failureMessage}` : label;
 }
@@ -111,6 +111,7 @@ function SchedulePanel({
 	busy: boolean;
 	onSave(): void;
 }) {
+	const canSchedule = usePermission("monitor.schedule");
 	return (
 		<>
 			<SectionTitle
@@ -119,7 +120,7 @@ function SchedulePanel({
 						<IconChartLine size={16} /> 周期监测
 					</>
 				}
-				description="云端 Worker 到期后冻结范围和平台配置，按时间窗口调用已启用 API。"
+				description="按设定周期运行监测，使用届时已确认的问题和平台配置。"
 				extra={
 					<span className="schedule-summary">
 						<Tag>{enabled ? "已启用" : "未启用"}</Tag>
@@ -130,10 +131,16 @@ function SchedulePanel({
 			<div className="schedule-section">
 				<ScheduleFailureAlert schedule={schedule} />
 				<p className="schedule-hint">
-					<Switch checked={enabled} checkedChildren="启用" unCheckedChildren="停用" onChange={onToggle} />
+					<Switch
+						disabled={!canSchedule || busy}
+						checked={enabled}
+						checkedChildren="启用"
+						unCheckedChildren="停用"
+						onChange={onToggle}
+					/>
 					{enabled ? "已启用自动监测" : "启用后按周期自动创建复测批次"}
 				</p>
-				<Form layout="inline" className="schedule-form">
+				<Form disabled={!canSchedule || busy} layout="inline" className="schedule-form">
 					<Form.Item label="运行周期">
 						<Select
 							className="schedule-select"
@@ -256,12 +263,7 @@ function CostsPanel({ costs }: { costs: CostGroup[] }) {
 /** 同配置趋势面板：未选批次或没有可比批次时给空态。 */
 function TrendsPanel({ trends }: { trends: TrendResponse | null }) {
 	if (!trends)
-		return (
-			<Empty
-				title="还没有同配置趋势"
-				detail="先在批次记录里选择一个批次；只纳入冻结配置哈希一致的批次，配置变化不会混入趋势。"
-			/>
-		);
+		return <Empty title="还没有同配置趋势" detail="请选择批次；只有问题和采样配置一致的记录才能比较趋势。" />;
 	return <TrendChart trends={trends} />;
 }
 
@@ -310,7 +312,7 @@ export function RunCaptureLog({ captures, active }: { captures: Capture[]; activ
 	if (!active)
 		items.push({
 			color: "gray",
-			content: <span>采集结束 · 展示最近 {captures.length} 条真实采集记录；语义解析独立进行</span>,
+			content: <span>采集结束 · 最近 {captures.length} 条记录；回答分析另行处理</span>,
 		});
 	return <Timeline items={items} />;
 }
@@ -372,7 +374,7 @@ export function RunActivityPanel({
 					showIcon
 					type="warning"
 					title={`${queue?.blockedProviders.map(providerShortLabel).join("、")}余额或额度不足`}
-					description="本批次该平台后续未执行任务会停止，已发出的请求正常收尾；其他平台和成功回答的语义解析继续。请充值后手动再次运行，系统不会自动补采或修改原始证据。"
+					description="该平台剩余采集已停止，其他平台继续运行。已保存的回答不受影响。充值后需手动重新运行。"
 				/>
 			)}
 			{Boolean(queue?.failed) && (
@@ -599,7 +601,7 @@ export function Monitoring({
 							busy={busy}
 							onClick={() => create("retest")}
 							disabled={selectedBatch?.kind !== "baseline"}
-							title={selectedBatch?.kind !== "baseline" ? "只能选择正式基线作为复测锚点" : undefined}
+							title={selectedBatch?.kind !== "baseline" ? "请先选择一条正式基线" : undefined}
 						>
 							按此条件复测
 						</Button>
@@ -680,7 +682,7 @@ export function Monitoring({
 					<SectionTitle
 						title="批次记录"
 						count={project.batches.length || undefined}
-						description="选择批次查看指标与趋势；复测只能以正式基线为锚点。"
+						description="复测沿用所选正式基线的采样配置。"
 					/>
 					{project.batches.length === 0 ? (
 						<Empty

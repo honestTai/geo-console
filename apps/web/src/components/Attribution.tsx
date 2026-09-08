@@ -115,7 +115,7 @@ export function Attribution({ project }: { project: Project }) {
 				title={
 					<>
 						<IconRoute size={16} />
-						导入真实 CSV
+						导入 CSV
 					</>
 				}
 				description="支持 GA4/GSC 导出宽表或 observed_at、metric、value 标准列；相同文件不重复计数。"
@@ -165,23 +165,17 @@ export function Attribution({ project }: { project: Project }) {
 				className="attribution-notice"
 				type="info"
 				showIcon
-				title="业务数据与 AI 监测并列展示。系统不会仅凭时间上的同步变化宣称 GEO 整改带来了线索；成交与有效咨询仍需业务人员确认。"
+				title="业务数据与 AI 指标的同步变化不等于因果关系，线索和成交来源需另行核实。"
 			/>
 			{!data ? (
 				<div className="center">
 					<Spin />
 				</div>
 			) : data.summary.length === 0 ? (
-				<Empty
-					title="还没有真实归因数据"
-					detail="导入客户自己的导出文件后，这里才会显示访问、搜索点击、表单或电话指标。"
-				/>
+				<Empty title="还没有业务数据" detail="导入客户自己的导出文件后，这里才会显示访问、搜索点击、表单或电话指标。" />
 			) : (
 				<>
-					<SectionTitle
-						title="业务指标汇总"
-						description="数值为已导入记录中相同来源、相同指标的数值之和；含义取决于原始导出字段，不是系统自动检测的 AI 表现，也不能据此证明优化带来成交。"
-					/>
+					<SectionTitle title="业务指标汇总" description="按来源和指标汇总已导入数据，含义以原始文件为准。" />
 					<KpiGrid columns={Math.min(4, Math.max(2, data.summary.length))}>
 						{data.summary.map((item) => (
 							<KpiCard

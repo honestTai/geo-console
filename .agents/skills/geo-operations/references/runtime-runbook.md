@@ -1,5 +1,7 @@
 # GEO Console Runtime Runbook
 
+客户封档/删除 409 先看 jobs、AI 会话和分析运行是否结束；不通过删证据解锁。0027 提供数据库写保护，封档/逻辑删除后计划与协调器停止推进。删除客户的旧分享和 artifacts 应为 404；若旧服务仍可读取，需统一更新 API/Workers，禁止回退到未检查 deleted_at 的版本。备份包含状态字段和全部证据，详见 `docs/customer-management.md`。
+
 可读报告/文章排障：新模板仅用于新冻结快照；0026 为文章可空计划和定位策略加法，发布须 API/Agent/Report/Web 同版本。文章排队先确认 content，历史未分类需重生成批准，不自动付费回填。引用 409/打不开区分跨客户、缺失对象、正文或文件权限，不替换记录/放宽隔离。备份计划、冻结全文与 PNG/raw；回滚不删列，保留新模板渲染能力。见 `docs/reader-report-workflow.md`。
 
 额度耗尽排查：区分未来采样窗口和 leased 活跃请求；查看 captureProgress 的 pending/active/next_at 与 blockedProviders。HTTP 402 / 明确额度型 429 后，只收尾同批次该平台 pending/过期 leased capture jobs；即时与每分钟清扫兼容旧 provider_error HTTP 402，日志 capture.quota_jobs_stopped，不改 Capture/config、不换平台、不自动充值后重跑。截图/PDF 失败检查 audit.screenshot_failed/audit.pdf_failed、API/Agent 的 Chromium/字体/资源；源文件与旧截图不可补写覆盖，修复后新建审计。备份包含审计 JSON 与对象证据。详见 `docs/website-audit-and-capture-recovery.md`。

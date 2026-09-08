@@ -31,6 +31,7 @@ description: Develop or review GEO Console application code, including the Web/A
 - HRouter Agent 只能读取当前项目的领域数据并提交待审批结构化草稿。不得增加 Bash、任意文件、任意 SQL 或开放 HTTP；审批时重新校验证据、Prompt、任务和项目归属。
 - 网站抓取必须继续阻止私网、Loopback、非 HTTP(S) 和重定向后的内网目标。抓取失败表示证据不足，不能推断页面没有内容。
 - 官网为选填；后补资料不改冻结批次。额度耗尽只收尾本批次该平台未执行任务，不改已有证据。官网审计源文件/截图/报告必须追加、可按项目授权打开；人工与 Agent 使用同一受控管线，不开放任意浏览器/HTTP 工具。详细预算和发布边界见 `docs/website-audit-and-capture-recovery.md`。
+- 客户封档后只读，删除为逻辑删除且需二次确认；任务未结束时不得抢占证据写入。新增项目子表必须登记数据库写保护，读接口/文件/分享必须拒绝已删除客户，详见 `docs/customer-management.md`。
 - 报告先冻结 payload 与 SHA-256，再异步生成 PDF。只有批准的 Agent 草稿能进入正式业务记录或报告叙述。
 - 保持 API 口径披露，尤其 `yuanbao_hunyuan` 必须显示“元宝搜索源 + 混元合成”，不得冒充消费端 App 回答。
 

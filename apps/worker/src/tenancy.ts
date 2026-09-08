@@ -24,7 +24,7 @@ export async function listOrganizations(
 		await database.query<Record<string, unknown>>(
 			`SELECT o.id,o.name,o.suspended_at,o.suspended_reason,o.created_at,o.updated_at,count(DISTINCT p.id)::int AS project_count,
 			 count(DISTINCT u.id)::int AS user_count
-			 FROM organizations o LEFT JOIN projects p ON p.organization_id=o.id
+			 FROM organizations o LEFT JOIN projects p ON p.organization_id=o.id AND p.deleted_at IS NULL
 			 LEFT JOIN users u ON u.organization_id=o.id AND u.disabled_at IS NULL
 			 WHERE $1::text IS NULL OR o.name ILIKE $1 OR o.id ILIKE $1
 			 GROUP BY o.id ORDER BY o.created_at LIMIT $2 OFFSET $3`,

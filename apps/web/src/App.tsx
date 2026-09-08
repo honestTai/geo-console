@@ -1,6 +1,6 @@
 import { IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AccessContext, hasPermission } from "./access";
+import { AccessContext, hasPermission, ProjectReadOnlyContext } from "./access";
 import { ApiError, api, post } from "./api";
 import { AccountControl, Login } from "./components/Login";
 import { ManagementWorkspace } from "./components/Management";
@@ -171,11 +171,29 @@ export function App() {
 	const loadProject = useCallback(async () => {
 		if (!projectId) return;
 		try {
-			setProject(await api<Project>(`/api/projects/${projectId}`));
+			const nextProject = await api<Project>(`/api/projects/${projectId}`);
+			if (evidenceProject.current === projectId) setProject(nextProject);
 		} catch (reason) {
+			if (evidenceProject.current !== projectId) return;
 			setError(reason instanceof Error ? reason.message : "项目加载失败");
+			if (reason instanceof ApiError && reason.status === 404) {
+				setProjectId(null);
+				setProject(null);
+			}
 		}
 	}, [projectId]);
+	useEffect(() => {
+		if (!projectId) return;
+		const refresh = () => {
+			if (document.visibilityState !== "hidden") void loadProject();
+		};
+		const timer = window.setInterval(refresh, 15_000);
+		window.addEventListener("focus", refresh);
+		return () => {
+			clearInterval(timer);
+			window.removeEventListener("focus", refresh);
+		};
+	}, [projectId, loadProject]);
 	useEffect(() => {
 		api<{ user: UserIdentity }>("/api/auth/me")
 			.then((result) => setUser(result.user))
@@ -395,68 +413,72 @@ export function App() {
 					onSelectView={setView}
 				>
 					<ViewBoundary resetKey={`${projectId}:${view}`}>
-						{!project ? (
-							<div className="center">
-								<IconLoader2 className="spin" />
-							</div>
-						) : project.status !== "active" && !managementViews.includes(view) && view !== "workbench" ? (
-							<Onboarding
-								project={project}
-								refresh={async () => {
-									await loadProject();
-									await loadProjects();
-								}}
-							/>
-						) : (
-							<>
-								{view === "workbench" && (
-									<Workbench
-										project={project}
-										initialMessage={workbenchDraft}
-										onConsumeInitial={() => setWorkbenchDraft(null)}
-										refresh={loadProject}
-									/>
-								)}
-								{view === "overview" && <Overview project={project} refresh={loadProject} />}
-								{view === "monitor" && (
-									<Monitoring
-										project={project}
-										refresh={loadProject}
-										focusBatchId={batchFocus}
-										onConsumeFocus={() => setBatchFocus(null)}
-									/>
-								)}
-								{view === "evidence" && (
-									<Evidence project={project} focus={evidenceFocus} onConsumeFocus={() => setEvidenceFocus(null)} />
-								)}
-								{view === "audit" && <WebsiteAudit project={project} refresh={loadProject} />}
-								{websiteEvidenceId && (
-									<WebsiteEvidenceViewer
-										key={`${project.id}:${websiteEvidenceId}`}
-										projectId={project.id}
-										evidenceId={websiteEvidenceId}
-										onClose={() => setWebsiteEvidenceId(null)}
-									/>
-								)}
-								{view === "diagnosis" && <Diagnosis project={project} refresh={loadProject} />}
-								{view === "remediation" && <Remediation project={project} refresh={loadProject} />}
-								{view === "attribution" && <Attribution project={project} />}
-								{view === "report" && <Report project={project} />}
-								{view === "articles" && <Articles project={project} />}
-								{view === "knowledge" && (
-									<KnowledgeBase project={project} canWrite={hasPermission(user, "knowledge.manage")} />
-								)}
-								{view === "customers" && customerContent}
-								{view === "settings" && <Settings />}
-								{view === "members" && <Members localBypass={user.localBypass} />}
-								{view === "auditLogs" && <AuditLogs />}
-								{view === "serviceLogs" && <ServiceLogs />}
-								{view === "rbac" && <RbacManagement user={user} onOpenMembers={() => setView("members")} />}
-								{view === "organizations" && user.isSuperAdmin && (
-									<OrganizationManagement user={user} onIdentityChange={applyIdentity} />
-								)}
-							</>
-						)}
+						<ProjectReadOnlyContext.Provider value={project?.status === "archived" && !managementViews.includes(view)}>
+							{!project ? (
+								<div className="center">
+									<IconLoader2 className="spin" />
+								</div>
+							) : !["active", "archived"].includes(project.status) &&
+								!managementViews.includes(view) &&
+								view !== "workbench" ? (
+								<Onboarding
+									project={project}
+									refresh={async () => {
+										await loadProject();
+										await loadProjects();
+									}}
+								/>
+							) : (
+								<>
+									{view === "workbench" && (
+										<Workbench
+											project={project}
+											initialMessage={workbenchDraft}
+											onConsumeInitial={() => setWorkbenchDraft(null)}
+											refresh={loadProject}
+										/>
+									)}
+									{view === "overview" && <Overview project={project} refresh={loadProject} />}
+									{view === "monitor" && (
+										<Monitoring
+											project={project}
+											refresh={loadProject}
+											focusBatchId={batchFocus}
+											onConsumeFocus={() => setBatchFocus(null)}
+										/>
+									)}
+									{view === "evidence" && (
+										<Evidence project={project} focus={evidenceFocus} onConsumeFocus={() => setEvidenceFocus(null)} />
+									)}
+									{view === "audit" && <WebsiteAudit project={project} refresh={loadProject} />}
+									{websiteEvidenceId && (
+										<WebsiteEvidenceViewer
+											key={`${project.id}:${websiteEvidenceId}`}
+											projectId={project.id}
+											evidenceId={websiteEvidenceId}
+											onClose={() => setWebsiteEvidenceId(null)}
+										/>
+									)}
+									{view === "diagnosis" && <Diagnosis project={project} refresh={loadProject} />}
+									{view === "remediation" && <Remediation project={project} refresh={loadProject} />}
+									{view === "attribution" && <Attribution project={project} />}
+									{view === "report" && <Report project={project} />}
+									{view === "articles" && <Articles project={project} />}
+									{view === "knowledge" && (
+										<KnowledgeBase project={project} canWrite={hasPermission(user, "knowledge.manage")} />
+									)}
+									{view === "customers" && customerContent}
+									{view === "settings" && <Settings />}
+									{view === "members" && <Members localBypass={user.localBypass} />}
+									{view === "auditLogs" && <AuditLogs />}
+									{view === "serviceLogs" && <ServiceLogs />}
+									{view === "rbac" && <RbacManagement user={user} onOpenMembers={() => setView("members")} />}
+									{view === "organizations" && user.isSuperAdmin && (
+										<OrganizationManagement user={user} onIdentityChange={applyIdentity} />
+									)}
+								</>
+							)}
+						</ProjectReadOnlyContext.Provider>
 					</ViewBoundary>
 				</AppShell>
 			</NavigationContext.Provider>

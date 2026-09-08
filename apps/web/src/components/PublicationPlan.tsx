@@ -6,7 +6,7 @@ export function PublicationPlanView({ plan }: { plan: Partial<PublicationPlan> |
 	if (!plan) return <Alert type="warning" showIcon title="历史文章没有保存用途与发布计划，请补充后再发布。" />;
 	return (
 		<section>
-			<h3>这篇文章怎么用？</h3>
+			<h3>用途与发布计划</h3>
 			<p>
 				<b>用途：</b>
 				{plan.purpose || "尚未填写"}
@@ -19,7 +19,7 @@ export function PublicationPlanView({ plan }: { plan: Partial<PublicationPlan> |
 				<b>给谁看：</b>
 				{plan.audience || "尚未填写"}
 			</p>
-			<h4>为什么这样写？</h4>
+			<h4>写作安排</h4>
 			{plan.contentStrategy ? (
 				<>
 					<p>
@@ -36,9 +36,9 @@ export function PublicationPlanView({ plan }: { plan: Partial<PublicationPlan> |
 					</p>
 				</>
 			) : (
-				<p>这篇文章尚未记录内容形式与篇幅依据，可补充或重新生成；不会按固定模板自动补齐。</p>
+				<p>尚未填写内容形式与篇幅安排。</p>
 			)}
-			<h4>建议发布位置（不是已发布记录）</h4>
+			<h4>建议发布位置</h4>
 			{!plan.channels?.length && <Alert type="warning" title="尚未填写建议发布位置，请补全后再发布。" />}
 			{(plan.channels ?? []).map((c) => (
 				<article key={`${c.platform}:${c.placement}`}>
@@ -52,19 +52,19 @@ export function PublicationPlanView({ plan }: { plan: Partial<PublicationPlan> |
 						</Tag>
 						<b>{c.platform}</b> · {c.placement}
 					</p>
-					<p>为什么：{c.reason}</p>
-					<p>怎么调整文章：{c.adaptation}</p>
+					<p>选择理由：{c.reason}</p>
+					<p>内容调整：{c.adaptation}</p>
 					<p>发布前确认：{c.prerequisite}</p>
 					<EvidenceRef ids={c.evidenceIds ?? []} index={[]} />
 				</article>
 			))}
-			<h4>怎么验收</h4>
+			<h4>验收步骤</h4>
 			<ol>
 				{(plan.acceptance ?? []).map((s) => (
 					<li key={s}>{s}</li>
 				))}
 			</ol>
-			<p>填写发布地址只登记人工发布结果，不代表系统替你发布或已被 AI 引用。</p>
+			<p>发布需自行完成；AI 是否引用以复测结果为准。</p>
 		</section>
 	);
 }
@@ -73,12 +73,9 @@ export function PublicationPlanFields() {
 	return (
 		<section>
 			<h3>用途与发布计划</h3>
-			<p>
-				内容形式、篇幅和结构由实际问题、事实与发布位置决定，不要求固定字数或章节。只填写已核实的客户事实，未核实的平台标为候选。
-			</p>
 			{[
-				["purpose", "文章用来做什么"],
-				["problem", "解决哪项问题"],
+				["purpose", "文章用途"],
+				["problem", "要解决的问题"],
 				["audience", "目标读者"],
 			].map(([name, label]) => (
 				<Form.Item
@@ -91,9 +88,9 @@ export function PublicationPlanFields() {
 				</Form.Item>
 			))}
 			{[
-				["format", "本次采用的内容形式"],
-				["rationale", "为什么适合这个问题和发布位置"],
-				["lengthApproach", "篇幅依据：必须写清什么、哪些不必展开"],
+				["format", "内容形式"],
+				["rationale", "选择理由"],
+				["lengthApproach", "篇幅安排"],
 			].map(([name, label]) => (
 				<Form.Item
 					key={name}
@@ -111,11 +108,11 @@ export function PublicationPlanFields() {
 							<section key={field.key}>
 								<h4>建议渠道 {field.name + 1}</h4>
 								{[
-									["platform", "具体平台"],
-									["placement", "发布栏目或页面位置"],
-									["reason", "为什么选择这里"],
-									["adaptation", "如何调整文章"],
-									["prerequisite", "账号、授权和规则等前置条件"],
+									["platform", "发布平台"],
+									["placement", "栏目或页面"],
+									["reason", "选择理由"],
+									["adaptation", "内容调整"],
+									["prerequisite", "发布前需确认"],
 								].map(([key, label]) => (
 									<Form.Item key={key} name={[field.name, key]} label={label} rules={[{ required: true }]}>
 										<Input.TextArea autoSize={{ minRows: 1, maxRows: 3 }} />

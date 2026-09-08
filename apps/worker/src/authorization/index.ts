@@ -1,5 +1,6 @@
 import { type Decision, decide, type ExecutionActor, type Principal, type Resource } from "@geo/authorization";
 import type { Database } from "@geo/core";
+import { assertProjectAccess } from "../project-state";
 import { HttpInputError } from "../utils";
 import { findHttpPolicy, findPolicy } from "./policies";
 import { actorFromIdentity, loadActorPrincipal } from "./principal";
@@ -62,12 +63,21 @@ export async function authorizeRequest(
 ): Promise<Decision> {
 	const result = await evaluateRequest(database, principal, method, path);
 	assertDecision(result.decision);
+	if (result.resource?.projectId) {
+		const deletingProject = method === "DELETE" && result.policy?.path === "/api/projects/:projectId";
+		await assertProjectAccess(
+			database,
+			result.resource.projectId,
+			!["GET", "HEAD"].includes(method) && !deletingProject,
+		);
+	}
 	return result.decision;
 }
 export async function authorizeArtifact(database: Database, principal: Principal, key: string): Promise<void> {
 	const resource = await resolveArtifact(database, key);
 	if (!resource) throw new HttpInputError("证据文件不存在", 404);
 	assertDecision(decide(principal, await findPolicy(database, `artifact.${resource.kind}.read`), resource));
+	if (resource.projectId) await assertProjectAccess(database, resource.projectId);
 }
 export async function authorizeAction(
 	database: Database,
@@ -77,6 +87,7 @@ export async function authorizeAction(
 ): Promise<Principal> {
 	const principal = await loadActorPrincipal(database, actor, resource.organizationId ?? "");
 	assertDecision(decide(principal, await findPolicy(database, action), resource));
+	if (resource.projectId) await assertProjectAccess(database, resource.projectId, true);
 	return principal as Principal;
 }
 

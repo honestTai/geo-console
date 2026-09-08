@@ -60,9 +60,9 @@ export function MeasurementExplanation({
 	return (
 		<section className="measurement-explanation">
 			<SectionTitle
-				title="数字怎么算，哪些问题算了？"
-				description="把检测完成度和企业表现分开；失败不是差评，搜索到不等于引用。"
-				extra={<Button onClick={() => setOpen(true)}>查看公式、分母与原始回答</Button>}
+				title="指标计算依据"
+				description="采集失败不计为负面评价；搜索来源与最终引用分别统计。"
+				extra={<Button onClick={() => setOpen(true)}>计算明细</Button>}
 			/>
 			{explanation ? (
 				<>
@@ -96,7 +96,7 @@ export function MeasurementExplanation({
 					</p>
 				</>
 			) : (
-				<p>尚未生成可靠的指标说明。请等待解析完成；不显示模拟分数。</p>
+				<p>回答分析完成后显示指标说明。</p>
 			)}
 			<Drawer open={open} onClose={() => setOpen(false)} title="指标说明与计算依据" size="min(1180px, 95vw)">
 				<p>{aggregationExplanation}</p>

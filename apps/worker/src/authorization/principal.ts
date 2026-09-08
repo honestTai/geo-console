@@ -39,7 +39,7 @@ const principalSnapshotSql = `SELECT u.id,u.email,u.display_name,u.role,u.organi
 	    WHERE ur.user_id=u.id AND r.organization_id=a.id AND rp.permission_key=p.key)))) eligible),'[]') AS permissions,
 	 COALESCE((SELECT jsonb_agg(permission_key ORDER BY permission_key) FROM (SELECT DISTINCT rp.permission_key FROM user_roles ur JOIN roles r ON r.id=ur.role_id
 	  JOIN role_permissions rp ON rp.role_id=r.id WHERE ur.user_id=u.id AND r.organization_id=a.id) configured),'[]') AS configured_permissions,
-	 COALESCE((SELECT jsonb_agg(p.id ORDER BY p.id) FROM user_project_access up JOIN projects p ON p.id=up.project_id WHERE up.user_id=u.id AND p.organization_id=a.id),'[]') AS project_ids
+	 COALESCE((SELECT jsonb_agg(p.id ORDER BY p.id) FROM user_project_access up JOIN projects p ON p.id=up.project_id WHERE up.user_id=u.id AND p.organization_id=a.id AND p.deleted_at IS NULL),'[]') AS project_ids
 	 FROM users u JOIN organizations h ON h.id=u.organization_id
 	 JOIN organizations a ON a.id=CASE WHEN u.is_super_admin AND $2::text IS NOT NULL THEN $2 ELSE u.organization_id END
 	 WHERE ($1::text[] IS NULL OR u.id=ANY($1::text[])) AND ($3::text IS NULL OR EXISTS(SELECT 1 FROM sessions s WHERE s.user_id=u.id

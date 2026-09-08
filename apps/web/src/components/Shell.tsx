@@ -111,7 +111,7 @@ export function AppShell({
 				{(!collapsed || narrow) && (
 					<div>
 						<strong>ZZ Geo</strong>
-						<small>真实 AI 可见度工作台</small>
+						<small>AI 搜索监测</small>
 					</div>
 				)}
 			</div>

@@ -108,7 +108,7 @@ function CreateMember({ onCreated }: { onCreated(): Promise<void> }) {
 					type="warning"
 					showIcon
 					title="没有可分配角色"
-					description="当前机构可能未授权成员管理功能，或现有角色高于你的权限。请联系系统超管配置，不能通过默认角色绕过授权。"
+					description="当前没有你可分配的角色，请联系管理员配置。"
 				/>
 			)}
 			<Form
@@ -254,7 +254,7 @@ export function UserManagement() {
 					type="info"
 					showIcon
 					title="当前为成员只读视图"
-					description="添加、停用、恢复和重置密码需要「成员管理」权限；角色名称本身不代表实际授权。"
+					description="如需添加成员或修改账号状态，请联系管理员授予成员管理权限。"
 				/>
 			)}
 			<SectionTitle

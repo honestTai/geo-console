@@ -26,6 +26,11 @@ export async function resolveResource(database: Database, type: ResourceType, id
 	const row = (
 		await database.query<{ organization_id: string; project_id?: string; owner_user_id?: string | null }>(sql, [id])
 	).rows[0];
+	if (
+		row?.project_id &&
+		!(await database.query("SELECT id FROM projects WHERE id=$1 AND deleted_at IS NULL", [row.project_id])).rows.length
+	)
+		return null;
 	return row
 		? { organizationId: row.organization_id, projectId: row.project_id, ownerUserId: row.owner_user_id }
 		: null;
@@ -44,5 +49,10 @@ export async function resolveArtifact(database: Database, key: string): Promise<
 			[key],
 		)
 	).rows[0];
+	if (
+		row &&
+		!(await database.query("SELECT id FROM projects WHERE id=$1 AND deleted_at IS NULL", [row.project_id])).rows.length
+	)
+		return null;
 	return row ? { organizationId: row.organization_id, projectId: row.project_id, kind: row.kind } : null;
 }

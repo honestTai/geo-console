@@ -59,7 +59,7 @@ describe("reader action continuity", () => {
 				{ status: "fail", weight: 10 },
 				{ status: "skip", weight: 50 },
 			]),
-		).toBe("本次计分权重：25 / 40；共 3 项适用检查。");
+		).toBe("加权得分 25 / 40，共 3 项计入评分。");
 		expect(websiteScoreGuide.formula).toContain("一半权重");
 		expect(websiteScoreGuide.caution).toContain("不是零分");
 	});

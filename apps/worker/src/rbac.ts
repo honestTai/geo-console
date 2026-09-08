@@ -326,7 +326,7 @@ async function validateMemberScope(
 	}
 	if (projectIds.length) {
 		const projectRows = await transaction.query<{ id: string }>(
-			`SELECT id FROM projects WHERE organization_id=$1 AND id IN (${sqlPlaceholders(projectIds, 2)})`,
+			`SELECT id FROM projects WHERE organization_id=$1 AND deleted_at IS NULL AND id IN (${sqlPlaceholders(projectIds, 2)})`,
 			[organizationId, ...projectIds],
 		);
 		if (projectRows.rows.length !== projectIds.length) throw new HttpInputError("包含其他机构或不存在的客户", 400);

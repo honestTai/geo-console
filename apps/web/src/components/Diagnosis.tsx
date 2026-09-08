@@ -86,7 +86,7 @@ export function Diagnosis({ project, refresh }: { project: Project; refresh(): P
 	if (!project.batches.length)
 		return (
 			<Page breadcrumb={project.name} eyebrow="差距诊断" title="可整改差距">
-				<Empty title="尚不能诊断" detail="诊断必须基于成功采集的真实回答。请先建立基线。" />
+				<Empty title="暂无可诊断的回答" detail="请先完成一轮基线监测。" />
 			</Page>
 		);
 	return (
@@ -94,7 +94,7 @@ export function Diagnosis({ project, refresh }: { project: Project; refresh(): P
 			breadcrumb={project.name}
 			eyebrow="差距诊断"
 			title="可整改差距"
-			description="规则计算差距指标；Agent 诊断草稿需人工审批。"
+			description="AI 诊断需审核后才能用于整改。"
 			extra={
 				<div className="actions">
 					<BatchPicker project={project} selected={selected} setSelected={setSelected} />
@@ -135,13 +135,10 @@ export function Diagnosis({ project, refresh }: { project: Project; refresh(): P
 			<SectionTitle
 				title="规则诊断结果"
 				count={findings.length || undefined}
-				description="由确定性证据规则计算，可直接转为整改任务。"
+				description="依据采集结果检查，可转为整改任务。"
 			/>
 			{findings.length === 0 ? (
-				<Empty
-					title="这个批次还没有诊断"
-					detail="采集完成后可直接运行证据规则；没有模型密钥也能生成真实诊断和整改任务。"
-				/>
+				<Empty title="这个批次还没有诊断" detail="采集完成后可运行规则诊断，无需调用模型。" />
 			) : (
 				<Table<Finding>
 					className="gap-table"

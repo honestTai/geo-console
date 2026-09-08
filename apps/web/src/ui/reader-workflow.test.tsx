@@ -14,7 +14,7 @@ describe("plain-language measurement and article UI", () => {
 	});
 	it("does not turn pending analysis into scores and labels missing legacy article plans", () => {
 		const html = renderToStaticMarkup(<MeasurementExplanation batchId="test" />);
-		expect(html).toContain("尚未生成可靠的指标说明");
+		expect(html).toContain("回答分析完成后显示指标说明");
 		expect(html).not.toContain("0%");
 		expect(renderToStaticMarkup(<PublicationPlanView plan={null} />)).toContain("历史文章没有保存用途与发布计划");
 		expect(renderToStaticMarkup(<PublicationPlanView plan={{ purpose: "尚在编辑的测试计划" }} />)).toContain(
@@ -34,11 +34,11 @@ describe("plain-language measurement and article UI", () => {
 				}}
 			/>,
 		);
-		expect(html).toContain("为什么这样写");
+		expect(html).toContain("写作安排");
 		expect(html).toContain("单条短答");
 		expect(html).toContain("不凑字数");
 		expect(renderToStaticMarkup(<PublicationPlanView plan={{ purpose: "历史计划" }} />)).toContain(
-			"尚未记录内容形式与篇幅依据",
+			"尚未填写内容形式与篇幅安排",
 		);
 	});
 });

@@ -13,7 +13,7 @@ export function websiteScoreBreakdown(checks: Array<{ weight: number; status: st
 		(sum, c) => sum + c.weight * (c.status === "pass" ? 1 : c.status === "warning" ? 0.5 : 0),
 		0,
 	);
-	return `本次计分权重：${earned} / ${total}；共 ${applicable.length} 项适用检查。`;
+	return `加权得分 ${earned} / ${total}，共 ${applicable.length} 项计入评分。`;
 }
 export const websiteCheckLanguage: Record<string, { label: string; meaning: string; owner: string }> = {
 	A1: {
@@ -27,14 +27,13 @@ export const websiteCheckLanguage: Record<string, { label: string; meaning: stri
 		owner: "网站技术负责人",
 	},
 	A3: {
-		label: "有没有阻止搜索机器人读取",
+		label: "搜索机器人访问规则",
 		meaning: "检查机器人访问规则，不同机器人规则可能不同；允许访问不代表一定收录。",
 		owner: "网站技术负责人",
 	},
 	A4: {
-		label: "能否找到供机器读取的网址清单",
-		meaning:
-			"网址清单叫 Sitemap，和导航菜单不同。未发现时先核对实际地址和抓取响应，再决定补建；不能凭有限扫描认定全站不存在。",
+		label: "XML 网站地图",
+		meaning: "Sitemap 是供机器读取的网址清单。未找到时需核对地图地址和访问结果。",
 		owner: "网站技术负责人",
 	},
 	A5: {
@@ -43,7 +42,7 @@ export const websiteCheckLanguage: Record<string, { label: string; meaning: stri
 		owner: "内容负责人 / 网站技术负责人",
 	},
 	A6: {
-		label: "页面有没有准确的内容摘要",
+		label: "页面内容摘要",
 		meaning: "摘要需要与页面正文一致；存在摘要不代表 AI 一定使用。",
 		owner: "内容负责人",
 	},
@@ -53,7 +52,7 @@ export const websiteCheckLanguage: Record<string, { label: string; meaning: stri
 		owner: "网站技术负责人 / 内容负责人",
 	},
 	A8: {
-		label: "是否说明哪个网址是页面的主要版本",
+		label: "页面规范地址",
 		meaning: "Canonical 是给重复或带参数页面指定主要网址，避免页面归属混乱。",
 		owner: "网站技术负责人",
 	},
@@ -63,13 +62,13 @@ export const websiteCheckLanguage: Record<string, { label: string; meaning: stri
 		owner: "网站技术负责人",
 	},
 	A10: {
-		label: "有没有机器能直接读取的公司与服务信息",
-		meaning: "结构化数据（JSON-LD）是机器可读的信息卡，应与可见的名称、业务和联系方式一致，不能虚构评分或资质。",
+		label: "公司与服务的结构化数据",
+		meaning: "JSON-LD 中的名称、业务和联系方式应与页面内容一致，评分和资质需有依据。",
 		owner: "网站技术负责人 / 资料负责人",
 	},
 	A11: {
 		label: "公司名称与品牌身份是否一致",
-		meaning: "核对企业全称、确认的简称及页面事实，不能只因全文没出现企业全称就判定公司不存在。",
+		meaning: "核对企业全称与已确认的品牌简称，简称一致的页面也可识别。",
 		owner: "内容负责人",
 	},
 	A12: {
@@ -79,7 +78,7 @@ export const websiteCheckLanguage: Record<string, { label: string; meaning: stri
 	},
 	A13: {
 		label: "可选的 AI 内容导航文件",
-		meaning: "llms.txt 只是可选参考，不是收录、推荐或排名的必要条件，不应抢在真实问题前整改。",
+		meaning: "llms.txt 为可选文件，缺少它不影响本次评分，也不足以判断收录或排名。",
 		owner: "网站技术负责人（可选）",
 	},
 };

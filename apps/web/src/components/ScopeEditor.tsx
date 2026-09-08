@@ -15,7 +15,7 @@ const COMPETITOR_FIELDS: EditableField<Competitor>[] = [
 ];
 
 const PROMPT_FIELDS: EditableField<Prompt>[] = [
-	{ key: "question", label: "真实用户问题", width: 260 },
+	{ key: "question", label: "监测问题", width: 260 },
 	{ key: "intent", label: "意图", width: 110 },
 	{ key: "tags", label: "标签", commaList: true, width: 120 },
 	{ key: "topic", label: "主题", width: 110 },

@@ -272,7 +272,7 @@ export function Onboarding({ project, refresh }: { project: Project; refresh(): 
 				<Steps size="small" current={0} items={STEPS} className="onboarding-steps" />
 				<div className="action-panel">
 					<IconWorldSearch size={34} />
-					<h2>{project.website_url ? "读取客户的真实官网" : "依据已填写的客户资料建档"}</h2>
+					<h2>{project.website_url ? "分析客户官网" : "整理客户资料"}</h2>
 					<p>
 						{project.website_url
 							? "抓取官网页面，由 HRouter Agent"
@@ -336,8 +336,8 @@ export function Onboarding({ project, refresh }: { project: Project; refresh(): 
 			title="审核监测范围"
 			description={
 				manualReview && !hasCandidates
-					? "直接填写真实品牌别名、竞品和购买问题。确认前不会创建采集任务。"
-					: "删除不真实的竞品（“待确认”表示联网核实未通过），修改问题后再确认。确认前不会创建采集任务。"
+					? "确认品牌别名、竞品和监测问题后，即可开始采集。"
+					: "请核对竞品和监测问题。“待确认”的竞品尚未通过联网核实。"
 			}
 			extra={
 				<div className="actions">

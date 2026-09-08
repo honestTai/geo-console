@@ -74,6 +74,8 @@ export const projects = pgTable("projects", {
 	aliases: jsonb("aliases").$type<string[]>().notNull().default([]),
 	profile: jsonb("profile").$type<Record<string, unknown> | null>(),
 	status: projectStatus("status").notNull().default("draft"),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	deletedAt: timestamp("deleted_at", { withTimezone: true }),
 	confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
 	createdAt,
 	updatedAt,

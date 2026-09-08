@@ -167,7 +167,7 @@ export function AuthorizationConfiguration({
 				type="info"
 				showIcon
 				title="权限、策略、资源边界分别管理"
-				description="权限决定能做什么；策略绑定接口、文件和后台动作；机构与客户隔离不能由权限编辑绕过。未登记或停用的策略默认拒绝。修改权限不会自动给机构或角色授权。"
+				description="新增权限后，需分别授予机构和角色。停用策略会禁止对应操作，客户访问范围仍单独校验。"
 			/>
 			{error && <Alert type="error" showIcon title={error} closable onClose={() => setError(null)} />}
 			<Tabs
@@ -306,7 +306,7 @@ export function AuthorizationConfiguration({
 						label: "授权诊断",
 						children: (
 							<>
-								<Alert type="info" title="只计算授权，不会执行被检查的请求。用户与资源必须使用真实 ID。" />
+								<Alert type="info" title="仅检查权限，不执行请求。" />
 								<Form
 									form={explainForm}
 									layout="vertical"

@@ -1,12 +1,16 @@
 # GEO Console Project Map
 
+客户生命周期：`project-lifecycle.ts`（锁定、重授权、任务检查、封档/逻辑删除）→ `project-state.ts` + authorization HTTP/artifact/execution → migration 0027 数据库写保护；CustomerManagement/ProjectLifecycleDialog 管理筛选和二次确认，access 的 ProjectReadOnlyContext 控制工作台动作。新项目子表须补充写保护映射。实现与回滚边界见 `docs/customer-management.md`。
+
+界面与文案：Page.css 统一提示上下间距，primitives Pagination 管理页码/每页条数，Articles.css 管理抽屉列宽和证据长文本；文案审阅范围见 `docs/ui-refinement.md`。Agent v9 增加自然行文要求，生成内容仍绑定原证据与审核流程。
+
 自适应文章事实源：`agent.ts ARTICLE_WRITING_GUIDANCE` 与提交边界 → `evidence/publication.ts contentStrategy` → `PublicationPlan` 编辑/预览 → `report-reader/report-word-reader`。按实际问题决定形式与篇幅，不设统一长文门槛；旧 JSON 缺字段只披露，不回填。沿用 0026 的 JSON 列。
 
 客户解释链：`metrics/communication.ts` → Web `MetricLabel/MeasurementExplanation`、worker `report.ts/report-reader.ts/report-word-reader.ts`；`report-followup.ts` 保留任务与冻结配对对比。`report-evidence.ts` + `website-evidence.getEvidenceReference` 负责全文附录与准确历史定位。`evidence/publication.ts` → agent/articles + migration 0026 → `PublicationPlan/Articles` → report-snapshots。先读 `docs/reader-report-workflow.md`；解释不得写回正式指标，来源不等于引用、份额不等于市场份额。
 
 Agent 的 `read_project_context` 通过 `agent-measurement-context.ts` 提供运行绑定的 metricSnapshot、frozenBatchConfig 和 readerGuide；问题校验使用冻结问题，不能拿当前资料或最新解析覆盖运行绑定版本。
 
-机构客户目录：`core/access.ts` + migration 0025 注册 `page.customers`；Web `ui/workspace-views.ts` 维护页面/图标/项目页权限注册，`lazy-views.tsx` 按需加载 `CustomerManagement`；App/Management 只装配，CreateProject 是客户首页与客户管理共用的建档弹窗，ProjectProfileEditor 接受列表摘要。列表/新建/编辑继续复用 service/project-profile 和原有授权边界，不增加客户删除或跨机构转移。验收与发布见 `docs/customer-management.md`。
+机构客户目录：`core/access.ts` + migration 0025 注册 `page.customers`；Web `ui/workspace-views.ts` 维护页面/图标/项目页权限注册，`lazy-views.tsx` 按需加载 `CustomerManagement`；App/Management 只装配，CreateProject 是客户首页与客户管理共用的建档弹窗，ProjectProfileEditor 接受列表摘要。列表/新建/编辑继续复用 service/project-profile 和原有授权边界，0027 增加封档/逻辑删除，不支持跨机构转移。验收与发布见 `docs/customer-management.md`。
 
 客户/官网/额度链：`project-profile.ts` + migration 0024 → `ProjectProfileEditor` / Onboarding / Overview；`capture-progress.ts` → cloud-runner/service → Monitoring；`crawler.ts` → `website-discovery.ts`（XML 类型、嵌套、限额）、`public-http.ts`（DNS 固定与压缩上限）、`website-screenshot.ts`（受控浏览器）、`website-report.ts` / `report-branding.ts`（审计与最终报告）。`website-evidence.ts` + authorization/resources → WebsiteEvidenceViewer / AuditEvidenceDrawer，让历史审计/快照引用可打开且跨项目不可读。操作与兼容说明见 `docs/website-audit-and-capture-recovery.md`。
 

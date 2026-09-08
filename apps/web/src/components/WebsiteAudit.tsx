@@ -12,9 +12,9 @@ import { ProjectProfileEditor } from "./ProjectProfileEditor";
 import "./WebsiteAudit.css";
 
 const verdictLabels: Record<string, string> = {
-	ready: "官网读取基础完整",
-	ready_with_warnings: "官网可读取，但存在重要缺口",
-	blocked: "官网存在读取阻断",
+	ready: "基础检查通过",
+	ready_with_warnings: "可读取，部分项目需处理",
+	blocked: "部分内容无法读取",
 };
 const scoreDescription = (result: WebsiteAuditRecord["result"]) =>
 	result.score === null ? "缺少评分证据，不记为零分" : websiteScoreBreakdown(result.checks);
@@ -82,20 +82,15 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 				breadcrumb={project.name}
 				eyebrow="官网审计"
 				title="该客户暂未填写官网"
-				description="官网为选填项，不影响建档、AI 监测与基于真实回答的分析。"
+				description="未填写官网仍可开展 AI 监测。"
 			>
-				<Alert
-					showIcon
-					type="info"
-					title="官网检查不适用，不记为零分或审计失败"
-					description="建站后可在客户信息中补充官网，再手动或通过 Agent 发起真实审计。"
-				/>
+				<Alert showIcon type="info" title="暂无官网可供检查" description="补充官网后可运行审计。" />
 				<Button permission="project.onboard" onClick={() => setEditing(true)}>
-					编辑客户信息 / 补充官网
+					补充官网
 				</Button>
 				{audit && (
 					<>
-						<p>以下是此前官网的历史证据，不代表当前未填写的官网状态。</p>
+						<p>此前官网的审计记录</p>
 						<Select
 							aria-label="历史官网审计"
 							value={audit.id}
@@ -121,22 +116,13 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 				description="检查 AI 能否稳定读取官网并引用页面事实。"
 				extra={
 					<Button permission="audit.run" busy={busy} icon={<IconShieldCheck size={17} />} onClick={run}>
-						开始真实审计
+						开始审计
 					</Button>
 				}
 			>
 				{error && <Alert type="error" showIcon title={error} />}
-				{busy && (
-					<Alert
-						type="info"
-						showIcon
-						title="正在读取官网、探测 Sitemap 并生成证据，失败项会保留原因；不会调用收费模型。"
-					/>
-				)}
-				<Empty
-					title="还没有官网审计证据"
-					detail="运行后会真实请求客户官网、robots.txt、Sitemap 和 llms.txt，并保存不可变审计快照。"
-				/>
+				{busy && <Alert type="info" showIcon title="正在检查官网并保存截图，审计不产生模型费用。" />}
+				<Empty title="还没有官网审计证据" detail="审计记录包含官网页面、抓取规则、网站地图和截图。" />
 			</Page>
 		);
 	const passCount = audit.result.checks.filter((check) => check.status === "pass").length;
@@ -155,9 +141,7 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 			}
 		>
 			{error && <Alert type="error" showIcon title={error} />}
-			{busy && (
-				<Alert type="info" showIcon title="真实审计进行中：读取、有限 Sitemap 探测、截图与报告生成。请勿重复提交。" />
-			)}
+			{busy && <Alert type="info" showIcon title="正在检查官网、保存截图并生成报告，请稍候。" />}
 			<div className="actions audit-toolbar">
 				<Select
 					aria-label="选择审计历史"
@@ -211,7 +195,7 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 					<Alert
 						type="warning"
 						showIcon
-						message="HTTPS 校验失败，HTTP 或浏览器 User-Agent 请求仍能取得内容。系统保留该来源进行检查，不代表 HTTPS、机器人策略或完整动态页面已经通过。"
+						message="HTTPS 校验失败。以下内容来自 HTTP 或浏览器方式读取，HTTPS 和机器人访问检查仍未通过。"
 					/>
 				)}
 			<SectionTitle title="首页读取结果" />
@@ -248,8 +232,8 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 			<Alert
 				showIcon
 				type="info"
-				title="导航菜单、HTML 网站地图与 XML Sitemap 是三种不同内容"
-				description="发现结果仅代表本次有限探测；读取失败不会被表述为全站不存在。点击 Sitemap 检查项可查看请求地址、HTTP 状态、文件类型和原文。"
+				title="网站地图检查范围"
+				description="本次检查区分导航菜单、HTML 网站地图和 XML Sitemap。未找到或读取失败，均不足以判断全站是否存在网站地图。"
 			/>
 			<SectionTitle
 				title="审计项目"
@@ -266,7 +250,7 @@ export function WebsiteAudit({ project, refresh }: { project: Project; refresh()
 							<p>{check.detail}</p>
 							<p className="muted">{websiteCheckLanguage[check.id]?.meaning}</p>
 							<Button variant="link" onClick={() => setDetail(check)}>
-								查看证据、问题定位与整改办法
+								查看详情
 							</Button>
 						</div>
 					</article>
@@ -359,11 +343,7 @@ export function AuditEvidenceDrawer({
 						<Image width="100%" src={artifactHref(screenshot.objectKey)} alt="本次官网审计的取证截图" />
 					</>
 				) : (
-					<Alert
-						showIcon
-						type="warning"
-						title={screenshot?.error ?? "这份历史审计没有截图，旧证据不会补写；请重新审计生成新的证据。"}
-					/>
+					<Alert showIcon type="warning" title={screenshot?.error ?? "这份审计未保存截图，可重新审计。"} />
 				)}
 				{(!check || check.id === "A4") && (
 					<>

@@ -68,7 +68,7 @@ export function OverviewKpis({ trends, tasks }: { trends: TrendResponse; tasks: 
 					{deltaChip(deltaPoints("citationRate"), " 百分点")}
 				</div>
 				<div className="kpi-card">
-					<Statistic title="证据存证" value={evidenceCount} suffix=" 条" />
+					<Statistic title="已采集回答" value={evidenceCount} suffix=" 条" />
 					{deltaChip(evidenceDelta, " 条")}
 				</div>
 				<div className="kpi-card">

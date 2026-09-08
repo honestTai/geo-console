@@ -1733,6 +1733,7 @@ export async function resumeWaitingSessions(database: Database): Promise<number>
 			`SELECT r.id,r.purpose,r.session_id,r.batch_id,s.created_by FROM agent_runs r
 			 JOIN agent_sessions s ON s.id=r.session_id
 			 WHERE r.status='awaiting_approval' AND s.auto_approve=true AND s.status<>'failed'
+			 AND EXISTS(SELECT 1 FROM projects p WHERE p.id=r.project_id AND p.status<>'archived' AND p.deleted_at IS NULL)
 			 AND r.purpose NOT IN ('report_narrative','quality_review')`,
 		)
 	).rows;
@@ -1767,7 +1768,7 @@ export async function resumeWaitingSessions(database: Database): Promise<number>
 	// 1b. 文章草稿不需要人工审批：无会话时也自动物化。
 	const articleRuns = (
 		await database.query<{ id: string }>(
-			"SELECT id FROM agent_runs WHERE status='awaiting_approval' AND purpose='optimization_article'",
+			"SELECT id FROM agent_runs WHERE status='awaiting_approval' AND purpose='optimization_article' AND EXISTS(SELECT 1 FROM projects p WHERE p.id=agent_runs.project_id AND p.status<>'archived' AND p.deleted_at IS NULL)",
 		)
 	).rows;
 	for (const run of articleRuns) {
@@ -1783,7 +1784,7 @@ export async function resumeWaitingSessions(database: Database): Promise<number>
 	// 2. 唤醒等待后台对象的会话。
 	const waitingSessions = (
 		await database.query<WaitingSession>(
-			"SELECT id,project_id,execution_target,auto_approve,created_by,waiting,plan FROM agent_sessions WHERE status='waiting_job' AND waiting IS NOT NULL",
+			"SELECT id,project_id,execution_target,auto_approve,created_by,waiting,plan FROM agent_sessions WHERE status='waiting_job' AND waiting IS NOT NULL AND EXISTS(SELECT 1 FROM projects p WHERE p.id=agent_sessions.project_id AND p.status<>'archived' AND p.deleted_at IS NULL)",
 		)
 	).rows;
 	for (const session of waitingSessions) {

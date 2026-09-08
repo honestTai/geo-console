@@ -205,7 +205,7 @@ export function Evidence({
 				{batch ? (
 					<Measurement key={batch.id} batch={batch} review />
 				) : (
-					<Empty title="请选择已有采集批次" detail="完成真实 API 采集后可查看和审核语义观察。" />
+					<Empty title="请选择采集批次" detail="采集完成后可查看回答分析。" />
 				)}
 			</Page>
 		);
@@ -214,7 +214,7 @@ export function Evidence({
 			<Page
 				breadcrumb={project.name}
 				eyebrow="证据中心"
-				title="联网搜索存证"
+				title="联网搜索记录"
 				description="Agent 每次联网搜索（含未触发与失败）都只追加记录；只有已完成的记录可被草稿引用。"
 			>
 				<FilterBar>{kindSwitch}</FilterBar>
@@ -228,16 +228,16 @@ export function Evidence({
 		);
 	if (!project.batches.length)
 		return (
-			<Page breadcrumb={project.name} eyebrow="证据中心" title="回答原文存证">
+			<Page breadcrumb={project.name} eyebrow="证据中心" title="回答原文">
 				<FilterBar>{kindSwitch}</FilterBar>
-				<Empty title="还没有回答证据" detail="完成至少一个真实采集批次后，回答、来源和原始 API 响应会出现在这里。" />
+				<Empty title="还没有回答记录" detail="完成监测后可查看回答、来源和原始响应。" />
 			</Page>
 		);
 	return (
 		<Page
 			breadcrumb={project.name}
 			eyebrow="证据中心"
-			title="回答原文存证"
+			title="回答原文"
 			description="原始回答与 API 响应写入后不可修改。"
 			extra={
 				<Button variant="secondary" icon={<IconDownload size={16} />} disabled={!captures.length} onClick={exportCsv}>
