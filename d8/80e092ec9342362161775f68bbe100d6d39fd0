@@ -1,0 +1,23 @@
+apps/web/index.html
+  s_692ae6564ef0f0::t_6999f45d4d64ac 6,10-12
+landing/help/index.html
+  s_692ae6564ef0f0::t_a2b16bff9416cf 6-7
+landing/index.html
+  s_692ae6564ef0f0::t_1b51e0851c56a1 6,10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "d880e092ec9342362161775f68bbe100d6d39fd0",
+  "prompts": {},
+  "sessions": {
+    "s_692ae6564ef0f0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07ede-8eb2-73c1-9b60-7e88e462a5ac",
+        "model": "unknown"
+      },
+      "human_author": "honest.tai <honest.tai@outlook.com>"
+    }
+  }
+}
