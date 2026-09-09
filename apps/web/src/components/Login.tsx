@@ -1,4 +1,4 @@
-import { IconHelpCircle, IconRefresh } from "@tabler/icons-react";
+import { IconCode, IconHelpCircle, IconRefresh } from "@tabler/icons-react";
 import { Alert, App, Form, Input, Modal, Space, Tag } from "antd";
 import { useEffect, useState } from "react";
 import { Button } from "../access";
@@ -73,6 +73,9 @@ export function Login({ error, onLogin }: { error: string | null; onLogin(user: 
 				<Button variant="link" icon={<IconHelpCircle size={16} />} href="/help/" target="_blank" block>
 					查看操作手册
 				</Button>
+				<Button variant="link" icon={<IconCode size={16} />} href="/source/zzgeo-source.zip" block>
+					获取本版本源码（AGPL-3.0）
+				</Button>
 			</Form>
 		</main>
 	);
@@ -91,6 +94,9 @@ export function AccountControl({ user, onLogout }: { user: UserIdentity; onLogou
 				</div>
 				{user.organizationSuspended && <Tag>已封禁</Tag>}
 				<DesktopUpdateButton />
+				<Button variant="link" icon={<IconCode size={16} />} href="/source/zzgeo-source.zip">
+					源码
+				</Button>
 				{!user.localBypass && <ChangePassword />}
 				<Button variant="secondary" onClick={() => void onLogout()}>
 					退出

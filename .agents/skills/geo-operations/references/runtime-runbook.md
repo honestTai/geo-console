@@ -1,5 +1,7 @@
 # GEO Console Runtime Runbook
 
+源码 Docker 快启使用独立 `zzgeo-quickstart` 项目，配置/随机密钥在 `.quickstart/`，数据和证据保存在 Docker volumes；停止不删除卷，缺失密钥必须恢复。见 `docs/docker-quickstart.md`。官网模拟 Demo 不调用业务服务，其状态不能用于判断生产 Worker 是否在线。
+
 内容运营排障先看 `docs/content-operations.md`：article_quality 由 Semantic Worker 独立一槽处理，检查版本/知识修订/审批/租约。失效结果必须新建质检，不修改历史。发布工单仅人工执行，submitted 是回执待复核，verified 只代表对应版本交付已核对。无自动 CMS 或浏览器发文。0028-0031 和 API/Web/Agent/Semantic Worker 保持同版，备份覆盖全部新增表；既有机构新权限不自动授予。
 
 客户封档/删除 409 先看 jobs、AI 会话和分析运行是否结束；不通过删证据解锁。0027 提供数据库写保护，封档/逻辑删除后计划与协调器停止推进。删除客户的旧分享和 artifacts 应为 404；若旧服务仍可读取，需统一更新 API/Workers，禁止回退到未检查 deleted_at 的版本。备份包含状态字段和全部证据，详见 `docs/customer-management.md`。

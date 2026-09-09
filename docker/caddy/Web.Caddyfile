@@ -1,6 +1,12 @@
 :80 {
 	root * /srv
 	encode zstd gzip
+	handle_path /interactive/* {
+		root * /srv/interactive
+		header Access-Control-Allow-Origin "*"
+		header Cache-Control "no-cache"
+		file_server
+	}
 	@appExact path /app
 	redir @appExact /app/ 308
 	handle_path /app/* {

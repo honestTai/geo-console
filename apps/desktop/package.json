@@ -2,7 +2,7 @@
 	"name": "@geo/desktop",
 	"version": "0.2.0",
 	"private": true,
-	"license": "UNLICENSED",
+	"license": "AGPL-3.0-only",
 	"type": "module",
 	"scripts": {
 		"dev": "tauri dev",

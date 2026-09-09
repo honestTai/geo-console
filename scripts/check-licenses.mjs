@@ -33,7 +33,12 @@ const exceptions = new Map([
 	["argparse", "Python-2.0"],
 ]);
 
-const raw = execFileSync("corepack", ["pnpm", "licenses", "list", "--json"], {
+// Windows command shims require cmd.exe; the command text is fixed, with no user input.
+const command = process.platform === "win32" ? (process.env.ComSpec || "cmd.exe") : "corepack";
+const args = process.platform === "win32"
+	? ["/d", "/s", "/c", "corepack.cmd pnpm licenses list --json"]
+	: ["pnpm", "licenses", "list", "--json"];
+const raw = execFileSync(command, args, {
 	encoding: "utf8",
 	maxBuffer: 50 * 1024 * 1024,
 });

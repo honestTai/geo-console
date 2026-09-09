@@ -1,0 +1,15 @@
+{$GEO_SITE_ADDRESS} {
+	encode gzip zstd
+	handle /api/* { 
+		reverse_proxy api:3010
+	}
+	handle /artifacts/* {
+		reverse_proxy api:3010
+	}
+	handle /share/* {
+		reverse_proxy api:3010
+	}
+	handle {
+		reverse_proxy web:80
+	}
+}

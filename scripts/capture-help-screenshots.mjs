@@ -2,13 +2,13 @@ import { resolve } from "node:path";
 
 const bridgeUrl = "http://127.0.0.1:10086/command";
 const session = process.env.GEO_HELP_WEBBRIDGE_SESSION ?? "honesttai-help-docs-isolated";
-const appUrl = process.env.GEO_HELP_APP_URL ?? "https://geo.example.com/app/";
+const appUrl = process.env.GEO_HELP_APP_URL;
 const projectName = process.env.GEO_HELP_PROJECT_NAME;
 const projectDomain = process.env.GEO_HELP_PROJECT_DOMAIN;
 const screenshotDir = resolve("landing/help/assets/screenshots");
 
-if (!projectName || !projectDomain)
-	throw new Error("Set GEO_HELP_PROJECT_NAME and GEO_HELP_PROJECT_DOMAIN for the screenshot source project.");
+if (!appUrl || !projectName || !projectDomain)
+	throw new Error("Set GEO_HELP_APP_URL, GEO_HELP_PROJECT_NAME and GEO_HELP_PROJECT_DOMAIN for the screenshot source project.");
 
 async function command(action, args = {}) {
 	const response = await fetch(bridgeUrl, {

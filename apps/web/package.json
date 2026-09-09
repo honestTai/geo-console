@@ -2,11 +2,11 @@
 	"name": "@geo/web",
 	"version": "0.1.0",
 	"private": true,
-	"license": "UNLICENSED",
+	"license": "AGPL-3.0-only",
 	"type": "module",
 	"scripts": {
 		"dev": "vite --host 127.0.0.1 --port 3000",
-		"build": "tsc --noEmit && vite build",
+		"build": "tsc --noEmit && vite build && vite build --config vite.preview.config.ts",
 		"check-types": "tsc --noEmit",
 		"test": "vitest run"
 	},

@@ -1,5 +1,11 @@
 # 本机与服务器部署
 
+源码使用者可使用 [Docker 一键启动](docker-quickstart.md)，不依赖维护者的私有基础镜像。该 Compose 用独立项目和新卷，默认 localhost；公网需自行配置真实域名/HTTPS。`deploy/package.sh` 仍用于维护者线上升级。Web build 额外构建独立 Demo，打包器显式携带 Git 忽略的 `landing/interactive/`；该静态路径允许 CORS，不开放业务 API 跨域。
+
+完整开源发行见 `docs/public-distribution.md`：`corepack pnpm export-source output/<新目录>` 包含全部业务源码和构建文件，排除运行数据、凭据与 Git 历史。以 `scripts/package-source.py` 生成 `landing/source/zzgeo-source.zip` 与校验文件，必须先于 `deploy/package.sh` 打包并与上线版本一致。官网与帮助提供邮件申请体验，不公开体验地址。`/demo.html` 仅保留申请页。帮助新版 21 章、20 张 current 截图及 PDF；本次没有新增 migration 或业务队列变更。
+
+打包器先校验源码 ZIP/manifest 与当前源码哈希；静态文件收集跳过工作树已删除文件并拒绝符号链接。NOTICE 与 `docs/licenses/` 随制品保留。生成过源码包后继续修改源码时必须重新导出、归档，不能复用过期源码包。
+
 内容运营升级需 0028-0031、同版 API/Web/Agent/Semantic Worker，暂无新增服务或依赖。只能在明确授权目标库迁移；先备份所有文章与原始证据。新质检、知识资产、人工发布权限需显式授予既有机构和角色。回滚保留新表和历史，不使用旧 writer 绕过文章版本与发布门禁。具体范围及验证限制见 `docs/content-operations.md`。
 
 客户封档/逻辑删除需执行 `0027_project_lifecycle.sql` 并统一发布 API/Web/Workers。先备份状态字段与原始证据；仅在已授权的部署库迁移。新动作需显式授予既有机构和角色。旧 API 不理解 deleted_at，不能直接回退，否则可能重新开放已删除客户的访问；保持 0027 和访问保护，详见 `docs/customer-management.md`。
@@ -38,7 +44,7 @@ corepack pnpm geo start
 - `https://<domain>/help/`：公开操作手册、脱敏截图与同源 A4 PDF；帮助页不访问业务 API。
 - `https://<domain>/app/`：React 业务工作台；访问 `/app` 会重定向到带尾斜杠的地址。
 
-官网/帮助中心与业务工作台在 Web 镜像内使用不同目录。官网示意数据和帮助截图不访问 API 或数据库；业务工作台继续只显示真实项目数据。发布后除根路径和 `/app/` 外，还要验证 `/help/`、25 张截图及 `/help/ZZ-Geo-操作手册.pdf` 可访问。
+官网/帮助中心与业务工作台在 Web 镜像内使用不同目录。公开截图不访问 API 或数据库；业务工作台继续只显示真实项目数据。发布后验证 `/help/`、20 张 current 截图、帮助 PDF 与 `/source/zzgeo-source.zip`；公开官网和帮助不提供体验环境的登录链接。
 
 ## 桌面客户端
 

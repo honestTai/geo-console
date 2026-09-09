@@ -1,317 +1,149 @@
 <!doctype html>
-<html lang="zh-CN">
-<head>
-	<meta charset="UTF-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<meta name="theme-color" content="#155dfb">
-	<link rel="icon" type="image/svg+xml" sizes="any" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2040%2040'%3E%3Crect%20width%3D'40'%20height%3D'40'%20rx%3D'8'%20fill%3D'%23155dfb'%2F%3E%3Cpath%20d%3D'M12%2012H28L12%2028H28'%20fill%3D'none'%20stroke%3D'%23fff'%20stroke-width%3D'3.5'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%2F%3E%3C%2Fsvg%3E">
-	<title>ZZ Geo 操作手册与帮助中心</title>
-	<meta name="description" content="ZZ Geo 从客户建档、AI 监测、证据、诊断、整改到复测报告的完整操作手册。">
-	<link rel="stylesheet" href="styles.css?v=20260903-2">
-</head>
-<body>
-	<a class="skip-link" href="#manual">跳到正文</a>
-	<header class="help-topbar">
-		<a class="help-brand" href="/help/" aria-label="ZZ Geo 帮助中心首页">
-			<span class="brand-mark">Z</span>
-			<span><strong>ZZ Geo 帮助中心</strong><small>操作手册 · 2026-09-03</small></span>
-		</a>
-		<label class="help-search">
-			<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
-			<input id="helpSearch" type="search" placeholder="搜索页面、按钮、状态或问题" autocomplete="off">
-			<span class="search-key">⌘K</span>
-		</label>
-		<div class="top-actions">
-			<button class="button" id="printManual" type="button" title="打开浏览器打印，可另存为 PDF">打印</button>
-			<a class="button" href="ZZ-Geo-操作手册.pdf" download><span>PDF</span></a>
-			<a class="button button-primary" href="/app/"><span>工作台</span></a>
-		</div>
-	</header>
-
-	<nav class="mobile-toc" aria-label="移动端章节导航">
-		<select id="mobileTocSelect">
-			<option value="start">开始使用</option><option value="account">登录与全局导航</option>
-			<option value="projects">客户项目与建档</option><option value="workbench">AI 工作台</option>
-			<option value="overview">项目总览</option><option value="monitoring">AI 监测</option>
-			<option value="evidence">证据中心</option><option value="audit">官网审计</option>
-			<option value="diagnosis">差距诊断</option><option value="remediation">整改中心</option>
-			<option value="attribution">业务归因</option><option value="report">复测报告</option>
-			<option value="articles">优化文章</option><option value="knowledge">问题知识库</option>
-			<option value="settings">平台设置</option><option value="members">机构成员</option>
-			<option value="audit-logs">审计日志</option><option value="service-logs">运行日志</option>
-			<option value="rbac">权限配置</option><option value="organizations">多租户管理</option>
-			<option value="troubleshooting">状态与排障</option><option value="glossary">指标词典</option>
-		</select>
-	</nav>
-
-	<div class="help-layout">
-		<aside class="help-sidebar" aria-label="帮助目录">
-			<p class="sidebar-label">入门</p>
-			<a href="#start">1. 开始使用</a><a href="#account">2. 登录与全局导航</a><a href="#projects">3. 客户项目与建档</a>
-			<p class="sidebar-label">客户工作台</p>
-			<a href="#workbench">4. AI 工作台</a><a href="#overview">5. 项目总览</a><a href="#monitoring">6. AI 监测</a>
-			<a href="#evidence">7. 证据中心</a><a href="#audit">8. 官网审计</a><a href="#diagnosis">9. 差距诊断</a>
-			<a href="#remediation">10. 整改中心</a><a href="#attribution">11. 业务归因</a><a href="#report">12. 复测报告</a><a href="#articles">13. 优化文章</a>
-			<p class="sidebar-label">机构管理</p>
-			<a href="#knowledge">14. 问题知识库</a><a href="#settings">15. 平台设置</a><a href="#members">16. 机构成员</a>
-			<a href="#audit-logs">17. 审计日志</a><a href="#service-logs">18. 运行日志</a>
-			<p class="sidebar-label">系统管理</p>
-			<a href="#rbac">19. 权限配置</a><a href="#organizations">20. 多租户管理</a>
-			<p class="sidebar-label">参考</p>
-			<a href="#troubleshooting">21. 状态与排障</a><a href="#glossary">22. 指标词典</a>
-		</aside>
-
-		<main class="help-main" id="manual">
-			<section class="manual-intro">
-				<p class="eyebrow">ZZ Geo 用户文档</p>
-				<h1>操作手册与帮助文档</h1>
-				<p>面向客户运营、分析师、机构管理员和系统超管，覆盖从客户建档到真实采集、证据复核、整改、同条件复测和报告交付的完整流程。</p>
-				<div class="intro-meta"><span>适用版本：2026-09</span><span>Web / 桌面端</span><span>截图：线上真实界面（已脱敏）</span><span>PDF 与在线版同源</span></div>
-				<div class="notice">截图中的红色编号只表示操作位置。页面数据均已替换为示例内容；你的实际菜单和按钮会按机构授权、角色权限及客户范围显示。</div>
-				<div class="workflow" aria-label="主流程">
-					<div><b>1 建档</b><span>读取官网并确认监测范围</span></div><div><b>2 采集</b><span>快审或正式基线</span></div>
-					<div><b>3 诊断</b><span>证据复核、审计与差距</span></div><div><b>4 整改</b><span>任务、内容与发布验收</span></div>
-					<div><b>5 复测</b><span>同配置比较并交付报告</span></div>
-				</div>
-			</section>
-
-			<div class="search-empty" id="searchEmpty"><h2>没有找到相关内容</h2><p>尝试搜索“基线”“证据”“批准”“密钥”“403”或具体按钮名称。</p></div>
-
-			<section class="help-section" id="start" data-search="开始 快速 入门 流程 权限">
-				<div class="section-head"><span class="section-number">1</span><div><h2>开始使用</h2><p>先确认权限与平台，再按“基线 → 诊断 → 整改 → 复测”顺序工作。</p></div></div>
-				<div class="two-column">
-					<div class="panel"><h3>首次使用清单</h3><ol class="steps"><li>机构管理员在“平台设置”保存 HRouter 和至少一个联网平台密钥，并完成连接测试。</li><li>创建客户，填写真实官网、目标地区、行业和已知竞品。</li><li>分析官网或手工配置范围，人工确认品牌别名、竞品和购买问题。</li><li>先运行售前快审检查配置，再创建正式基线。</li><li>完成诊断和整改后，只从正式基线发起“按此条件复测”。</li></ol></div>
-					<div class="panel"><h3>三条必须理解的规则</h3><ul><li>回答、原始响应、网页快照和报告快照是证据，写入后不修改。</li><li>失败平台不进入品牌率分母；来源不可见显示“不可用”，不是 0。</li><li>Agent 只生成草稿。诊断、任务和正式报告需要批准后才进入业务记录。</li></ul></div>
-				</div>
-				<div class="notice warning">运行快审、基线、复测、官网审计、Agent 草稿和文章生成都会产生真实外部调用与费用。先在“运行配置”核对平台和重复次数。</div>
-			</section>
-
-			<section class="help-section" id="account" data-search="登录 退出 导航 帮助 折叠 桌面 更新 机构">
-				<div class="section-head"><span class="section-number">2</span><div><h2>登录与全局导航</h2><p>登录页使用机构账号；进入工作台后，左侧菜单按权限动态显示。</p></div></div>
-				<div class="button-table-wrap"><table class="button-table"><thead><tr><th>按钮 / 控件</th><th>作用</th><th>注意事项</th></tr></thead><tbody>
-					<tr><td>登录</td><td>使用邮箱和密码建立机构会话。</td><td>同一邮箱属于多个机构时填写“机构 ID”；密码错误或机构被封禁会拒绝登录。</td></tr>
-					<tr><td>检查更新</td><td>桌面客户端检查签名更新并在安装后重启。</td><td>仅桌面端显示；浏览器版不显示。</td></tr>
-					<tr><td>客户名称 / 返回</td><td>离开当前客户，回到客户项目列表。</td><td>不会终止正在后台运行的采集或 Agent 任务。</td></tr>
-					<tr><td>左侧菜单</td><td>切换业务、机构和系统页面。</td><td>未获授权的页面不会出现；对应 API 同样拒绝访问。</td></tr>
-					<tr><td>侧栏折叠箭头</td><td>收起或展开桌面侧栏。</td><td>窄屏使用左上角菜单按钮打开抽屉。</td></tr>
-					<tr><td>帮助</td><td>在新标签打开本帮助中心。</td><td>帮助页不读取客户数据。</td></tr>
-					<tr><td>退出</td><td>注销当前会话并返回登录页。</td><td>退出不会取消后台任务。</td></tr>
-				</tbody></table></div>
-			</section>
-
-			<section class="help-section" id="projects" data-search="客户 项目 新建 建档 官网 分析 范围 竞品 问题">
-				<div class="section-head"><span class="section-number">3</span><div><h2>客户项目与建档</h2><p>客户列表是业务入口；每个客户的范围、批次、证据、任务和报告相互独立。</p></div></div>
-				<figure class="screenshot"><img src="assets/screenshots/01-projects.jpg" alt="客户项目列表，关键位置有编号标注"><figcaption>客户项目列表。截图项目名、域名均为示例内容。</figcaption></figure>
-				<ul class="callouts"><li><b>1</b>进入机构管理页面</li><li><b>2</b>打开新建客户表单</li><li><b>3</b>按客户名或域名筛选</li><li><b>4</b>打开一个客户项目</li></ul>
-				<figure class="screenshot"><img src="assets/screenshots/02-create-project.jpg" alt="新建客户表单，字段与按钮有编号标注"><figcaption>新建客户只创建建档记录；后续仍要读取官网并人工确认范围。</figcaption></figure>
-				<ul class="callouts"><li><b>1</b>客户或品牌全称</li><li><b>2</b>公开官网 URL</li><li><b>3</b>目标监测地区</li><li><b>4</b>取消，不保存</li><li><b>5</b>创建并进入建档</li></ul>
-				<div class="button-table-wrap"><table class="button-table"><thead><tr><th>按钮 / 控件</th><th>作用</th><th>何时不可用或需注意</th></tr></thead><tbody>
-					<tr><td>机构管理</td><td>未选客户时进入机构级页面。</td><td>只显示用户有权访问的机构菜单。</td></tr><tr><td>新建客户 / 新建第一个客户</td><td>打开客户建档表单。</td><td>需要“创建项目”权限。</td></tr>
-					<tr><td>客户卡片</td><td>打开客户工作台。</td><td>“待建档”项目会优先进入建档流程。</td></tr><tr><td>上一页 / 下一页</td><td>翻页浏览客户。</td><td>到达首尾页时禁用。</td></tr>
-					<tr><td>取消 / 关闭</td><td>关闭新建表单且不创建记录。</td><td>已输入内容不会保留。</td></tr><tr><td>创建并进入建档</td><td>保存客户名称、官网、地区、语言、行业、业务重点、别名和已知竞品。</td><td>必填项未通过校验时不提交。</td></tr>
-					<tr><td>开始官网分析</td><td>抓取公开官网并生成画像、竞品和购买问题候选。</td><td>需要 HRouter；抓取失败表示证据不足，不等于官网没有内容。</td></tr>
-					<tr><td>后台联网出题</td><td>后台研究买家问法并生成待审批候选。</td><td>批准后只进入问题候选，不直接启用项目。</td></tr><tr><td>和 Agent 一起出题</td><td>跳到 AI 工作台，以对话方式研究并确认问题。</td><td>最终仍由成员确认范围。</td></tr>
-					<tr><td>手工配置监测范围</td><td>跳过自动分析，手工填写别名、竞品和问题。</td><td>适合官网暂不可访问的情况。</td></tr><tr><td>批准 / 拒绝</td><td>处理后台出题草稿。</td><td>批准不会自动开始采集。</td></tr>
-					<tr><td>添加 / 删除一行</td><td>编辑品牌别名、竞品候选和购买问题。</td><td>删除只影响尚未确认的范围。</td></tr><tr><td>新问题同步写入行业知识库</td><td>把新问题供同机构同业客户复用。</td><td>需要知识库管理权限且客户填写了行业。</td></tr>
-					<tr><td>确认并启用项目</td><td>冻结当前范围版本并启用项目。</td><td>确认前不会创建采集任务；未通过联网核实的竞品需人工判断。</td></tr>
-				</tbody></table></div>
-			</section>
-
-			<section class="help-section" id="workbench" data-search="AI 工作台 Agent 会话 指令 自动批准 联网 模型">
-				<div class="section-head"><span class="section-number">4</span><div><h2>AI 工作台</h2><p>用自然语言编排已有业务能力；执行过程、工具调用和等待状态持续留痕。</p></div></div>
-				<figure class="screenshot"><img src="assets/screenshots/03-workbench.jpg" alt="AI 工作台与会话设置编号标注"><figcaption>三栏布局：左侧会话，中间对话，右侧执行进度。</figcaption></figure>
-				<ul class="callouts"><li><b>1</b>新建会话</li><li><b>2</b>测试当前模型联网能力</li><li><b>3</b>常用快捷指令</li><li><b>4</b>输入自定义指令</li></ul>
-				<div class="button-table-wrap"><table class="button-table"><thead><tr><th>按钮 / 控件</th><th>作用</th><th>注意事项</th></tr></thead><tbody>
-					<tr><td>新会话</td><td>创建一个独立任务会话。</td><td>旧会话和执行记录保留在左栏。</td></tr><tr><td>会话条目</td><td>打开历史或正在运行的会话。</td><td>“等待用户”需要回答后才继续；“后台进行中”可离开页面。</td></tr>
-					<tr><td>自动批准</td><td>允许协调器代表会话创建者批准本会话产生的草稿。</td><td>关闭后会在对应业务页等待人工审批；不扩大 Agent 权限。</td></tr><tr><td>思考强度</td><td>选择跟随平台设置或覆盖当前会话的推理档位。</td><td>更高档位通常更慢、Token 更多。</td></tr>
-					<tr><td>模型</td><td>选择 HRouter GPT 模型。</td><td>带“联网未验证/失败”提示时先测试。</td></tr><tr><td>联网搜索</td><td>允许当前会话使用受限联网搜索工具。</td><td>关闭后只使用项目证据；单回合和单会话有硬性次数上限。</td></tr>
-					<tr><td>测试此模型</td><td>测试当前模型是否真正触发联网搜索。</td><td>测试记录按模型保存，不代表供应商长期可用。</td></tr><tr><td>快捷指令</td><td>预填并发送正式基线、快审、报告、审计、文章或出题任务。</td><td>发送前仍要核对动作是否会产生真实调用。</td></tr>
-					<tr><td>发送</td><td>提交输入框中的指令或回答。</td><td>内容为空或会话正在处理时禁用。</td></tr><tr><td>候选问题卡：确认采用</td><td>保存勾选并编辑后的问题/竞品范围。</td><td>模型不能直接写范围；确认动作由成员触发。</td></tr>
-					<tr><td>候选问题卡：不采用</td><td>填写原因后让 Agent 调整。</td><td>拒绝原因必填。</td></tr><tr><td>查看批次 / 查看报告 / 优化文章</td><td>跳转到当前会话产物。</td><td>对应产物尚未创建时不显示。</td></tr>
-					<tr><td>终止会话</td><td>停止后续协调。</td><td>已经提交到独立队列的任务可能继续完成；危险操作会二次确认。</td></tr>
-				</tbody></table></div>
-			</section>
-
-			<section class="help-section" id="overview" data-search="项目总览 KPI 趋势 平台覆盖 编辑范围">
-				<div class="section-head"><span class="section-number">5</span><div><h2>项目总览</h2><p>用最新可用批次快速判断可见度、证据数量、整改待办和同配置趋势。</p></div></div>
-				<figure class="screenshot"><img src="assets/screenshots/04-overview.jpg" alt="项目总览编号标注"><figcaption>只有配置哈希一致的基线与复测才进入趋势。</figcaption></figure>
-				<ul class="callouts"><li><b>1</b>编辑当前监测范围</li><li><b>3</b>同配置指标趋势</li><li><b>4</b>平台覆盖</li></ul>
-				<div class="button-table-wrap"><table class="button-table"><thead><tr><th>按钮 / 控件</th><th>作用</th><th>注意事项</th></tr></thead><tbody>
-					<tr><td>编辑监测范围</td><td>打开范围版本编辑器。</td><td>保存只影响新基线；历史批次、证据和报告保持不变。</td></tr><tr><td>导出范围 / 导入范围</td><td>导出或载入别名、竞品和问题 JSON。</td><td>导入后仍要点“保存新范围版本”才生效。</td></tr>
-					<tr><td>添加竞品 / 添加问题 / 删除</td><td>调整新范围版本。</td><td>未改动条目沿用 ID；删除后新基线不再包含。</td></tr><tr><td>取消</td><td>关闭编辑器，不保存。</td><td>已载入或编辑内容会丢弃。</td></tr><tr><td>保存新范围版本</td><td>确认新的活动范围。</td><td>配置变化后下一次周期运行会建立新基线，而非错误复测旧基线。</td></tr>
-				</tbody></table></div>
-			</section>
-
-			<section class="help-section" id="monitoring" data-search="AI 监测 快审 基线 复测 周期 计划 批次 成本 漂移">
-				<div class="section-head"><span class="section-number">6</span><div><h2>AI 监测</h2><p>创建真实采集批次、查看进度与成本、安排周期任务，并从正式基线发起可比复测。</p></div></div>
-				<figure class="screenshot"><img src="assets/screenshots/05-monitoring.jpg" alt="AI 监测页面编号标注"><figcaption>运行按钮会创建真实外部调用。截图所选快审不是正式基线，因此复测按钮禁用。</figcaption></figure>
-				<ul class="callouts"><li><b>1</b>打开运行配置</li><li><b>2</b>按所选正式基线复测</li><li><b>3</b>每题一次的售前快审</li><li><b>4</b>创建正式基线</li><li><b>5</b>再次运行同类监测</li></ul>
-				<figure class="screenshot"><img src="assets/screenshots/06-monitoring-config.jpg" alt="运行配置弹层"><figcaption>本次运行平台和基线重复次数不会自动修改周期计划。</figcaption></figure>
-				<div class="button-table-wrap"><table class="button-table"><thead><tr><th>按钮 / 控件</th><th>作用</th><th>何时不可用或需注意</th></tr></thead><tbody>
-					<tr><td>运行配置</td><td>选择本次平台和正式基线每题重复次数。</td><td>快审始终每题 1 次；未选择平台时运行按钮禁用。</td></tr><tr><td>按此条件复测</td><td>完整复制正式基线的冻结配置创建复测。</td><td>只有选中正式基线时可用；适配器版本变化会拒绝旧基线复测。</td></tr>
-					<tr><td>运行售前快审</td><td>每平台每题采 1 次，用于快速检查。</td><td>快审不与正式基线直接比较。</td></tr><tr><td>新建正式基线</td><td>按当前范围、平台和重复次数冻结正式基线。</td><td>默认采样分布在 0、4、24 小时；不是立即全部完成。</td></tr>
-					<tr><td>再次运行监测</td><td>按所选批次类型重新创建实际批次。</td><td>不会修改旧证据。</td></tr><tr><td>确认漂移告警</td><td>把告警标记为已处理。</td><td>只确认告警，不改变指标。</td></tr>
-					<tr><td>周期监测开关</td><td>启用或停用云端定时创建批次。</td><td>切换后必须“保存计划”。</td></tr><tr><td>运行周期 / 重复次数 / 监测平台</td><td>配置周期监测。</td><td>到期时只有与最近正式基线严格可比才创建复测，否则新建基线。</td></tr>
-					<tr><td>保存计划</td><td>保存周期、平台和重复次数。</td><td>没有平台时禁用；创建失败会显示最近错误并一小时后重试。</td></tr><tr><td>批次卡片</td><td>切换批次并查看进度、指标、趋势和告警。</td><td>列表状态会在后台轮询更新。</td></tr>
-					<tr><td>上一页 / 下一页</td><td>浏览更多批次或漂移告警。</td><td>首尾页禁用。</td></tr>
-				</tbody></table></div>
-			</section>
-
-			<section class="help-section" id="evidence" data-search="证据 回答 原文 API 联网搜索 来源 CSV 哈希 请求">
-				<div class="section-head"><span class="section-number">7</span><div><h2>证据中心</h2><p>复核原始 AI 回答、请求信息、来源和 Agent 联网搜索记录。</p></div></div>
-				<figure class="screenshot"><img src="assets/screenshots/07-evidence.jpg" alt="回答证据界面编号标注"><figcaption>回答证据左侧选择样本，右侧查看原文、来源和平台检索拆解。</figcaption></figure>
-				<ul class="callouts"><li><b>1</b>导出当前批次证据 CSV</li><li><b>2</b>AI 回答证据</li><li><b>3</b>Agent 联网搜索证据</li><li><b>5</b>选择一条回答证据</li></ul>
-				<figure class="screenshot"><img src="assets/screenshots/08-web-search-evidence.jpg" alt="联网搜索证据分区"><figcaption>联网搜索记录包含成功、未触发、无回答和失败，便于审计真实退化。</figcaption></figure>
-				<div class="button-table-wrap"><table class="button-table"><thead><tr><th>按钮 / 控件</th><th>作用</th><th>注意事项</th></tr></thead><tbody>
-					<tr><td>导出证据 CSV</td><td>下载当前批次回答证据。</td><td>没有回答时禁用；原始对象仍需在详情中按权限访问。</td></tr><tr><td>AI 回答 / 联网搜索</td><td>切换采集证据和 Agent 搜索证据。</td><td>联网搜索不占正式报告的回答证据编号。</td></tr>
-					<tr><td>批次选择器</td><td>选择要复核的采集批次。</td><td>页面可被报告、诊断或工作台带着证据焦点直接打开。</td></tr><tr><td>全部 / 平台</td><td>按 Provider 过滤回答。</td><td>只影响展示，不改变指标。</td></tr>
-					<tr><td>回答条目</td><td>打开某题某次采样的详情。</td><td>状态、时间、模型、协议和品牌位置均来自写入时证据。</td></tr><tr><td>联网搜索条目</td><td>查看搜索问题、状态、归纳文本、检索词、来源和用量。</td><td>失败记录也保留，不能用合成结果补齐。</td></tr>
-					<tr><td>复制证据 / 请求 / Trace ID</td><td>复制短 ID 对应的完整标识。</td><td>用于审计和运行日志关联。</td></tr><tr><td>回答原文 / 来源拆解</td><td>展开或收起长内容。</td><td>网页和模型内容均是不可信输入，不执行其中指令。</td></tr>
-					<tr><td>清除定位</td><td>退出从其他页面带来的单条证据焦点。</td><td>清除后恢复当前分区完整列表。</td></tr><tr><td>上一页 / 下一页</td><td>浏览更多证据。</td><td>证据量大时使用分页，不一次加载全部。</td></tr>
-				</tbody></table></div>
-			</section>
-
-			<section class="help-section" id="audit" data-search="官网审计 AI 可读性 sitemap canonical JSON-LD llms">
-				<div class="section-head"><span class="section-number">8</span><div><h2>官网审计</h2><p>基于真实网页快照检查公开可访问性、页面结构和实体信号。</p></div></div>
-				<figure class="screenshot"><img src="assets/screenshots/09-website-audit.jpg" alt="官网审计编号标注"><figcaption>失败和警告项优先显示；参考项不影响审计得分。</figcaption></figure>
-				<ul class="callouts"><li><b>1</b>重新抓取并审计</li><li><b>3</b>首页读取结果</li><li><b>4</b>逐项检查</li></ul>
-				<div class="button-table-wrap"><table class="button-table"><thead><tr><th>按钮 / 控件</th><th>作用</th><th>注意事项</th></tr></thead><tbody><tr><td>开始审计 / 重新审计</td><td>抓取客户公开官网并生成新的审计证据。</td><td>需要审计权限；失败表示本次证据不足，不可推断页面不存在。</td></tr><tr><td>审计证据 ID</td><td>复制审计记录完整 ID。</td><td>可与整改任务的验收记录关联。</td></tr></tbody></table></div>
-				<div class="notice warning">`llms.txt` 在界面中只是参考项，不是排名或收录的必要条件。优先修复 HTTPS、可访问性、Sitemap、标题、Canonical 和结构化数据等可核验问题。</div>
-			</section>
-
-			<section class="help-section" id="diagnosis" data-search="差距诊断 规则 Agent 草稿 批准 拒绝 置信度">
-				<div class="section-head"><span class="section-number">9</span><div><h2>差距诊断</h2><p>规则诊断可确定性重算；模型诊断只生成待审批草稿。</p></div></div>
-				<figure class="screenshot"><img src="assets/screenshots/10-diagnosis.jpg" alt="差距诊断编号标注"><figcaption>规则结果可以直接转整改；Agent 结果必须先复核引用和结论。</figcaption></figure>
-				<ul class="callouts"><li><b>2</b>生成 Agent 诊断草稿</li><li><b>3</b>运行证据规则诊断</li><li><b>4</b>规则诊断列表</li></ul>
-				<div class="button-table-wrap"><table class="button-table"><thead><tr><th>按钮 / 控件</th><th>作用</th><th>注意事项</th></tr></thead><tbody><tr><td>批次选择器</td><td>选择完成或部分完成的来源批次。</td><td>草稿引用只能来自当前项目和批次。</td></tr><tr><td>HRouter Agent 诊断草稿</td><td>排队生成带证据引用的模型诊断。</td><td>需要 HRouter；完成后停在待审批。</td></tr><tr><td>生成证据诊断</td><td>运行确定性规则并写入派生 finding。</td><td>不会修改原始回答。</td></tr><tr><td>展开行</td><td>查看差距详情、整改建议和关联证据。</td><td>证据引用可跳转证据中心。</td></tr><tr><td>查看草稿详情</td><td>展开 Agent 草稿完整结构。</td><td>先核对事实缺口和证据数量。</td></tr><tr><td>批准 / 拒绝</td><td>物化或丢弃 Agent 诊断草稿。</td><td>并发审批只有一次成功；批准前服务端再次校验归属。</td></tr></tbody></table></div>
-			</section>
-
-			<section class="help-section" id="remediation" data-search="整改 任务 内容草稿 发布 地址 抓取 验收 审计 负责人">
-				<div class="section-head"><span class="section-number">10</span><div><h2>整改中心</h2><p>把证据化差距转为任务，分配负责人、保存真实发布地址并按任务类型验收。</p></div></div>
-				<figure class="screenshot"><img src="assets/screenshots/11-remediation.jpg" alt="整改中心编号标注"><figcaption>技术类任务走重跑审计验收；内容类任务走发布页面抓取验收。</figcaption></figure>
-				<ul class="callouts"><li><b>2</b>生成 Agent 规划草稿</li><li><b>3</b>从已批准诊断建任务</li></ul>
-				<div class="button-table-wrap"><table class="button-table"><thead><tr><th>按钮 / 控件</th><th>作用</th><th>何时不可用或需注意</th></tr></thead><tbody>
-					<tr><td>来源批次</td><td>选择整改依据的已完成批次。</td><td>没有完成批次时禁用。</td></tr><tr><td>HRouter Agent 规划草稿</td><td>生成整改计划草稿。</td><td>批准后才写入任务。</td></tr><tr><td>从已批准诊断建任务</td><td>把已批准 finding 转为可跟踪任务。</td><td>重复调用由服务端规则控制。</td></tr>
-					<tr><td>生成内容草稿</td><td>为该任务生成内容简报或初稿。</td><td>只生成待审批草稿，不发布客户网站。</td></tr><tr><td>任务状态</td><td>在待处理、进行中、已发布、完成等状态间更新。</td><td>“已验收”只能由验收动作写入，不能手工选择。</td></tr>
-					<tr><td>删除任务</td><td>经二次确认删除派生整改任务。</td><td>不会删除原始证据。</td></tr><tr><td>查看验收标准 / 收起详情</td><td>展开验收标准、内容简报与初稿。</td><td>展开状态只影响当前页面。</td></tr>
-					<tr><td>负责人 / 截止日期 / 发布地址</td><td>编辑任务执行信息。</td><td>发布地址必须在客户官网域名或子域名下。</td></tr><tr><td>保存</td><td>保存任务字段。</td><td>没有修改时禁用。</td></tr>
-					<tr><td>重跑审计验收</td><td>技术类任务重新运行官网审计。</td><td>验收标准无阻断项才通过。</td></tr><tr><td>抓取验收</td><td>抓取真实发布页形成新快照并验收。</td><td>未填写有效官网内地址时禁用。</td></tr><tr><td>批准 / 拒绝</td><td>处理整改或内容 Agent 草稿。</td><td>批准会物化业务记录，拒绝不修改任务正文。</td></tr>
-				</tbody></table></div>
-			</section>
-
-			<section class="help-section" id="attribution" data-search="业务归因 GA4 GSC 表单 电话 CSV 导入">
-				<div class="section-head"><span class="section-number">11</span><div><h2>业务归因</h2><p>把客户自己的 GA4、GSC、表单或电话数据与 AI 指标并列查看，不自动宣称因果。</p></div></div>
-				<figure class="screenshot"><img src="assets/screenshots/12-attribution.jpg" alt="业务归因导入区编号标注"><figcaption>相同来源类型与文件内容不会重复计数。</figcaption></figure>
-				<ul class="callouts"><li><b>2</b>选择 CSV 文件</li><li><b>3</b>校验并导入</li><li><b>4</b>归因数据展示区</li></ul>
-				<div class="button-table-wrap"><table class="button-table"><thead><tr><th>按钮 / 控件</th><th>作用</th><th>注意事项</th></tr></thead><tbody><tr><td>数据来源</td><td>选择 GA4、GSC、表单或电话等来源类型。</td><td>来源类型会参与重复文件判断。</td></tr><tr><td>选择文件 / 重新选择</td><td>选择 CSV。</td><td>支持 GA4/GSC 宽表或 observed_at、metric、value 标准列。</td></tr><tr><td>导入并校验</td><td>校验字段后导入。</td><td>未选择文件时禁用；格式错误不会部分导入。</td></tr></tbody></table></div>
-			</section>
-
-			<section class="help-section" id="report" data-search="复测报告 叙述 质检 冻结 PDF Word CSV JSON 分享 撤销">
-				<div class="section-head"><span class="section-number">12</span><div><h2>复测报告</h2><p>按固定工作流生成证据化叙述、质量检查、不可变版本与交付文档。</p></div></div>
-				<figure class="screenshot"><img src="assets/screenshots/13-report.jpg" alt="报告总览与交付编号标注"><figcaption>顶部步骤条显示叙述、质检、冻结和文档状态。</figcaption></figure>
-				<ul class="callouts"><li><b>2</b>生成或推进报告版本</li><li><b>3</b>打开交付菜单</li><li><b>4</b>报告总览</li><li><b>5</b>证据索引</li></ul>
-				<figure class="screenshot"><img src="assets/screenshots/14-report-delivery.jpg" alt="报告交付下拉菜单"><figcaption>交付菜单包含“生成 PDF + Word”和“创建分享链接”。</figcaption></figure>
-				<div class="button-table-wrap"><table class="button-table"><thead><tr><th>按钮 / 控件</th><th>作用</th><th>何时不可用或需注意</th></tr></thead><tbody>
-					<tr><td>批次选择器</td><td>选择要分析和交付的完成批次。</td><td>报告只使用该批次冻结条件与证据。</td></tr><tr><td>生成新报告版本</td><td>幂等推进叙述 → 质检 → 冻结 → 文档工作流。</td><td>按钮文案会随状态变化；质检未通过时用于重新生成叙述。</td></tr>
-					<tr><td>交付</td><td>打开文档与分享操作。</td><td>正式文档要求最新叙述已批准且绑定质检通过。</td></tr><tr><td>生成 PDF + Word</td><td>排队生成确定性 PDF 和 Word。</td><td>前台等待超时只表示转后台，真实失败以服务端状态为准。</td></tr>
-					<tr><td>创建分享链接</td><td>创建可设置有效期、可撤销的只读分享。</td><td>系统只保存 token 哈希；链接应按敏感交付物管理。</td></tr><tr><td>总览</td><td>查看管理摘要、证据等级、核心指标和平台表现。</td><td>快审和正式基线口径会清晰标注。</td></tr>
-					<tr><td>口碑与建议</td><td>查看 Agent 叙述、口碑信号、GEO 建议和运行轨迹。</td><td>引用来源必须真实存在于回答证据。</td></tr><tr><td>数据明细</td><td>查看问题矩阵、主题覆盖和基线差值。</td><td>任一侧无成功回答的平台显示不可比。</td></tr>
-					<tr><td>诊断与整改</td><td>查看报告冻结时的 finding 与任务。</td><td>后续任务编辑不会回写旧快照。</td></tr><tr><td>证据索引</td><td>按编号查看回答、网页、审计和引用信息。</td><td>正文、PDF、Word 和 CSV 使用同一索引。</td></tr>
-					<tr><td>版本与分享</td><td>查看快照 hash、文档状态和分享记录。</td><td>快照不可修改；需要新内容时生成新版本。</td></tr><tr><td>运行详情</td><td>展开 Agent 模型、尝试次数、Token、工具轨迹和错误。</td><td>用于判断失败发生在模型、工具还是校验阶段。</td></tr>
-					<tr><td>批准 / 拒绝</td><td>处理报告叙述或质量检查草稿。</td><td>质检 blocked 禁止冻结；需重生叙述后再质检。</td></tr><tr><td>下载 CSV / JSON / PDF / Word</td><td>下载对应冻结版本的交付物。</td><td>按钮只在产物就绪时显示；Artifact 下载继续校验机构与客户范围。</td></tr>
-					<tr><td>复制分享链接 / 撤销</td><td>复制有效链接或立即撤销。</td><td>过期或撤销后链接不可继续访问。</td></tr>
-				</tbody></table></div>
-			</section>
-
-			<section class="help-section" id="articles" data-search="优化文章 草稿 编辑 预览 发布 重新生成 删除">
-				<div class="section-head"><span class="section-number">13</span><div><h2>优化文章</h2><p>按已批准报告建议生成可编辑草稿；发布由成员完成，系统不直接修改客户网站。</p></div></div>
-				<figure class="screenshot"><img src="assets/screenshots/15-articles.jpg" alt="优化文章列表编号标注"><figcaption>每条建议对应一篇文章草稿，可重复生成新版本。</figcaption></figure>
-				<ul class="callouts"><li><b>1</b>交给 AI 工作台自动编排</li><li><b>3</b>按文章状态筛选</li><li><b>4</b>打开编辑器</li></ul>
-				<figure class="screenshot"><img src="assets/screenshots/16-article-editor.jpg" alt="优化文章编辑器"><figcaption>编辑器支持编辑/预览、状态、发布地址、摘要和 Markdown 正文。</figcaption></figure>
-				<div class="button-table-wrap"><table class="button-table"><thead><tr><th>按钮 / 控件</th><th>作用</th><th>注意事项</th></tr></thead><tbody><tr><td>交给 AI 工作台</td><td>带预填指令跳到工作台生成文章。</td><td>协调器会按已批准叙述建议逐条生成。</td></tr><tr><td>从报告生成文章</td><td>选择报告并为其建议排队文章草稿。</td><td>没有合格报告时禁用。</td></tr><tr><td>全部 / 草稿 / 审校中 / 已发布</td><td>按文章状态筛选。</td><td>只改变列表视图。</td></tr><tr><td>全部批次</td><td>按来源报告批次筛选。</td><td>分页条件会随筛选重置。</td></tr><tr><td>文章标题 / 编辑</td><td>打开右侧文章编辑器。</td><td>无管理权限时表单只读。</td></tr><tr><td>重新生成</td><td>按同一报告建议重新生成并覆盖为新版本。</td><td>产生真实 Agent 调用；旧版本关系保留。</td></tr><tr><td>删除文章</td><td>经二次确认删除派生文章。</td><td>不会删除来源报告建议和证据。</td></tr><tr><td>编辑 / 预览</td><td>切换表单和排版预览。</td><td>预览不会自动保存。</td></tr><tr><td>保存</td><td>保存标题、摘要、状态、发布地址和 Markdown 正文。</td><td>正文变化会生成新版本；发布地址需完整 URL。</td></tr><tr><td>关闭</td><td>关闭编辑抽屉。</td><td>未保存改动不会提交。</td></tr></tbody></table></div>
-			</section>
-
-			<section class="help-section" id="knowledge" data-search="问题知识库 行业 导入 导出 归档 标签">
-				<div class="section-head"><span class="section-number">14</span><div><h2>问题知识库</h2><p>按机构与行业维护可复用的真实买家问题。</p></div></div>
-				<figure class="screenshot"><img src="assets/screenshots/17-knowledge.jpg" alt="问题知识库编号标注"><figcaption>空知识库不会注入示例问题；需成员添加、导入或从建档确认同步。</figcaption></figure>
-				<ul class="callouts"><li><b>1</b>导出知识库</li><li><b>2</b>导入知识库</li><li><b>3</b>按行业筛选</li><li><b>4</b>填写真实问题</li><li><b>5</b>加入知识库</li></ul>
-				<div class="button-table-wrap"><table class="button-table"><thead><tr><th>按钮 / 控件</th><th>作用</th><th>注意事项</th></tr></thead><tbody><tr><td>导出知识库</td><td>下载机构问题配置。</td><td>不导出客户证据或密钥。</td></tr><tr><td>导入知识库</td><td>校验并导入知识库配置。</td><td>需要知识库管理权限。</td></tr><tr><td>行业筛选</td><td>只显示指定行业的问题。</td><td>新问题使用当前行业值。</td></tr><tr><td>问题 / 意图 / 主题 / 购买者角色 / 标签</td><td>描述买家的真实提问语境。</td><td>行业和问题为建立复用关系的关键字段。</td></tr><tr><td>加入知识库</td><td>保存新问题。</td><td>必填内容为空时禁用。</td></tr><tr><td>归档</td><td>经确认归档问题。</td><td>归档问题不再供新客户复用；历史引用保留。</td></tr><tr><td>上一页 / 下一页</td><td>浏览更多问题。</td><td>筛选变化会回到第一页。</td></tr></tbody></table></div>
-			</section>
-
-			<section class="help-section" id="settings" data-search="平台设置 HRouter DeepSeek Kimi 豆包 通义 元宝 混元 API Key 模型 测试">
-				<div class="section-head"><span class="section-number">15</span><div><h2>平台设置</h2><p>配置 HRouter Agent 和五家联网 API；密钥以机构 ID 作为加密上下文保存。</p></div></div>
-				<figure class="screenshot"><img src="assets/screenshots/18-settings.jpg" alt="平台设置编号标注"><figcaption>截图已遮蔽 API 地址、模型值和密钥输入。</figcaption></figure>
-				<ul class="callouts"><li><b>1</b>导出非秘密配置</li><li><b>2</b>导入配置</li><li><b>3</b>刷新全部状态</li><li><b>4</b>保存 HRouter 模型配置</li><li><b>5</b>测试 HRouter 联网搜索</li></ul>
-				<div class="button-table-wrap"><table class="button-table"><thead><tr><th>按钮 / 控件</th><th>作用</th><th>何时不可用或需注意</th></tr></thead><tbody>
-					<tr><td>导出配置</td><td>导出平台端点、模型和启用状态。</td><td>不会导出 API Key。</td></tr><tr><td>导入配置</td><td>载入并校验平台配置。</td><td>现有密钥不会被空值清除；导入后核对再保存。</td></tr><tr><td>刷新状态</td><td>重新读取 HRouter 与 Provider 当前状态。</td><td>不发起采集批次。</td></tr>
-					<tr><td>HRouter API 地址 / API Key / GPT 模型 / 思考强度</td><td>配置诊断、报告、文章和工作台使用的 GPT。</td><td>Key 留空表示保持现有；更换模型前测试连接和联网。</td></tr><tr><td>保存模型配置</td><td>加密保存 HRouter 设置。</td><td>只有保存后其他任务才使用新设置。</td></tr>
-					<tr><td>刷新模型列表</td><td>从 HRouter 或当前 Provider 获取可用模型。</td><td>读取失败时仍可按实际服务输入模型 ID。</td></tr><tr><td>测试连接</td><td>验证 API 地址、Key 与模型。</td><td>成功只证明测试时可用。</td></tr><tr><td>测试联网搜索</td><td>验证所选 GPT 是否真正触发 web_search。</td><td>结果按模型记录，并影响工作台提示。</td></tr>
-					<tr><td>平台标签</td><td>在 DeepSeek、豆包、Kimi、通义千问、元宝+混元之间切换。</td><td>标签显示已启用、已配置或未配置。</td></tr><tr><td>启用</td><td>控制平台是否进入新批次。</td><td>切换后点“保存平台”；旧批次继续使用冻结值。</td></tr>
-					<tr><td>模型 / API 地址 / API Key</td><td>配置当前 Provider。</td><td>界面披露真实协议；API 回答不描述为消费端 App 回答。</td></tr><tr><td>混元 Key</td><td>元宝搜索源 + 混元合成所需的第二个凭据。</td><td>仅元宝+混元显示；缺任一凭据不能运行。</td></tr><tr><td>保存平台</td><td>加密保存当前 Provider 配置和启用状态。</td><td>不会改写已冻结批次。</td></tr>
-				</tbody></table></div>
-			</section>
-
-			<section class="help-section" id="members" data-search="机构成员 邮箱 角色 密码 停用 启用 会话">
-				<div class="section-head"><span class="section-number">16</span><div><h2>机构成员</h2><p>添加机构用户、分配初始角色并控制访问状态。</p></div></div>
-				<figure class="screenshot"><img src="assets/screenshots/19-members.jpg" alt="机构成员页面编号标注"><figcaption>成员邮箱已统一替换为示例地址。</figcaption></figure>
-				<ul class="callouts"><li><b>1</b>成员邮箱</li><li><b>3</b>至少 12 位初始密码</li><li><b>4</b>添加成员</li><li><b>5</b>停用成员</li></ul>
-				<div class="button-table-wrap"><table class="button-table"><thead><tr><th>按钮 / 控件</th><th>作用</th><th>注意事项</th></tr></thead><tbody><tr><td>邮箱 / 姓名 / 角色 / 初始密码</td><td>填写新成员身份和初始授权。</td><td>密码至少 12 位；精细权限和客户范围在“权限配置”修改。</td></tr><tr><td>添加成员</td><td>创建机构成员。</td><td>需要成员管理权限；重复邮箱会校验。</td></tr><tr><td>停用</td><td>停用成员并撤销现有会话。</td><td>二次确认后立即生效。</td></tr><tr><td>启用</td><td>恢复已停用成员登录能力。</td><td>不会自动扩大原有角色或客户范围。</td></tr><tr><td>上一页 / 下一页</td><td>浏览成员列表。</td><td>首尾页禁用。</td></tr></tbody></table></div>
-			</section>
-
-			<section class="help-section" id="audit-logs" data-search="审计日志 写操作 操作者 动作 对象 展开">
-				<div class="section-head"><span class="section-number">17</span><div><h2>审计日志</h2><p>查看机构内写操作、审批和设置变更；它与可清理的运行日志不同。</p></div></div>
-				<figure class="screenshot"><img src="assets/screenshots/20-audit-logs.jpg" alt="审计日志列编号标注"><figcaption>审计日志中的邮箱和长 ID 已脱敏。</figcaption></figure>
-				<ul class="callouts"><li><b>1</b>审计日志页面</li><li><b>2</b>动作列</li><li><b>4</b>时间列</li></ul>
-				<div class="button-table-wrap"><table class="button-table"><thead><tr><th>按钮 / 控件</th><th>作用</th><th>注意事项</th></tr></thead><tbody><tr><td>展开行（+）</td><td>查看审计动作的结构化详情。</td><td>审计日志是业务记录，不随运行日志保留期清理。</td></tr><tr><td>上一页 / 下一页</td><td>浏览更早记录。</td><td>只加载当前页。</td></tr><tr><td>复制对象 ID</td><td>复制关联资源标识。</td><td>用于与证据、Agent run 或任务交叉核对。</td></tr></tbody></table></div>
-			</section>
-
-			<section class="help-section" id="service-logs" data-search="运行日志 error warn info debug trace 筛选 导出 清理 保留">
-				<div class="section-head"><span class="section-number">18</span><div><h2>运行日志</h2><p>按服务、级别、时间、消息、事件或 Trace ID 排查运行问题。</p></div></div>
-				<figure class="screenshot"><img src="assets/screenshots/21-service-logs.jpg" alt="运行日志筛选与清理编号标注"><figcaption>清理只作用于当前机构的运行日志，不触碰审计、回答、网页或报告证据。</figcaption></figure>
-				<ul class="callouts"><li><b>3</b>立即刷新</li><li><b>4</b>按错误级别快速筛选</li><li><b>5</b>应用筛选</li><li><b>6</b>清理过期运行日志</li></ul>
-				<div class="button-table-wrap"><table class="button-table"><thead><tr><th>按钮 / 控件</th><th>作用</th><th>何时不可用或需注意</th></tr></thead><tbody><tr><td>自动刷新</td><td>周期读取最新日志。</td><td>排查稳定历史区间时可关闭。</td></tr><tr><td>导出 CSV</td><td>按当前筛选下载日志。</td><td>导出遵循机构范围和日志脱敏。</td></tr><tr><td>刷新</td><td>立即加载第一页最新日志。</td><td>不会重启服务。</td></tr><tr><td>ERROR / WARN / INFO / DEBUG</td><td>一键按级别筛选。</td><td>数字为当前查询口径总数。</td></tr><tr><td>服务 / 级别 / 日期 / 关键词</td><td>组合筛选日志。</td><td>关键词支持消息、事件、Trace ID 或项目 ID。</td></tr><tr><td>筛选</td><td>应用草稿筛选条件。</td><td>会回到第一页。</td></tr><tr><td>重置</td><td>清空筛选。</td><td>恢复全部服务和级别。</td></tr><tr><td>保留期</td><td>选择 30、90、180 或 365 天前。</td><td>只是清理阈值，不自动修改服务默认保留期。</td></tr><tr><td>清理过期日志</td><td>二次确认后删除当前机构阈值前运行日志。</td><td>不可恢复；不会删除业务审计与证据。</td></tr><tr><td>上下文</td><td>展开结构化上下文字段。</td><td>回答正文、网页正文、密钥和 token 已脱敏。</td></tr><tr><td>Trace ID</td><td>复制 Trace 并用于筛选关联调用。</td><td>同一请求可跨 API、Worker 和 Log Service 关联。</td></tr><tr><td>上一页 / 下一页</td><td>使用游标翻页。</td><td>不会把所有历史日志累积到浏览器。</td></tr></tbody></table></div>
-			</section>
-
-			<section class="help-section" id="rbac" data-search="权限配置 机构授权 角色 用户 客户范围 全选 清空 保存">
-				<div class="section-head"><span class="section-number">19</span><div><h2>权限配置</h2><p>有效权限 = 机构授权上限 ∩ 用户多角色权限并集，再按客户范围收窄。</p></div></div>
-				<figure class="screenshot"><img src="assets/screenshots/22-rbac.jpg" alt="机构授权页编号标注"><figcaption>系统超管先定义机构能力上限。</figcaption></figure>
-				<ul class="callouts"><li><b>1</b>机构授权</li><li><b>2</b>角色权限</li><li><b>3</b>用户与客户范围</li><li><b>4</b>保存机构授权</li><li><b>5</b>全选</li><li><b>6</b>清空</li></ul>
-				<figure class="screenshot"><img src="assets/screenshots/23-rbac-roles.jpg" alt="角色权限页面"><figcaption>自定义角色不能获得超过机构上限的权限。</figcaption></figure>
-				<figure class="screenshot"><img src="assets/screenshots/24-rbac-users.jpg" alt="用户与客户范围页面"><figcaption>用户可拥有多个角色，并限制为全部客户或指定客户。</figcaption></figure>
-				<div class="button-table-wrap"><table class="button-table"><thead><tr><th>按钮 / 控件</th><th>作用</th><th>注意事项</th></tr></thead><tbody><tr><td>机构授权</td><td>设置机构最多可用的页面和动作权限。</td><td>只有系统超管可配置。</td></tr><tr><td>保存机构授权</td><td>保存机构上限。</td><td>移除权限会立即限制角色可用能力。</td></tr><tr><td>角色权限</td><td>创建、编辑和删除机构自定义角色。</td><td>角色权限不能越过机构上限。</td></tr><tr><td>新建角色</td><td>清空编辑器并填写新角色。</td><td>角色名称必填。</td></tr><tr><td>角色条目</td><td>加载角色名称、说明和权限。</td><td>内置或在用角色的删除可能受限制。</td></tr><tr><td>删除角色</td><td>二次确认后删除自定义角色。</td><td>先检查成员分配。</td></tr><tr><td>保存角色</td><td>保存角色资料和权限集合。</td><td>未填名称时禁用。</td></tr><tr><td>全选 / 清空</td><td>快速勾选或清空当前权限集合。</td><td>仍需点击对应保存按钮。</td></tr><tr><td>用户与客户范围</td><td>给成员分配一个或多个角色及客户范围。</td><td>系统超管本身不由机构角色编辑。</td></tr><tr><td>成员条目</td><td>打开成员授权编辑器。</td><td>可选择多角色。</td></tr><tr><td>全部客户</td><td>允许访问该机构全部客户。</td><td>关闭后至少选择一个指定客户才能访问业务数据。</td></tr><tr><td>保存用户权限</td><td>保存角色与客户范围。</td><td>API、页面导航和 Artifact 下载都会重新按范围校验。</td></tr></tbody></table></div>
-			</section>
-
-			<section class="help-section" id="organizations" data-search="多租户 机构 新建 切换 封禁 解封 理由">
-				<div class="section-head"><span class="section-number">20</span><div><h2>多租户管理</h2><p>系统超管管理机构生命周期；每个机构的客户、证据、密钥、成员和日志相互隔离。</p></div></div>
-				<figure class="screenshot"><img src="assets/screenshots/25-organizations.jpg" alt="多租户管理编号标注"><figcaption>截图中的机构名称和业务数量为示例显示。</figcaption></figure>
-				<ul class="callouts"><li><b>1</b>新建机构</li><li><b>2</b>搜索机构</li><li><b>3</b>当前活动机构</li><li><b>4</b>封禁机构</li></ul>
-				<div class="button-table-wrap"><table class="button-table"><thead><tr><th>按钮 / 控件</th><th>作用</th><th>注意事项</th></tr></thead><tbody><tr><td>新建机构</td><td>打开机构创建弹窗。</td><td>系统只能有一个超管账号；机构管理员另行创建。</td></tr><tr><td>取消 / 创建机构</td><td>关闭弹窗或保存机构名称。</td><td>名称必填；创建后再设置授权、成员和密钥。</td></tr><tr><td>搜索机构名称或 ID</td><td>过滤机构列表。</td><td>不跨页展示未匹配结果。</td></tr><tr><td>切换到该机构</td><td>把超管活动上下文切到目标机构。</td><td>切换后业务数据严格限制在活动机构。</td></tr><tr><td>当前机构</td><td>显示当前活动机构。</td><td>按钮禁用，防止无意义重复切换。</td></tr><tr><td>封禁</td><td>打开封禁确认并填写原因。</td><td>封禁会立即撤销该机构非超管会话。</td></tr><tr><td>取消 / 确认封禁</td><td>放弃或执行封禁。</td><td>原因会进入审计记录。</td></tr><tr><td>解封</td><td>经二次确认恢复机构。</td><td>恢复登录能力，不自动改变权限和客户范围。</td></tr><tr><td>上一页 / 下一页</td><td>浏览机构列表。</td><td>首尾页禁用。</td></tr></tbody></table></div>
-			</section>
-
-			<section class="help-section" id="troubleshooting" data-search="排障 失败 403 401 队列 卡住 部分完成 来源不可用 成本 null">
-				<div class="section-head"><span class="section-number">21</span><div><h2>状态与排障</h2><p>先判断是权限、配置、外部 Provider、后台队列还是证据口径问题。</p></div></div>
-				<div class="button-table-wrap"><table class="button-table"><thead><tr><th>现象</th><th>先检查</th><th>正确处理</th></tr></thead><tbody>
-					<tr><td>菜单或按钮不显示</td><td>机构授权、角色权限、客户范围。</td><td>由管理员在权限配置中修正；不要直接猜测 API 路由。</td></tr><tr><td>401 / 被退回登录</td><td>会话是否过期、用户或机构是否停用。</td><td>重新登录；管理员检查成员与机构状态。</td></tr><tr><td>403</td><td>当前活动机构、页面权限、动作权限和客户范围。</td><td>切到正确机构或申请最小所需权限。</td></tr>
-					<tr><td>运行按钮禁用</td><td>是否选择平台、批次是否为正式基线、是否缺完成批次或发布地址。</td><td>按按钮提示补齐前置条件。</td></tr><tr><td>批次长时间排队/采集中</td><td>运行日志中的 capture-worker、租约、Provider 鉴权、限流和超时。</td><td>不要手工把任务改成完成；让重试和租约清扫收敛，必要时按运行手册恢复 Worker。</td></tr><tr><td>批次“部分完成”</td><td>证据中心的失败样本和 Provider 错误。</td><td>保留真实失败；修好配置后创建新批次，不覆盖旧证据。</td></tr>
-					<tr><td>品牌率高但覆盖率低</td><td>有效样本数、失败平台和回答覆盖率。</td><td>品牌率只以成功回答为分母，必须和覆盖率/失败率一起解释。</td></tr><tr><td>官网引用率显示“- / 不可用”</td><td>Provider 是否开放可观测来源。</td><td>不可用不是 0，不要补造来源。</td></tr><tr><td>费用显示“未返回完整费用”</td><td>Provider 是否返回明确金额。</td><td>只使用真实金额；Token 可统计但不估算未知价格。</td></tr>
-					<tr><td>Agent 草稿失败</td><td>HRouter 连接、模型、工具轨迹、证据归属和 Schema 校验。</td><td>修复根因后新建草稿；不得用运行时 Mock 补答案。</td></tr><tr><td>报告停在待审批</td><td>最新叙述或质检草稿。</td><td>到“口碑与建议”复核并批准/拒绝；关闭自动批准时这是正常停点。</td></tr><tr><td>质检未通过</td><td>blocked 原因及绑定叙述版本。</td><td>点击“质检未通过 · 重新生成叙述”，批准新叙述后重新质检。</td></tr><tr><td>文档等待超过两分钟</td><td>报告快照状态和 report-worker 日志。</td><td>可离开页面，后台继续；只有服务端 failed 才算失败。</td></tr>
-				</tbody></table></div>
-			</section>
-
-			<section class="help-section" id="glossary" data-search="指标 品牌提及率 首位推荐率 引用率 声量 位置 一致性 覆盖率 失败率">
-				<div class="section-head"><span class="section-number">22</span><div><h2>指标与术语词典</h2><p>所有比率均按代码中的确定性规则计算。</p></div></div>
-				<dl class="term-grid">
-					<div><dt>售前快审</dt><dd>每个平台每题 1 次的快速采集，不与正式基线直接比较。</dd></div><div><dt>正式基线</dt><dd>冻结完整范围与 Provider 契约，作为后续同条件复测锚点。</dd></div><div><dt>同条件复测</dt><dd>逐字段复制正式基线配置的新批次。</dd></div>
-					<div><dt>品牌提及率</dt><dd>成功回答中提及客户品牌的比例。</dd></div><div><dt>首位推荐率</dt><dd>成功回答中客户品牌位于第一推荐位置的比例。</dd></div><div><dt>官网引用率</dt><dd>来源可观测的成功回答中引用客户官网的比例。</dd></div>
-					<div><dt>品牌声量份额</dt><dd>客户品牌在已识别品牌提及中的相对份额。</dd></div><div><dt>平均提及位置</dt><dd>品牌出现样本中的平均位置；未提及时为 null。</dd></div><div><dt>重复一致性</dt><dd>同一问题有多次成功回答时，结果在重复采样间的一致程度。</dd></div>
-					<div><dt>回答覆盖率</dt><dd>计划样本中成功回答的比例。</dd></div><div><dt>失败率</dt><dd>计划样本中失败采集的比例，独立于品牌率。</dd></div><div><dt>证据等级</dt><dd>依据有效率和证据完整性给出的报告解释级别，不代表长期排名确定性。</dd></div>
-					<div><dt>Query Fan-out</dt><dd>Provider 为联网回答实际拆解的搜索查询；不可见时显示 unavailable。</dd></div><div><dt>冻结配置</dt><dd>客户、竞品、问题、平台、模型、协议、地区、重复次数、窗口和版本的完整快照。</dd></div><div><dt>Evidence ID</dt><dd>回答、网页、审计或联网搜索证据的不可混淆标识。</dd></div>
-				</dl>
-			</section>
-
-			<footer class="page-footer"><p>ZZ Geo 操作手册 · 在线版与 PDF 同源 · 截图来自 2026-09-03 线上工作台并已脱敏</p><p><a href="/">产品官网</a> · <a href="/app/">工作台</a> · <a href="ZZ-Geo-操作手册.pdf" download>PDF 文档</a></p></footer>
-		</main>
-	</div>
-	<script src="app.js?v=20260903"></script>
-</body>
-</html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f5f7fa"><title>ZZ Geo 帮助中心与操作手册</title><meta name="description" content="从客户建档、AI 监测、证据与官网审计，到内容质检、人工发布和复测报告的图文操作手册。"><link rel="icon" href="../assets/brand.svg"><link rel="stylesheet" href="styles.css"><script src="app.js" defer></script></head>
+<body><a class="skip-link" href="#manual">跳到正文</a><header class="help-topbar"><a class="help-brand" href="../index.html"><img src="../assets/brand.svg" width="30" height="30" alt=""><strong>ZZ Geo</strong><span>帮助中心</span></a><label class="help-search"><span class="sr-only">搜索操作手册</span><input id="helpSearch" type="search" placeholder="搜索操作、页面或问题" autocomplete="off"></label><div class="top-actions"><button type="button" id="printManual" title="打印完整手册">打印</button><a href="ZZ-Geo-操作手册.pdf" download>下载 PDF</a><a class="trial-link" href="mailto:honest.tai@outlook.com?subject=ZZ%20Geo%20申请体验账号">申请体验</a></div></header>
+<div class="help-layout"><aside class="help-sidebar"><p class="toc-title">操作手册 <span>2026-09-09</span></p><nav aria-label="章节目录"><p class="toc-group">入门</p><a href="#start">开始使用</a>
+<a href="#customers">客户管理与建档</a>
+<a href="#settings">模型与联网平台</a>
+<p class="toc-group">监测与证据</p><a href="#workbench">AI 工作台</a>
+<a href="#overview">项目总览</a>
+<a href="#monitoring">AI 监测与正式基线</a>
+<a href="#evidence">证据中心</a>
+<a href="#audit">官网审计</a>
+<p class="toc-group">内容与整改</p><a href="#diagnosis">差距诊断</a>
+<a href="#remediation">整改中心</a>
+<a href="#knowledge">客户知识资产</a>
+<a href="#articles">优化文章与审核质检</a>
+<p class="toc-group">交付与复测</p><a href="#publications">发布工作台与回执</a>
+<a href="#report">复测报告与文档交付</a>
+<a href="#attribution">业务归因与数据对照</a>
+<p class="toc-group">协作与管理</p><a href="#questions">问题知识库</a>
+<a href="#members">机构成员</a>
+<a href="#permissions">角色与授权</a>
+<a href="#audit-logs">审计日志</a>
+<a href="#runtime-logs">运行日志</a>
+<a href="#organizations">多租户管理</a></nav><a class="toc-home" href="../index.html">返回官网 ↗</a></aside><main class="help-main" id="manual"><div class="manual-intro"><p class="eyebrow">ZZ GEO / PRODUCT GUIDE</p><h1>从第一个客户，<br>到一份可复核的交付。</h1><p>按真实工作流程了解监测、证据、整改和报告。<br>每一步都说明操作前提、完成结果和需要留意的边界。</p><div class="manual-meta"><span>完整开源 · AGPL-3.0</span><span>图文手册 · 2026-09-09</span></div><p class="intro-note">截图来自当前系统，客户身份与业务内容已脱敏。空状态表示当时没有对应数据，不是功能缺失。页面和操作随账号权限变化。</p></div><label class="mobile-toc">跳转章节 <select id="mobileTocSelect"><option value="start">开始使用</option><option value="customers">客户管理与建档</option><option value="settings">模型与联网平台</option><option value="workbench">AI 工作台</option><option value="overview">项目总览</option><option value="monitoring">AI 监测与正式基线</option><option value="evidence">证据中心</option><option value="audit">官网审计</option><option value="diagnosis">差距诊断</option><option value="remediation">整改中心</option><option value="knowledge">客户知识资产</option><option value="articles">优化文章与审核质检</option><option value="publications">发布工作台与回执</option><option value="report">复测报告与文档交付</option><option value="attribution">业务归因与数据对照</option><option value="questions">问题知识库</option><option value="members">机构成员</option><option value="permissions">角色与授权</option><option value="audit-logs">审计日志</option><option value="runtime-logs">运行日志</option><option value="organizations">多租户管理</option></select></label><div id="searchEmpty" class="search-empty" role="status">没有匹配的章节，请更换搜索词。</div><section class="help-section" id="start">
+  <div class="chapter"><span>01 / 入门</span><h2>开始使用</h2><p>先准备供应商配置，再建立客户与问题范围。自行部署与申请官方体验是两种不同的使用方式。</p></div>
+  
+  <h3>操作步骤</h3><ol><li>自行部署：按仓库 README 准备 Node.js 24、Corepack 和 pnpm 11，安装依赖并设置独立数据目录。</li><li>申请体验：邮件联系 honest.tai@outlook.com，说明团队和用途。管理员私下提供账号与登录方式，官网不公开体验入口。</li><li>登录后查看自己可访问的客户。缺少页面或按钮时联系管理员核对权限，不要使用其他人的账号。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>进入客户目录，确认需要处理的客户与当前机构。</p></div><p class="notice"><strong>注意：</strong>开源软件可以依 AGPL-3.0 商用。服务器、存储、模型调用以及另购技术服务可能产生费用。</p>
+</section>
+<section class="help-section" id="customers">
+  <div class="chapter"><span>02 / 入门</span><h2>客户管理与建档</h2><p>客户是监测范围、证据、文章与报告的归属单位。建档时要把品牌身份和问题边界说明白。</p></div>
+  <figure class="screenshot"><a href="assets/current/customers.jpg" target="_blank" rel="noopener" aria-label="查看客户管理与建档截图原图"><img src="assets/current/customers.jpg" width="1440" height="1000" alt="客户管理与建档实际界面，业务数据已脱敏" loading="lazy"></a><figcaption>客户管理与建档 · 实际界面 / 2026-09-09 / 业务数据已脱敏，保留真实空状态</figcaption></figure>
+  <h3>操作步骤</h3><ol><li>在客户管理中搜索已有客户，避免重复建档；新客户使用“新建客户”填写名称、目标地区、语言等资料。</li><li>官网为选填。有官网时填写真实地址，用于抓取与审计；没有官网时相关检查不适用。</li><li>进入客户后整理品牌别名、竞品和监测问题。研究生成的候选需要人工核对和确认，竞品联网核实只是辅助信息。</li><li>需要调整资料时使用客户编辑入口。封档后只读；删除是逻辑删除并需确认，不是清除证据。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>客户具有人工确认的监测范围，可以准备首次基线。</p></div><p class="notice"><strong>注意：</strong>修改当前资料不会改写历史批次。问题或平台配置变化应建立新基线。</p>
+</section>
+<section class="help-section" id="settings">
+  <div class="chapter"><span>03 / 入门</span><h2>模型与联网平台</h2><p>监测平台、语义解析与 Agent 的配置决定真实调用能否执行。密钥由有权限的管理员维护。</p></div>
+  <figure class="screenshot"><a href="assets/current/settings.jpg" target="_blank" rel="noopener" aria-label="查看模型与联网平台截图原图"><img src="assets/current/settings.jpg" width="1440" height="1000" alt="模型与联网平台实际界面，业务数据已脱敏" loading="lazy"></a><figcaption>模型与联网平台 · 实际界面 / 2026-09-09 / 业务数据已脱敏，保留真实空状态</figcaption></figure>
+  <h3>操作步骤</h3><ol><li>在平台设置中选择需要启用的供应商，填写其实际端点、密钥和模型。</li><li>配置 HRouter 模型，用于项目中的语义处理和 Agent 工作。模型列表与联网能力以实际测试结果为准。</li><li>按需要执行连接或联网测试；确认额度、权限和支持的协议后再运行采集。</li><li>迁移环境可导出不含密钥的配置，导入后人工核对并单独补齐密钥。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>需要的渠道配置完整，并有可解释的连接或测试状态。</p></div><p class="notice"><strong>注意：</strong>测试和采集可能产生费用。某个平台失败不会自动用其他平台或合成回答补齐。</p>
+</section>
+<section class="help-section" id="workbench">
+  <div class="chapter"><span>04 / 监测与证据</span><h2>AI 工作台</h2><p>通过会话组织问题研究、监测和报告任务。页面保留工具执行记录与进度，便于跟进和核对。</p></div>
+  <figure class="screenshot"><a href="assets/current/workbench.jpg" target="_blank" rel="noopener" aria-label="查看AI 工作台截图原图"><img src="assets/current/workbench.jpg" width="1440" height="1000" alt="AI 工作台实际界面，业务数据已脱敏" loading="lazy"></a><figcaption>AI 工作台 · 实际界面 / 2026-09-09 / 业务数据已脱敏，保留真实空状态</figcaption></figure>
+  <h3>操作步骤</h3><ol><li>确认顶栏当前客户，再进入 AI 工作台选择或新建会话。</li><li>根据需要选择模型、思考强度和联网搜索设置，描述这次要完成的工作。</li><li>系统提出问题或竞品候选时，逐项核对、勾选和编辑，再确认范围。</li><li>查看右侧进度、工具记录和证据入口。需要审批的结构化草稿由成员审核后进入正式记录。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>会话中的任务和产生的证据能够定位到当前项目。</p></div><p class="notice"><strong>注意：</strong>自动推进不意味着跳过所有人工确认。联网不可用、额度不足或资料不足时，应按实际状态处理。</p>
+</section>
+<section class="help-section" id="overview">
+  <div class="chapter"><span>05 / 监测与证据</span><h2>项目总览</h2><p>总览集中展示客户资料、当前监测表现和内容运营待办。先判断是否已有可用批次，再解释数字。</p></div>
+  <figure class="screenshot"><a href="assets/current/overview.jpg" target="_blank" rel="noopener" aria-label="查看项目总览截图原图"><img src="assets/current/overview.jpg" width="1440" height="1000" alt="项目总览实际界面，业务数据已脱敏" loading="lazy"></a><figcaption>项目总览 · 实际界面 / 2026-09-09 / 业务数据已脱敏，保留真实空状态</figcaption></figure>
+  <h3>操作步骤</h3><ol><li>核对客户身份和官网信息，需要时编辑当前资料或监测范围。</li><li>有可用批次时查看指标解释和趋势；没有批次时先建立基线。</li><li>从待审核文章、质检异常、发布回执和整改待办进入对应页面。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>明确当前项目处于建档、采集、整改还是交付阶段。</p></div><p class="notice"><strong>注意：</strong>没有数据不等于表现为零；不同配置的批次不能直接混成一条正式趋势。</p>
+</section>
+<section class="help-section" id="monitoring">
+  <div class="chapter"><span>06 / 监测与证据</span><h2>AI 监测与正式基线</h2><p>围绕已确认的问题执行供应商联网 API 采样。快审用于初步了解，正式基线用于后续同配置比较。</p></div>
+  <figure class="screenshot"><a href="assets/current/monitoring.jpg" target="_blank" rel="noopener" aria-label="查看AI 监测与正式基线截图原图"><img src="assets/current/monitoring.jpg" width="1440" height="1000" alt="AI 监测与正式基线实际界面，业务数据已脱敏" loading="lazy"></a><figcaption>AI 监测与正式基线 · 实际界面 / 2026-09-09 / 业务数据已脱敏，保留真实空状态</figcaption></figure>
+  <h3>操作步骤</h3><ol><li>打开运行配置，核对平台、问题范围、重复次数和采样时间设置。</li><li>根据目的选择售前快审或新建正式基线，开始前确认调用预算。</li><li>在批次记录中跟进采集、解析、问题覆盖及失败状态；等待下个采样窗口时不要重复创建相同任务。</li><li>整改后选定正式基线，使用“按此条件复测”复用完整冻结配置。</li><li>趋势、周期监测和调用成本分别查看，不把未知费用当作零。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>得到带冻结配置和真实采集状态的批次。</p></div><p class="notice"><strong>注意：</strong>数据来自 API，不等同于消费端 App 回答；元宝渠道是“元宝搜索源 + 混元合成”。</p>
+</section>
+<section class="help-section" id="evidence">
+  <div class="chapter"><span>07 / 监测与证据</span><h2>证据中心</h2><p>先看原文再解释结论。回答证据与 Agent 联网搜索证据分别保存，各自说明来源和用途。</p></div>
+  <figure class="screenshot"><a href="assets/current/evidence.jpg" target="_blank" rel="noopener" aria-label="查看证据中心截图原图"><img src="assets/current/evidence.jpg" width="1440" height="1000" alt="证据中心实际界面，业务数据已脱敏" loading="lazy"></a><figcaption>证据中心 · 实际界面 / 2026-09-09 / 业务数据已脱敏，保留真实空状态</figcaption></figure>
+  <h3>操作步骤</h3><ol><li>选择批次与证据分区，按平台或问题定位记录。</li><li>打开回答详情，核对原文、采集时间、来源与解析结果。</li><li>区分搜索返回的来源和最终回答明确引用的链接，不能把两者混算。</li><li>需要辅助解读时按权限创建分析运行；辅助情感或理由不会改写正式排名指标。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>每条结论能够回到对应回答或独立联网搜索记录。</p></div><p class="notice"><strong>注意：</strong>来源不可观察应记录为未知，而不是“没有引用”。重新解析生成派生结果，不覆盖原始采集证据。</p>
+</section>
+<section class="help-section" id="audit">
+  <div class="chapter"><span>08 / 监测与证据</span><h2>官网审计</h2><p>检查官网可抓取性、页面结构与内容声明，并保留源文件、截图和审计报告。</p></div>
+  <figure class="screenshot"><a href="assets/current/audit.jpg" target="_blank" rel="noopener" aria-label="查看官网审计截图原图"><img src="assets/current/audit.jpg" width="1440" height="1000" alt="官网审计实际界面，业务数据已脱敏" loading="lazy"></a><figcaption>官网审计 · 实际界面 / 2026-09-09 / 业务数据已脱敏，保留真实空状态</figcaption></figure>
+  <h3>操作步骤</h3><ol><li>确认客户已填写可访问的官网。没有官网时先补充资料，或保留不适用状态。</li><li>查看已有审计，逐项展开定位、原因和改法；确需更新时再执行重新审计。</li><li>通过证据入口查看当次保存的源文件和截图，而不是用后来页面解释历史检查。</li><li>把需要处理的项目交给相应负责人，修改后按任务要求重新验收。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>得到带位置和证据的技术检查与改进建议。</p></div><p class="notice"><strong>注意：</strong>官网技术分数不是 AI 排名。抓取失败表示证据不足，不能断言页面没有内容。</p>
+</section>
+<section class="help-section" id="diagnosis">
+  <div class="chapter"><span>09 / 内容与整改</span><h2>差距诊断</h2><p>将已完成批次与官网证据整理成可整改的问题，避免仅凭总分决定动作。</p></div>
+  <figure class="screenshot"><a href="assets/current/diagnosis.jpg" target="_blank" rel="noopener" aria-label="查看差距诊断截图原图"><img src="assets/current/diagnosis.jpg" width="1440" height="1000" alt="差距诊断实际界面，业务数据已脱敏" loading="lazy"></a><figcaption>差距诊断 · 实际界面 / 2026-09-09 / 业务数据已脱敏，保留真实空状态</figcaption></figure>
+  <h3>操作步骤</h3><ol><li>先完成一轮基线，选择需要诊断的批次。</li><li>阅读规则诊断结果，核对引用的回答和官网证据。</li><li>需要更深入分析时生成 Agent 草稿，逐条审核其依据、范围与建议。</li><li>将已认可的建议转为整改任务，并明确负责人和验收标准。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>形成可以分配和验收的改进事项。</p></div><p class="notice"><strong>注意：</strong>没有可诊断回答时先完成采集；不要用演示数据或过往客户结果替代当前证据。</p>
+</section>
+<section class="help-section" id="remediation">
+  <div class="chapter"><span>10 / 内容与整改</span><h2>整改中心</h2><p>集中跟进整改任务、执行情况与验收。任务完成、页面发布和效果改善是不同状态。</p></div>
+  <figure class="screenshot"><a href="assets/current/remediation.jpg" target="_blank" rel="noopener" aria-label="查看整改中心截图原图"><img src="assets/current/remediation.jpg" width="1440" height="1000" alt="整改中心实际界面，业务数据已脱敏" loading="lazy"></a><figcaption>整改中心 · 实际界面 / 2026-09-09 / 业务数据已脱敏，保留真实空状态</figcaption></figure>
+  <h3>操作步骤</h3><ol><li>查看任务列表，按实际优先级安排负责人、目标和验收条件。</li><li>打开任务详情阅读证据与草稿，确认后再实施修改。</li><li>技术任务按要求重跑官网审计验收；内容任务填写真实发布地址并执行抓取验收。</li><li>完成验收后安排基线复测，观察符合比较条件的结果。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>任务具有明确实施记录和验收依据。</p></div><p class="notice"><strong>注意：</strong>不能靠手工改状态跳过验收。网站整改的发布地址须满足项目官网域名约束。</p>
+</section>
+<section class="help-section" id="knowledge">
+  <div class="chapter"><span>11 / 内容与整改</span><h2>客户知识资产</h2><p>保存客户提供的产品、案例、事实与素材，使文章生成和质检有可核对的资料。</p></div>
+  <figure class="screenshot"><a href="assets/current/knowledge.jpg" target="_blank" rel="noopener" aria-label="查看客户知识资产截图原图"><img src="assets/current/knowledge.jpg" width="1440" height="1000" alt="客户知识资产实际界面，业务数据已脱敏" loading="lazy"></a><figcaption>客户知识资产 · 实际界面 / 2026-09-09 / 业务数据已脱敏，保留真实空状态</figcaption></figure>
+  <h3>操作步骤</h3><ol><li>新建资料，填写标题、类型、内容与来源说明；必要时设置有效期。</li><li>提交后由有权限成员核对并批准，确认事实与归属。</li><li>资料变化时建立新修订并重新审核；过期资料及时更新或归档。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>形成可追溯、经过批准的客户资料版本。</p></div><p class="notice"><strong>注意：</strong>客户资料不等于第三方独立证据。新质检仅使用当前批准且未过期的修订。</p>
+</section>
+<section class="help-section" id="articles">
+  <div class="chapter"><span>12 / 内容与整改</span><h2>优化文章与审核质检</h2><p>文章从已认可的建议和资料出发，先形成草稿，再经过内容审核与质量检查。</p></div>
+  <figure class="screenshot"><a href="assets/current/articles.jpg" target="_blank" rel="noopener" aria-label="查看优化文章与审核质检截图原图"><img src="assets/current/articles.jpg" width="1440" height="1000" alt="优化文章与审核质检实际界面，业务数据已脱敏" loading="lazy"></a><figcaption>优化文章与审核质检 · 实际界面 / 2026-09-09 / 业务数据已脱敏，保留真实空状态</figcaption></figure>
+  <h3>操作步骤</h3><ol><li>在文章管理中筛选标题、内容审核与质检状态；根据需要从 AI 工作台推进文章生成。</li><li>编辑正文和发布计划，核对引用、用途、读者和事实缺口。保存修改会形成新版本。</li><li>进入审核质检，查看分项问题、原文定位和依据。内容审核与质量审核分别处理。</li><li>修复阻断项后重新质检；版本变化后不要沿用旧版本的批准结论。</li><li>符合发布条件后进入发布工作台，也可以按权限导出 Markdown。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>得到带版本和审核记录的可交付内容。</p></div><p class="notice"><strong>注意：</strong>草稿不是已发布文章。过期、异常或有阻断项的质检结果不能作为有效放行依据。</p>
+</section>
+<section class="help-section" id="publications">
+  <div class="chapter"><span>13 / 交付与复测</span><h2>发布工作台与回执</h2><p>记录人工发布的渠道、执行人、固定文章版本和交付回执。系统不会直接向外部平台发文。</p></div>
+  <figure class="screenshot"><a href="assets/current/publications.jpg" target="_blank" rel="noopener" aria-label="查看发布工作台与回执截图原图"><img src="assets/current/publications.jpg" width="1440" height="1000" alt="发布工作台与回执实际界面，业务数据已脱敏" loading="lazy"></a><figcaption>发布工作台与回执 · 实际界面 / 2026-09-09 / 业务数据已脱敏，保留真实空状态</figcaption></figure>
+  <h3>操作步骤</h3><ol><li>维护实际渠道和账号说明，不录入外部平台密码或 Cookie。</li><li>创建工单，选择已满足审核条件的文章、渠道、执行人和计划时间。</li><li>开始前再次核对工单固定的文章版本。由成员在对应平台人工完成发布。</li><li>提交真实发布地址和回执，由有权限成员复核。失败或结果不确定时保留实际状态。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>每次交付可查文章版本、渠道、执行人和回执。</p></div><p class="notice"><strong>注意：</strong>旧版本回执只证明那次交付，不能让后来修改的文章自动变成已发布，也不能证明 GEO 效果。</p>
+</section>
+<section class="help-section" id="report">
+  <div class="chapter"><span>14 / 交付与复测</span><h2>复测报告与文档交付</h2><p>选择已完成批次，将范围、指标、建议和证据组织成可阅读、可核对的交付物。</p></div>
+  <figure class="screenshot"><a href="assets/current/report.jpg" target="_blank" rel="noopener" aria-label="查看复测报告与文档交付截图原图"><img src="assets/current/report.jpg" width="1440" height="1000" alt="复测报告与文档交付实际界面，业务数据已脱敏" loading="lazy"></a><figcaption>复测报告与文档交付 · 实际界面 / 2026-09-09 / 业务数据已脱敏，保留真实空状态</figcaption></figure>
+  <h3>操作步骤</h3><ol><li>选择报告批次，检查采集与解析状态，确认使用的指标版本。</li><li>按报告工作流完成叙述、质检和人工审批；证据或版本变化时按提示更新。</li><li>冻结报告快照，再生成 PDF 与 Word。文档任务排队或失败时查看具体状态。</li><li>分享前核对报告内容与授权范围；按需创建、撤销或管理分享链接。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>取得绑定冻结快照的在线报告与导出文档。</p></div><p class="notice"><strong>注意：</strong>单批次报告与配对复测报告不同。无共同问题或不满足比较条件时，不把差值解释成优化效果。</p>
+</section>
+<section class="help-section" id="attribution">
+  <div class="chapter"><span>15 / 交付与复测</span><h2>业务归因与数据对照</h2><p>导入客户自有业务数据，与 AI 监测变化并列观察，保留来源和统计含义。</p></div>
+  <figure class="screenshot"><a href="assets/current/attribution.jpg" target="_blank" rel="noopener" aria-label="查看业务归因与数据对照截图原图"><img src="assets/current/attribution.jpg" width="1440" height="1000" alt="业务归因与数据对照实际界面，业务数据已脱敏" loading="lazy"></a><figcaption>业务归因与数据对照 · 实际界面 / 2026-09-09 / 业务数据已脱敏，保留真实空状态</figcaption></figure>
+  <h3>操作步骤</h3><ol><li>准备受支持的 CSV，确认来源、指标名称、日期与数值。</li><li>选择文件并导入校验，遇到字段错误时修正原文件后重试。</li><li>按来源和指标查看汇总，核对日期粒度，不把不同口径直接相加比较。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>业务记录与监测结果能够在同一项目下对照。</p></div><p class="notice"><strong>注意：</strong>访问、线索和成交不会凭空生成。同步变化只是相关现象，不能单独推断由 GEO 优化导致。</p>
+</section>
+<section class="help-section" id="questions">
+  <div class="chapter"><span>16 / 协作与管理</span><h2>问题知识库</h2><p>沉淀可复用的问题研究素材，为不同客户建立监测范围提供候选。</p></div>
+  <figure class="screenshot"><a href="assets/current/questions.jpg" target="_blank" rel="noopener" aria-label="查看问题知识库截图原图"><img src="assets/current/questions.jpg" width="1440" height="1000" alt="问题知识库实际界面，业务数据已脱敏" loading="lazy"></a><figcaption>问题知识库 · 实际界面 / 2026-09-09 / 业务数据已脱敏，保留真实空状态</figcaption></figure>
+  <h3>操作步骤</h3><ol><li>按行业或主题查找候选问题，检查问法与实际业务是否匹配。</li><li>把合适候选加入当前范围，人工修改并确认，不直接套用行业默认答案。</li><li>通过导入导出迁移知识库；导入后先核对再保存。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>研究成果可复用，客户正式问题仍由成员确认。</p></div><p class="notice"><strong>注意：</strong>知识库候选不是采集证据，不会自动替换冻结批次里的问题。</p>
+</section>
+<section class="help-section" id="members">
+  <div class="chapter"><span>17 / 协作与管理</span><h2>机构成员</h2><p>按岗位分配角色和客户范围，让成员只处理自己负责的数据。</p></div>
+  <figure class="screenshot"><a href="assets/current/members.jpg" target="_blank" rel="noopener" aria-label="查看机构成员截图原图"><img src="assets/current/members.jpg" width="1440" height="1000" alt="机构成员实际界面，业务数据已脱敏" loading="lazy"></a><figcaption>机构成员 · 实际界面 / 2026-09-09 / 业务数据已脱敏，保留真实空状态</figcaption></figure>
+  <h3>操作步骤</h3><ol><li>由有权限的管理员添加成员并分配可授予的角色。</li><li>确认成员能访问的客户范围，使用实际账号检查必要页面。</li><li>人员离职或职责变化时及时停用或调整权限；账号恢复与密码操作按系统流程执行。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>成员角色、客户范围和账号状态清晰。</p></div><p class="notice"><strong>注意：</strong>管理员也受机构权限上限约束，不能利用成员管理间接提升自己的权限。</p>
+</section>
+<section class="help-section" id="permissions">
+  <div class="chapter"><span>18 / 协作与管理</span><h2>角色与授权</h2><p>分别管理机构权限上限、角色能力和用户客户范围。菜单可见性只是授权的一个结果。</p></div>
+  <figure class="screenshot"><a href="assets/current/permissions.jpg" target="_blank" rel="noopener" aria-label="查看角色与授权截图原图"><img src="assets/current/permissions.jpg" width="1440" height="1000" alt="角色与授权实际界面，业务数据已脱敏" loading="lazy"></a><figcaption>角色与授权 · 实际界面 / 2026-09-09 / 业务数据已脱敏，保留真实空状态</figcaption></figure>
+  <h3>操作步骤</h3><ol><li>先确认当前机构可用的功能上限。</li><li>维护角色所需页面与操作权限，遵循最小必要范围。</li><li>再将角色与客户范围分配给用户，保存后用对应账号核对。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>访问规则与实际职责一致。</p></div><p class="notice"><strong>注意：</strong>缺少页面先检查有效权限，不按角色名称猜测权限，也不要绕过服务端授权。</p>
+</section>
+<section class="help-section" id="audit-logs">
+  <div class="chapter"><span>19 / 协作与管理</span><h2>审计日志</h2><p>查阅成员操作与业务变更记录，帮助核对何时、由谁执行了什么动作。</p></div>
+  <figure class="screenshot"><a href="assets/current/audit-logs.jpg" target="_blank" rel="noopener" aria-label="查看审计日志截图原图"><img src="assets/current/audit-logs.jpg" width="1440" height="1000" alt="审计日志实际界面，业务数据已脱敏" loading="lazy"></a><figcaption>审计日志 · 实际界面 / 2026-09-09 / 业务数据已脱敏，保留真实空状态</figcaption></figure>
+  <h3>操作步骤</h3><ol><li>按时间与对象定位相关操作。</li><li>结合项目、任务或文章版本核对记录。</li><li>发现异常时保存必要的脱敏信息并联系管理员处理。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>关键变更有可追溯的操作记录。</p></div><p class="notice"><strong>注意：</strong>审计日志不是原始回答证据，不应据此改写采集或报告快照。</p>
+</section>
+<section class="help-section" id="runtime-logs">
+  <div class="chapter"><span>20 / 协作与管理</span><h2>运行日志</h2><p>按服务、时间和级别定位运行问题，与具体任务状态相互核对。</p></div>
+  <figure class="screenshot"><a href="assets/current/runtime-logs.jpg" target="_blank" rel="noopener" aria-label="查看运行日志截图原图"><img src="assets/current/runtime-logs.jpg" width="1440" height="1000" alt="运行日志实际界面，业务数据已脱敏" loading="lazy"></a><figcaption>运行日志 · 实际界面 / 2026-09-09 / 业务数据已脱敏，保留真实空状态</figcaption></figure>
+  <h3>操作步骤</h3><ol><li>筛选相关时间和服务，优先查看失败任务附近的错误记录。</li><li>用 Trace 或任务标识关联上下文，区分配置、额度、网络和供应商错误。</li><li>修复原因后按业务页面提供的重试方式处理，不直接修改数据库任务状态。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>得到可用于排障的错误范围与上下文。</p></div><p class="notice"><strong>注意：</strong>日志可能包含敏感业务信息，反馈前先脱敏；清理日志属于运维操作，不等于删除证据。</p>
+</section>
+<section class="help-section" id="organizations">
+  <div class="chapter"><span>21 / 协作与管理</span><h2>多租户管理</h2><p>系统管理员维护机构状态与授权范围，普通成员只在所属机构内工作。</p></div>
+  <figure class="screenshot"><a href="assets/current/organizations.jpg" target="_blank" rel="noopener" aria-label="查看多租户管理截图原图"><img src="assets/current/organizations.jpg" width="1440" height="1000" alt="多租户管理实际界面，业务数据已脱敏" loading="lazy"></a><figcaption>多租户管理 · 实际界面 / 2026-09-09 / 业务数据已脱敏，保留真实空状态</figcaption></figure>
+  <h3>操作步骤</h3><ol><li>新建或选择机构，确认名称和状态。</li><li>按机构分配功能上限，再由机构管理员管理成员和客户。</li><li>切换或停用机构前确认影响范围，不混用其他机构的供应商凭据。</li></ol>
+  <div class="expected"><strong>完成后</strong><p>机构、成员、客户与凭据按边界隔离。</p></div><p class="notice"><strong>注意：</strong>系统管理页面只向有对应权限的账号开放。截图中业务内容已脱敏。</p>
+</section><footer class="page-footer">ZZ Geo · 完整开源 / 技术服务与体验申请：honest.tai@outlook.com<br>项目采用 AGPL-3.0；第三方组件保留原有许可。</footer></main></div></body></html>

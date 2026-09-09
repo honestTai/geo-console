@@ -45,7 +45,7 @@
 ## 上线前退出条件
 
 - `docker compose config --quiet` 通过。
-- 新 release 的 Web 静态内容包含 `/help/`、25 张脱敏截图和 A4 PDF，帮助 HTML 不引用 `/api`、`/artifacts` 或 `/share` 业务入口。
+- 新 release 的 Web 静态内容包含 `/help/`、20 张 current 脱敏截图、A4 PDF、同版完整 AGPL 源码 ZIP 和 SHA-256。公开帮助 HTML 不引用体验登录、API、artifacts 或 share 业务入口；官网体验 CTA 为邮件申请。
 - `geo-console prepare` 在旧服务在线时验证 artifact 哈希/平台、Compose、固定 Worker base、PostgreSQL/Caddy 镜像和无 `RUN` Dockerfile，再从本地 artifact 重构应用镜像。服务器不得执行 pnpm、apt、Playwright 下载、Web build 或 `docker pull`。
 - 旧实例已有包含全部租户/问题库/RBAC/业务审计/运行日志的最新数据库与对象成对备份；S3 模式已抽查原始证据、PDF 和 Word 对象版本。
 - `log-service` 只在 Compose 内网 3020，`GEO_LOG_RETENTION_DAYS` 在 7-3650 范围，Log Service token 不出现在 `.env` 或日志中。

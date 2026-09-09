@@ -62,6 +62,7 @@ release_id="$commit"
 if [[ -n "$(git -C "$REPO_DIR" status --porcelain)" ]]; then release_id="$commit-dev-$timestamp"; fi
 
 printf 'Building Web assets locally...\n'
+node "$REPO_DIR/scripts/verify-source-release.mjs"
 (
 	cd "$REPO_DIR"
 	corepack pnpm --filter @geo/web build
@@ -142,9 +143,19 @@ fi
 		docker/caddy \
 		landing \
 		LICENSE.md \
+		NOTICE \
+		docs/licenses \
 		THIRD_PARTY_NOTICES.md \
+		| while IFS= read -r -d '' file; do
+			[[ ! -L "$file" ]] || { printf 'Refusing symlink in release: %s\n' "$file" >&2; exit 1; }
+			if [[ -f "$file" ]]; then printf '%s\0' "$file"; fi
+		done \
 		| COPYFILE_DISABLE=1 tar --null -T - -cf -
 ) | tar -xf - -C "$stage_dir/payload"
+
+# The isolated Demo is a build output, so it is deliberately ignored by Git.
+[[ -s "$REPO_DIR/landing/interactive/preview.html" ]] || { printf 'Interactive demo build is missing\n' >&2; exit 1; }
+cp -R "$REPO_DIR/landing/interactive" "$stage_dir/payload/landing/interactive"
 
 mkdir -p "$stage_dir/payload/apps/web"
 cp -R "$REPO_DIR/apps/web/dist" "$stage_dir/payload/apps/web/dist"

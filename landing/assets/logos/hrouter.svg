@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title desc">
+  <title id="title">HRouter AUTO</title>
+  <desc id="desc">HRouter AUTO routing logo</desc>
+  <defs>
+    <linearGradient id="bg" x1="8" y1="4" x2="88" y2="94" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B1A13"/>
+      <stop offset="1" stop-color="#06100C"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="36" y1="34" x2="62" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A8FF57"/>
+      <stop offset="0.45" stop-color="#68E6B2"/>
+      <stop offset="1" stop-color="#45DCC3"/>
+    </linearGradient>
+    <pattern id="grid" width="16" height="16" patternUnits="userSpaceOnUse">
+      <path d="M16 0H0V16" fill="none" stroke="#5F8D42" stroke-width=".55" opacity=".18"/>
+    </pattern>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="1.1" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="96" height="96" rx="23" fill="url(#bg)"/>
+  <rect width="96" height="96" rx="23" fill="url(#grid)"/>
+  <path d="M0 52h5M91 52h5" stroke="#A8FF57" stroke-width="1.4" opacity=".8"/>
+  <rect x="6.5" y="6.5" width="83" height="83" rx="21" fill="none" stroke="#79B94A" stroke-width=".8" opacity=".76"/>
+  <rect x="9" y="9" width="78" height="78" rx="19" fill="none" stroke="#A8FF57" stroke-width=".42" opacity=".58"/>
+
+  <rect x="29" y="26" width="38" height="38" rx="12" fill="#04100C" opacity=".96"/>
+  <path d="M36 41c5-10 22-13 28-2 6 10-2 22-12 24-9 2-18-2-20-9" fill="none" stroke="#E9F0E7" stroke-width="1.55" stroke-linecap="round" opacity=".42"/>
+  <path d="M37 34.5v22M59 34.5v22M37.5 45.5h21" fill="none" stroke="url(#mark)" stroke-width="6.2" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+  <circle cx="35.2" cy="52.4" r="2.15" fill="#B8FF5A"/>
+  <circle cx="35.6" cy="56.5" r="2.55" fill="#FFB84A"/>
+  <circle cx="61.1" cy="34.8" r="2.55" fill="#F4F8E8"/>
+
+  <text x="48" y="78.5" fill="#A8FF57" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="6.2" font-weight="900" letter-spacing="1.15" text-anchor="middle">AUTO</text>
+</svg>

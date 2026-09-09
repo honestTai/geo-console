@@ -1,6 +1,14 @@
 # GEO Console Release Workflow
 
+独立 Demo 随 Web build 构建到 Git 忽略的 `landing/interactive/`，release 显式复制此目录。公开源码用户的 Docker 自构建入口在 `docker/quickstart/`，使用独立项目、随机 Secret 和 localhost 默认绑定；维护者原升级流程不变。首次 Docker 构建会安装锁定依赖和 Chromium，用户需 Docker Compose v2。参见 `docs/docker-quickstart.md`。
+
+## 完整开源发行
+
+项目自有代码采用 AGPL-3.0-only，完整 Web/API/Worker/package/桌面及迁移源码公开。执行 `corepack pnpm test:source` 与 `corepack pnpm export-source output/<新目录>`，核对不含密钥、日志、运行数据和 Git 历史后生成同版源码 ZIP 至 `landing/source/`。官网、登录/账号区提供免费源码入口；官方体验地址不放在官网、帮助 HTML/PDF 或 README。帮助必须为新版 21 章与 20 张 current 截图。后续继续走下述同一服务器发行流程，详见 `docs/public-distribution.md`。
+
 ## 1. 单一发布流程
+
+构建前 `verify-source-release.mjs` 核对源码归档及逐文件哈希，防止源码下载落后于当前应用。Git 文件列表中的已删除文件不进入 tar；符号链接被拒绝。NOTICE 与上游许可证随制品发布。
 
 每次发布都执行同一条链路：
 
@@ -69,7 +77,7 @@ docker tag geo-console-worker:<current-release> geo-console-worker-base:node24-p
 ```bash
 scp dist/geo-console-<release>.run \
     dist/geo-console-<release>.run.sha256 \
-    root@geo.example.com:/tmp/
+    deploy-user@your-server:/tmp/
 ```
 
 服务器先只读检查当前版本、八个服务、备份和磁盘，再在 `/tmp` 用明确文件名执行 `sha256sum -c`。`geo-console prepare` 必须在旧服务在线时完成：

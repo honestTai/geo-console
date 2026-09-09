@@ -24,3 +24,5 @@ apps/desktop/src-tauri/gen/
 
 # Claude Code local settings
 .claude/settings.local.json
+.quickstart/
+landing/interactive/

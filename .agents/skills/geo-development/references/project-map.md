@@ -1,5 +1,9 @@
 # GEO Console Project Map
 
+官网 Demo：独立 `apps/web/preview.html` + `src/preview/` 复用 Shell/Page/ThemeProvider/antd，`vite.preview.config.ts` 构建到 `landing/interactive/`，正式入口不导入 Demo。20 个菜单在内存中模拟 CRUD/状态/导出，不调用 API，CSP 禁止 connect，嵌入 iframe 不授予 same-origin。公开业务数据仍禁止 mock。Docker 自构建入口位于 `docker/quickstart/`，与维护者制品升级分开，见 `docs/docker-quickstart.md`。
+
+完整开源：`scripts/export-source.mjs` → 完整源码目录 → `package-source.py` → `landing/source/` ZIP/哈希。AGPL-3.0-only 覆盖项目自有代码，第三方保留原许可；所有 Web/API/Workers/packages/桌面及 migration 开放，不再有社区展示层白名单或私有核心。`Login.tsx` 的登录/账号区提供同源版本源码入口。官网移除在线体验链接，改邮件申请，赞助仍为 HRouter。`public-guide-data.mjs` → `build-public-docs.mjs` → HTML/Markdown，PDF 从同一帮助 HTML 渲染；截图由 `refresh-public-screenshots.mjs` 只读访问既有页面并脱敏，位于 `help/assets/current/`。源码包不含 Git、运行环境数据或账号信息，详见 `docs/public-distribution.md`。
+
 品牌等待：`ui/BrandLoading.tsx/css` 提供 Z 描绘标记和字标，ThemeProvider 通过 ConfigProvider 统一 Spin/Table/Button/Select 指示器；App、ViewBoundary、趋势/设置/归因/证据/文章详情消费同一展示件。保留 Page 延迟、具体业务状态和错误重试，见 docs/ui-refinement.md。
 
 全工作台参考布局：Shell(256/64/48 尺寸及顶栏导航) → Page(唯一 H1/操作) → shared primitives/theme(表格/空态/表单/统计)；Remediation 用 TaskManagementLayout 做主列表、已完成折叠、统计和运行区，任务详情复用 TaskItem 抽屉。无新增后端/迁移/队列行为，运行状态不能推断 Worker 在线。布局验证见 docs/content-operations.md。
@@ -103,7 +107,7 @@ Tauri 2 桌面客户端加载同一个工作台构建，是所有角色的正式
 
 图表、KPI 与平台卡只消费真实 API 响应；无批次时使用空状态，视觉 fixture 不得进入 `apps/web/public` 或正式构建。App 只做装配，组件、类型、权限、分页和反馈遵循 frontend reference。用户指定的蓝色浅色主题由 theme/Shell/styles 管理，状态用语义色，次级内容平铺。建档编辑同步以实际范围内容变化为依据，普通项目轮询不清空本地编辑。共享业务规则归所属 package/worker service。
 
-`landing/` 是独立静态官网，部署在根路径；`landing/help/` 是公开帮助中心和同源 PDF，登录页、客户列表与工作台顶栏在新标签打开它；`apps/web` 使用 Vite base `/app/`。官网演示同步工作台菜单顺序和浅色布局，并为菜单、运行操作、设置、成员和日志提供窄屏交互；示意数据必须显式标注，不能请求业务 API、写数据库或被工作台导入。帮助截图通过独立 WebBridge 会话从线上真实界面取证，并在写入公开目录前替换客户名、域名、邮箱、输入值和长 ID；帮助页自身不得访问业务 API。
+`landing/` 是独立开源官网，部署在根路径；`landing/help/` 是公开帮助中心和同源 PDF，登录页、客户列表与工作台顶栏可打开它；`apps/web` 使用 Vite base `/app/`。公开官网只展示脱敏截图与邮件体验申请，不请求业务 API。帮助截图通过独立浏览器会话从实际界面取证，在公开前遮盖客户身份、业务内容、凭据及长 ID，保留真实空状态；完整源码下载在同源 `/source/`。
 
 API 使用 same-origin Cookie。公开面只有登录、健康检查和带 token 的报告分享；Artifact 需要登录。运行时不按固定角色判断：`authorization_policies` 匹配 HTTP 方法和路径模板，用户有效权限来自机构上限与多角色并集，项目和 Artifact 再校验客户范围，Artifact 另需对应文件功能权限；未登记路由默认拒绝。
 

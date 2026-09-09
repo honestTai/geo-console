@@ -5,9 +5,17 @@ node_modules
 **/dist
 coverage
 .env*
+!.env.example
 secrets
 server-backups
 dist
 .DS_Store
 *.log
 !apps/web/dist
+.quickstart
+output
+deliverables
+.tmp-webbridge
+.agents
+**/target
+landing/interactive

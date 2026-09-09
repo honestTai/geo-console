@@ -5,19 +5,17 @@ description: Install, deploy, upgrade, or roll back GEO Console locally or on Li
 
 # GEO Console Deployment
 
+完整源码发行使用 AGPL-3.0-only。发布前生成与当前工作树一致的 `landing/source/zzgeo-source.zip` 和 SHA-256，随同官网/帮助一起发布；登录与账号区提供源码下载，公开官网/帮助只用邮件申请体验账号。20 张 current 截图和 21 章手册替代旧模拟演示与截图。操作见 `docs/public-distribution.md` 和 release workflow，不公开本 skill 中的主机信息。
+
 先确定目标是本机开发环境、首次服务器安装、已有服务器升级，还是隔离恢复/回滚。以 `compose.yaml`、`deploy/install.sh` 和 `deploy/geo-console` 的当前行为为准。
 
-## 已授权 Demo 服务器
+## 部署目标
 
-- SSH 主机：`geo.example.com`
-- SSH 用户：`root`
-- SSH 认证：使用 SSH agent 或用户受控的安全凭据存储；不得在仓库文档中记录明文密码。
-
-这些信息只标识本项目的 demo 服务器。它授权在用户部署/维护请求范围内登录该 demo，不自动授权删除数据、覆盖证据、重置 Secret、防火墙或其他云资源，也不能推断为任何其他环境的凭据。
+SSH 主机、用户与环境由维护者在任务中提供，公开仓库不记录生产主机和账号。认证使用 SSH agent 或用户受控的凭据存储。部署请求不授权删除数据、重置 Secret、防火墙或其他云资源。
 
 密码只能在 SSH/SCP 的交互式密码提示中输入。不得把密码拼进命令、URL、脚本参数、环境变量、日志或交付说明。不要关闭 host-key 校验；首次连接先向用户展示并确认指纹。
 
-`geo.example.com` 是 SSH 端点，不是安装器接受的 HTTPS 域名。首次安装仍需要解析到该 IP 的真实域名和管理员邮箱；不得发明这两个值。已有部署先只读检查 `/opt/geo-console/shared/.env`，复用其中的 `GEO_DOMAIN` 与 `GEO_ADMIN_EMAIL`。
+首次安装需要真实 HTTPS 域名与管理员邮箱；不得从 SSH 端点推断这些值。已有部署先只读核对部署配置里的域名与管理员邮箱，不输出 Secret。
 
 ## 必读资料
 
@@ -26,6 +24,8 @@ description: Install, deploy, upgrade, or roll back GEO Console locally or on Li
 - 打包、首次安装、升级或回滚使用 [references/release-workflow.md](references/release-workflow.md)。
 
 ## 本机开发
+
+公开源码 Docker 快启使用 `docker/quickstart/start.sh` 或 `start.ps1`，独立生成 `.quickstart` Secret 并启动 `zzgeo-quickstart` 项目，只绑定 localhost。该自构建路径允许在用户本机 Docker 构建依赖和 Chromium，不改变下述维护者服务器不得联网构建的限制。详见 `docs/docker-quickstart.md`。
 
 ```bash
 corepack pnpm install --frozen-lockfile

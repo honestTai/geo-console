@@ -1,5 +1,9 @@
 # 架构与数据边界
 
+2026-09-09 官网交互更新：独立 React Demo 复用 AppShell、Page 与主题，通过独立 Vite 构建输出，不进入正式应用入口。所有菜单只操作内存模拟记录，不调用数据库、Provider 或业务 API。iframe opaque origin + CSP connect-src none，静态 interactive 路径允许 CORS 载入资源；无新增业务授权。客户自行部署使用独立 Docker quickstart Compose，详见 `docs/docker-quickstart.md`。
+
+完整开源发行（2026-09-09）：项目自有代码采用 AGPL-3.0-only，所有 Web/API/Worker/package/桌面源码与 migration 同时开放。`scripts/export-source.mjs` 导出干净完整源码，`package-source.py` 生成带哈希的 ZIP，随官网 `/source/` 提供，Login/AccountControl 可获取本版本源码。官网与帮助不公开体验地址，采用邮件申请账号。`public-guide-data.mjs` 是新版 21 章帮助内容源，生成 HTML/Markdown 并以同一 HTML 渲染 PDF，20 张截图位于 `landing/help/assets/current/`。业务接口、队列和证据语义未变，见 `docs/public-distribution.md`。
+
 前端等待展示由 `ui/BrandLoading` 与 ThemeProvider 的 antd 配置统一：完整品牌字标覆盖应用和内容占位，紧凑 Z 标记覆盖 Spin/Table/Button/Select。Page 延迟与数据挂载保持，业务任务的实际进度/失败/权限仍由原服务和视图负责，未改变 API、队列或数据库契约。交互与无障碍规范见 `docs/ui-refinement.md`。
 
 全工作台视觉布局统一由 Shell/Page/theme/primitives 管理：256px 白侧栏、64px 顶栏、48px 桌面留白、30px H1，客户和页面切换在顶栏。TaskManagementLayout 是 Remediation 的展示组件，任务列表和详情抽屉继续调用原接口；运行摘要使用现有 AgentRun 分页，不新增 Worker 心跳、全局队列或回收站契约。此次布局重排不改变原始证据和后台流程。
@@ -21,7 +25,7 @@
 ## 运行组件
 
 ```text
-浏览器 -> Caddy HTTPS -> /      静态官网与隔离的产品演示
+浏览器 -> Caddy HTTPS -> /      完整开源官网与体验申请
                     -> /help/  公开操作手册、脱敏截图与同源 PDF
                     -> /app/  React 工作台
                     -> /api/  API :3010 -> PostgreSQL
@@ -74,7 +78,7 @@ Tauri 2 桌面客户端是所有用户的正式产品：正式版嵌入 Web 构�
 - AI 监测运行面板以批次状态、预期样本数和 `query_captures` 生成真实进度与采集日志；重新运行会创建实际批次，不使用前端动画伪造后台结果。
 - 复测报告先显示管理摘要、核心指标和整改前后对比，再进入证据、叙述与导出等详细内容。
 - 官网与工作台共用一个 Web 镜像但目录隔离：`/srv` 是官网，本地生成的 Vite dist 位于 `/srv/app`。官网“进入工作台”只导航到 `/app/`。
-- 官网演示与工作台使用相同菜单顺序和浅色信息架构；官网数据仍显式标注为演示数据。演示菜单、运行操作、设置、成员与日志视图在窄屏下保持可滚动或单列操作。
+- 官网展示脱敏实际界面，产品截图支持标签切换，旧演示地址转为体验申请说明；公开页面不连接业务 API，也不暴露托管体验入口。
 
 ## 核心流程
 

@@ -1,5 +1,7 @@
 # 运行与故障处理
 
+Docker quickstart 的数据位于独立 `zzgeo-quickstart` 卷与 `.quickstart/` 密钥目录；stop/restart 不删除卷。不要混用维护者生产环境的 Compose 项目或密钥，丢失密钥从备份恢复，不重新生成。启动、停止和日志命令见 `docs/docker-quickstart.md`。官网 Demo 只有浏览器内存，不进入任何业务队列。
+
 ## 内容运营队列与交付
 
 文章质检在 Semantic Worker 的独立一槽执行，`article_quality` 最多两次、5 分钟租约，耗尽由 queue-recovery 收尾；没有通过且仍有效的质检和人工审核不能发布。检查失败看 article_quality_runs/attempts 与当前权限，不覆盖历史重试。人工发布失败或结果不明需要操作员核对后推进，系统不会重发。新表纳入数据库备份，现有机构需显式获得新权限。详见 `docs/content-operations.md`。

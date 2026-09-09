@@ -3,7 +3,7 @@ name = "zz-geo-desktop"
 version = "0.2.0"
 description = "ZZ Geo desktop client"
 authors = ["ZZ Geo"]
-license = "UNLICENSED"
+license = "AGPL-3.0-only"
 edition = "2021"
 rust-version = "1.85.0"
 

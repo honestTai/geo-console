@@ -1,0 +1,87 @@
+.preview-filter {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 20px;
+	margin-bottom: 20px;
+}
+.preview-filter .ant-input-search {
+	max-width: 260px;
+}
+.preview-stats {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 24px;
+	border-top: 1px solid #e5e7eb;
+	margin-top: 30px;
+	padding-top: 26px;
+}
+.preview-conversation {
+	min-height: 260px;
+	max-height: 350px;
+	overflow: auto;
+	padding: 24px 0;
+}
+.preview-request {
+	background: #edf3fe;
+	border-left: 3px solid #155dfb;
+	padding: 16px;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.preview-request .ant-tag {
+	margin-left: 15px;
+}
+.preview-audit-empty {
+	padding: 55px 0;
+}
+.preview-editor {
+	margin-top: 22px;
+}
+.preview-article-body {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	line-height: 1.85;
+	margin-top: 20px;
+}
+.app-shell .workspace {
+	padding: 28px;
+}
+.app-shell {
+	min-height: 100vh;
+}
+.app-shell .topbar-help {
+	display: none;
+}
+.preview-editor [hidden] {
+	display: none;
+}
+.ant-table-cell .ant-btn-link {
+	white-space: normal;
+	height: auto;
+	text-align: left;
+}
+.ant-drawer-content-wrapper {
+	max-width: calc(100% - 20px);
+}
+@media (max-width: 700px) {
+	.preview-filter {
+		flex-wrap: wrap;
+	}
+	.preview-stats {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 20px;
+	}
+	.app-shell .workspace {
+		padding: 18px;
+	}
+	.topbar-subtitle {
+		display: none;
+	}
+	.ant-table {
+		overflow-x: auto;
+	}
+	.topbar-right .ant-tag {
+		display: none;
+	}
+}
