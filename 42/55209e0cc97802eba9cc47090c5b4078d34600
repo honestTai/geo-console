@@ -1,0 +1,57 @@
+docs/search-discovery.md
+  s_fae51fba61ce0a::t_a0942ee1577463 1-19
+landing/source/zzgeo-source.zip.manifest.json
+  s_fae51fba61ce0a::t_eabf30cb0eba87 1467-1468,1502-1503,1522-1523,1555-1559,1757-1763,1772-1778,1782-1798,1805-1809,2225-2229,2232-2233,2240-2244
+landing/llms-full.txt
+  s_fae51fba61ce0a::t_dc60b963cd8541 1-282
+docs/deployment.md
+  s_fae51fba61ce0a::t_a0942ee1577463 3-4
+scripts/build-discovery.mjs
+  s_fae51fba61ce0a::t_8576b407e4355a 1-51
+.agents/skills/geo-deployment/references/release-workflow.md
+  s_fae51fba61ce0a::t_a0942ee1577463 3-4
+landing/index.md
+  s_fae51fba61ce0a::t_dc60b963cd8541 1-20
+scripts/check-discovery.mjs
+  s_fae51fba61ce0a::t_a0942ee1577463 1-34
+landing/robots.txt
+  s_fae51fba61ce0a::t_dc60b963cd8541 1-13
+docker/caddy/Web.Caddyfile
+  s_fae51fba61ce0a::t_8576b407e4355a 4-13
+landing/help/index.md
+  s_fae51fba61ce0a::t_dc60b963cd8541 1-268
+landing/licensing.html
+  s_fae51fba61ce0a::t_dc60b963cd8541 1-2
+landing/llms.txt
+  s_fae51fba61ce0a::t_dc60b963cd8541 1-22
+scripts/build-public-docs.mjs
+  s_fae51fba61ce0a::t_8576b407e4355a 3,26
+landing/help/index.html
+  s_fae51fba61ce0a::t_dc60b963cd8541 1-2
+docs/architecture.md
+  s_fae51fba61ce0a::t_a0942ee1577463 3-4
+.agents/skills/geo-development/references/project-map.md
+  s_fae51fba61ce0a::t_a0942ee1577463 3-4
+landing/source/zzgeo-source.zip.sha256
+  s_fae51fba61ce0a::t_eabf30cb0eba87 1
+landing/index.html
+  s_fae51fba61ce0a::t_dc60b963cd8541 1,4-7,21,27-28
+landing/sitemap.xml
+  s_fae51fba61ce0a::t_dc60b963cd8541 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4255209e0cc97802eba9cc47090c5b4078d34600",
+  "prompts": {},
+  "sessions": {
+    "s_fae51fba61ce0a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a083be-255c-7830-b54a-ef2d5f32cb56",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "honest.tai <honest.tai@outlook.com>"
+    }
+  }
+}
