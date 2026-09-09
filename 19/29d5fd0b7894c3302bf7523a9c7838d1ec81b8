@@ -1,0 +1,47 @@
+docker/caddy/Web.Caddyfile
+  s_fae51fba61ce0a::t_30ac2a9ee70400 4-5
+landing/licensing.html
+  s_fae51fba61ce0a::t_e964b868a25829 2
+  s_fae51fba61ce0a::t_e3e462e1dcec91 1
+scripts/validate-help-docs.mjs
+  s_fae51fba61ce0a::t_6dde7fc69c0f56 45-51
+landing/source/zzgeo-source.zip.sha256
+  s_fae51fba61ce0a::t_91f33e6d0d3763 1
+README.md
+  s_fae51fba61ce0a::t_6dde7fc69c0f56 11
+.agents/skills/geo-development/references/project-map.md
+  s_fae51fba61ce0a::t_6dde7fc69c0f56 3-4
+landing/source/zzgeo-source.zip.manifest.json
+  s_fae51fba61ce0a::t_91f33e6d0d3763 37-38,402-403,1467-1468,1502-1503,1522-1523,1542-1543,1555-1559,1777-1778,1787-1788,2312-2313
+docs/architecture.md
+  s_fae51fba61ce0a::t_6dde7fc69c0f56 3-4
+apps/web/src/components/Login.tsx
+  s_fae51fba61ce0a::t_180d3fc2b232ae 76-83,104-110
+docs/releases/v0.1.0.md
+  s_fae51fba61ce0a::t_30ac2a9ee70400 1-46
+.agents/skills/geo-deployment/references/release-workflow.md
+  s_fae51fba61ce0a::t_6dde7fc69c0f56 3-4
+docs/deployment.md
+  s_fae51fba61ce0a::t_6dde7fc69c0f56 3-4
+docs/public-distribution.md
+  s_fae51fba61ce0a::t_6dde7fc69c0f56 3-4
+landing/index.html
+  s_fae51fba61ce0a::t_7013e519362a99 26
+  s_fae51fba61ce0a::t_cc9a6b2f6fbb1e 21,28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "1929d5fd0b7894c3302bf7523a9c7838d1ec81b8",
+  "prompts": {},
+  "sessions": {
+    "s_fae51fba61ce0a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a083be-255c-7830-b54a-ef2d5f32cb56",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "honest.tai <honest.tai@outlook.com>"
+    }
+  }
+}
