@@ -1,0 +1,200 @@
+apps/worker/src/agent.ts
+  s_9ca841cb24f1de::t_08034ab28053a1 26,36
+apps/web/src/components/PublicationPlan.tsx
+  s_9ca841cb24f1de::t_aead6b7cbed164 22,39,41,55-56,61,67,77-78,91-93,111-115
+  s_9ca841cb24f1de::t_330cf09c9a2cf9 9
+apps/web/src/components/ProjectLifecycleDialog.tsx
+  s_9ca841cb24f1de::t_5fd4d7ddf22145 1-5,12-22,27-41,87
+  s_9ca841cb24f1de::t_ba41534700dcf6 6-11,23-26,42-49,51-86
+  s_9ca841cb24f1de::t_7b4e1e7dce8bee 50
+apps/web/src/components/Report.tsx
+  s_9ca841cb24f1de::t_b8e09caf17acfd 1018,1056,1093,1117,1280,1289,1411
+  s_9ca841cb24f1de::t_ba41534700dcf6 1149,1242
+  s_9ca841cb24f1de::t_08034ab28053a1 1315-1316
+.agents/skills/geo-development/SKILL.md
+  s_9ca841cb24f1de::t_f043d26335ae40 34
+apps/web/src/components/Attribution.tsx
+  s_9ca841cb24f1de::t_ec6f9dd363f7b0 118,168
+  s_9ca841cb24f1de::t_ba41534700dcf6 175,178
+apps/web/src/components/Diagnosis.tsx
+  s_9ca841cb24f1de::t_ec6f9dd363f7b0 89,97,138
+  s_9ca841cb24f1de::t_ba41534700dcf6 141
+apps/worker/src/project-lifecycle.ts
+  s_9ca841cb24f1de::t_ba41534700dcf6 18-23,29-34,36-38,43-46,51-56
+  s_9ca841cb24f1de::t_2584d496798248 1-17,24-28,35,39-42,47-50,57-59
+apps/web/src/components/Onboarding.tsx
+  s_9ca841cb24f1de::t_b8e09caf17acfd 275,339-340
+apps/web/src/ui/pagination.test.tsx
+  s_9ca841cb24f1de::t_7b55dcded6beab 1-8,11-21,29-30,38-42
+  s_9ca841cb24f1de::t_a4a171bf2e207d 9-10,22-28,31-37
+docs/reader-report-workflow.md
+  s_9ca841cb24f1de::t_e548599050ff5a 39
+docs/deployment.md
+  s_9ca841cb24f1de::t_e548599050ff5a 3-4
+apps/web/src/components/AuthorizationConfiguration.tsx
+  s_9ca841cb24f1de::t_b8e09caf17acfd 170,309
+apps/web/src/App.tsx
+  s_9ca841cb24f1de::t_7b55dcded6beab 174-175,177,185-186,190-191,196
+  s_9ca841cb24f1de::t_ba41534700dcf6 417-480
+  s_9ca841cb24f1de::t_a4a171bf2e207d 187-189,192-195
+  s_9ca841cb24f1de::t_5fd4d7ddf22145 3,179-181,416,481
+  s_9ca841cb24f1de::t_a04d927f633aed 182
+.agents/skills/geo-development/references/domain-contracts.md
+  s_9ca841cb24f1de::t_f043d26335ae40 3-6
+.agents/skills/geo-development/references/project-map.md
+  s_9ca841cb24f1de::t_e548599050ff5a 13
+  s_9ca841cb24f1de::t_f043d26335ae40 3-6
+apps/worker/src/rbac.ts
+  s_9ca841cb24f1de::t_dc47f3e889bb42 329
+packages/core/migrations/0027_project_lifecycle.sql
+  s_9ca841cb24f1de::t_2584d496798248 1-93
+docs/operations.md
+  s_9ca841cb24f1de::t_f043d26335ae40 3-6
+apps/web/src/components/AgentDraft.tsx
+  s_9ca841cb24f1de::t_b8e09caf17acfd 553,555
+apps/web/src/components/WebsiteAudit.css
+  s_9ca841cb24f1de::t_5fd4d7ddf22145 4,6,29,33-45
+  s_9ca841cb24f1de::t_7b55dcded6beab 46-51
+apps/web/src/ui/capture-progress.test.tsx
+  s_9ca841cb24f1de::t_c419dcb7ec21d1 39-40
+packages/metrics/src/communication.ts
+  s_9ca841cb24f1de::t_08034ab28053a1 99
+apps/worker/src/authorization/index.ts
+  s_9ca841cb24f1de::t_2584d496798248 66,73,80,90
+  s_9ca841cb24f1de::t_dc47f3e889bb42 3,67
+  s_9ca841cb24f1de::t_ba41534700dcf6 68-72
+.gitattributes
+  s_9ca841cb24f1de::t_b8827e689996d3 3-6
+packages/core/src/access.ts
+  s_9ca841cb24f1de::t_2584d496798248 152-153,211-212,225-226
+apps/worker/src/authorization/principal.ts
+  s_9ca841cb24f1de::t_08034ab28053a1 42
+apps/web/src/components/AnswerAnalysis.tsx
+  s_9ca841cb24f1de::t_ba41534700dcf6 26,30,183
+  s_9ca841cb24f1de::t_ec6f9dd363f7b0 39,194
+apps/web/src/components/CustomerManagement.tsx
+  s_9ca841cb24f1de::t_5fd4d7ddf22145 1-2,4,11,13,33-36,40,44,49,88,109-110,134,148,178-179,186,212,250
+  s_9ca841cb24f1de::t_ba41534700dcf6 89-98,152-160,180-183,189-211,218-233
+apps/worker/src/project-state.ts
+  s_9ca841cb24f1de::t_ba41534700dcf6 5-10
+  s_9ca841cb24f1de::t_dc47f3e889bb42 1-4,11-13
+apps/web/src/components/Page.tsx
+  s_9ca841cb24f1de::t_5fd4d7ddf22145 1-3,36,77-80
+apps/web/src/components/CustomerManagement.css
+  s_9ca841cb24f1de::t_5fd4d7ddf22145 1-21
+docs/ui-refinement.md
+  s_9ca841cb24f1de::t_f043d26335ae40 1-21
+  s_9ca841cb24f1de::t_7b4e1e7dce8bee 22-23
+apps/web/src/components/WebsiteAudit.tsx
+  s_9ca841cb24f1de::t_ba41534700dcf6 87,124-125,144,346
+  s_9ca841cb24f1de::t_ec6f9dd363f7b0 15-17,85,89,93,119,198,235-236,253
+apps/web/src/components/Articles.css
+  s_9ca841cb24f1de::t_aead6b7cbed164 58-69,74,76-107,122,172,209-215
+apps/web/src/components/ScopeEditor.tsx
+  s_9ca841cb24f1de::t_b8e09caf17acfd 18
+apps/worker/src/authorization/resources.ts
+  s_9ca841cb24f1de::t_ba41534700dcf6 29-33,52-56
+apps/web/src/components/Workbench.tsx
+  s_9ca841cb24f1de::t_a4a171bf2e207d 1118
+  s_9ca841cb24f1de::t_7b55dcded6beab 1126,1323
+apps/web/src/components/Members.tsx
+  s_9ca841cb24f1de::t_ec6f9dd363f7b0 111,257
+apps/web/src/ui/customer-management.test.tsx
+  s_9ca841cb24f1de::t_c419dcb7ec21d1 58
+apps/worker/src/api-errors.ts
+  s_9ca841cb24f1de::t_2584d496798248 26-28
+apps/web/src/components/Evidence.tsx
+  s_9ca841cb24f1de::t_b8e09caf17acfd 208,217,231,233,240
+apps/worker/src/report-snapshots.ts
+  s_9ca841cb24f1de::t_82bb278977a8c0 803
+  s_9ca841cb24f1de::t_dc47f3e889bb42 945
+apps/worker/src/tenancy.ts
+  s_9ca841cb24f1de::t_dc47f3e889bb42 27
+apps/web/src/components/Overview.tsx
+  s_9ca841cb24f1de::t_ec6f9dd363f7b0 71
+apps/web/src/components/Page.css
+  s_9ca841cb24f1de::t_5fd4d7ddf22145 77-85
+apps/web/src/access.tsx
+  s_9ca841cb24f1de::t_ba41534700dcf6 57-58
+  s_9ca841cb24f1de::t_5fd4d7ddf22145 8,17-19,56
+apps/worker/src/index.ts
+  s_9ca841cb24f1de::t_dc47f3e889bb42 66,216-218
+  s_9ca841cb24f1de::t_ba41534700dcf6 194-203,219-231
+docs/capability-matrix.md
+  s_9ca841cb24f1de::t_f043d26335ae40 3-4
+docs/architecture.md
+  s_9ca841cb24f1de::t_f043d26335ae40 3-4
+.agents/skills/geo-development/references/frontend.md
+  s_9ca841cb24f1de::t_f043d26335ae40 3-6
+apps/web/src/components/Monitoring.tsx
+  s_9ca841cb24f1de::t_82bb278977a8c0 26,114,143
+  s_9ca841cb24f1de::t_ec6f9dd363f7b0 75,79,123,315,604,685
+  s_9ca841cb24f1de::t_ba41534700dcf6 134-140,266,377
+packages/evidence/src/website-language.ts
+  s_9ca841cb24f1de::t_ba41534700dcf6 36
+  s_9ca841cb24f1de::t_b8e09caf17acfd 16,30,35,45,55,65-66,71,81
+apps/web/src/components/Shell.tsx
+  s_9ca841cb24f1de::t_ec6f9dd363f7b0 114
+packages/core/src/schema.ts
+  s_9ca841cb24f1de::t_2584d496798248 77-78
+apps/web/src/components/Settings.tsx
+  s_9ca841cb24f1de::t_b8e09caf17acfd 348,384,527
+apps/web/src/ui/reader-workflow.test.tsx
+  s_9ca841cb24f1de::t_c419dcb7ec21d1 17,37,41
+.agents/skills/geo-operations/references/runtime-runbook.md
+  s_9ca841cb24f1de::t_f043d26335ae40 3-4
+apps/web/src/components/ProjectHome.tsx
+  s_9ca841cb24f1de::t_82bb278977a8c0 53,78,95-96
+  s_9ca841cb24f1de::t_ba41534700dcf6 122-124
+  s_9ca841cb24f1de::t_ec6f9dd363f7b0 163
+apps/worker/src/member-access.ts
+  s_9ca841cb24f1de::t_ba41534700dcf6 47-50
+  s_9ca841cb24f1de::t_dc47f3e889bb42 99
+apps/web/src/components/CreateProject.tsx
+  s_9ca841cb24f1de::t_ec6f9dd363f7b0 70
+apps/web/src/ui/primitives.tsx
+  s_9ca841cb24f1de::t_5fd4d7ddf22145 57,65,73-76,80,83
+apps/worker/src/project-lifecycle.test.ts
+  s_9ca841cb24f1de::t_175c3410cdf668 3-8,10-23,28,36-37,41,45,55-60,63,67-68,72-79,96,104,108-109,113-120,145-153,158-161,165-166
+  s_9ca841cb24f1de::t_ba41534700dcf6 1-2,9,24-27,29-35,38-40,42-44,46-54,61-62,64-66,69-71,80-95,97-103,105-107,110-112,121-144,154-157,162-164
+apps/web/src/components/Articles.tsx
+  s_9ca841cb24f1de::t_7b4e1e7dce8bee 351,402
+  s_9ca841cb24f1de::t_444e83aa6321d8 345-350
+  s_9ca841cb24f1de::t_e548599050ff5a 149
+  s_9ca841cb24f1de::t_aead6b7cbed164 42,78,151,209
+  s_9ca841cb24f1de::t_7b55dcded6beab 264
+  s_9ca841cb24f1de::t_58cca3b0a3580b 118
+docs/customer-management.md
+  s_9ca841cb24f1de::t_f043d26335ae40 3,12-15,23-29,34,36
+apps/web/src/ui/primitives.css
+  s_9ca841cb24f1de::t_e548599050ff5a 208-209,216
+  s_9ca841cb24f1de::t_08034ab28053a1 126
+  s_9ca841cb24f1de::t_5fd4d7ddf22145 298-313
+  s_9ca841cb24f1de::t_7b55dcded6beab 316-317
+  s_9ca841cb24f1de::t_e60daa49892d70 296-297
+apps/worker/src/service.ts
+  s_9ca841cb24f1de::t_dc47f3e889bb42 60,70,75,81-82,87-88,90,1017
+  s_9ca841cb24f1de::t_ba41534700dcf6 140-142
+apps/worker/src/workbench.ts
+  s_9ca841cb24f1de::t_82bb278977a8c0 1736,1771,1787
+apps/web/src/components/MeasurementExplanation.tsx
+  s_9ca841cb24f1de::t_c419dcb7ec21d1 63-65,99
+apps/worker/src/report-followup.test.ts
+  s_9ca841cb24f1de::t_08034ab28053a1 62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "159995f6254c53e6850cb95d2d6d8a36f7840e37",
+  "prompts": {},
+  "sessions": {
+    "s_9ca841cb24f1de": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07e83-aa65-7ef3-a8ed-86f931c61450",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "honest.tai <honest.tai@outlook.com>"
+    }
+  }
+}

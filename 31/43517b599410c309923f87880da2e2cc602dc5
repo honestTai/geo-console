@@ -1,0 +1,59 @@
+apps/web/src/theme.tsx
+  s_692ae6564ef0f0::t_85dfa043870895 6,20-22,45
+apps/web/src/App.tsx
+  s_692ae6564ef0f0::t_9daca483f46f5f 43
+  s_692ae6564ef0f0::t_ea07ab0723f20e 305
+  s_692ae6564ef0f0::t_85dfa043870895 306,427
+apps/web/src/components/Overview.tsx
+  s_692ae6564ef0f0::t_85dfa043870895 2,8,105
+apps/web/src/components/Attribution.tsx
+  s_692ae6564ef0f0::t_85dfa043870895 3,10,172
+.agents/skills/geo-development/references/frontend.md
+  s_692ae6564ef0f0::t_ad92dcbcfbb73b 3-4
+apps/web/src/components/Articles.tsx
+  s_692ae6564ef0f0::t_cbeed125fc8e0c 70-79
+  s_692ae6564ef0f0::t_18ca49b358b767 66-67,194
+  s_692ae6564ef0f0::t_e8982a11e8b115 68-69,80-82
+  s_692ae6564ef0f0::t_85dfa043870895 27,96,109,122-123,172,187
+  s_692ae6564ef0f0::t_694bf8e3b91dba 121,124
+docs/ui-refinement.md
+  s_692ae6564ef0f0::t_ad92dcbcfbb73b 3-8
+.agents/skills/geo-development/references/project-map.md
+  s_692ae6564ef0f0::t_ad92dcbcfbb73b 3-4
+apps/web/src/ui/BrandLoading.css
+  s_692ae6564ef0f0::t_85dfa043870895 8-132,143-145,153-164
+  s_692ae6564ef0f0::t_7e4784acad9933 146,149-150
+  s_692ae6564ef0f0::t_ea07ab0723f20e 1-7
+  s_692ae6564ef0f0::t_9daca483f46f5f 133-142,147-148,151-152
+docs/architecture.md
+  s_692ae6564ef0f0::t_ad92dcbcfbb73b 3-4
+apps/web/src/components/Settings.tsx
+  s_692ae6564ef0f0::t_85dfa043870895 1,17,146,413,558
+apps/web/src/ui/BrandLoading.tsx
+  s_692ae6564ef0f0::t_85dfa043870895 1-26,28-33,40-44
+  s_692ae6564ef0f0::t_9daca483f46f5f 27,34-39
+apps/web/src/components/WebsiteEvidenceViewer.tsx
+  s_692ae6564ef0f0::t_9daca483f46f5f 6
+  s_692ae6564ef0f0::t_85dfa043870895 1,59
+apps/web/src/components/ViewBoundary.tsx
+  s_692ae6564ef0f0::t_9daca483f46f5f 24
+  s_692ae6564ef0f0::t_85dfa043870895 3
+docs/capability-matrix.md
+  s_692ae6564ef0f0::t_ab492ce70a1039 3-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "3143517b599410c309923f87880da2e2cc602dc5",
+  "prompts": {},
+  "sessions": {
+    "s_692ae6564ef0f0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07ede-8eb2-73c1-9b60-7e88e462a5ac",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "honest.tai <honest.tai@outlook.com>"
+    }
+  }
+}

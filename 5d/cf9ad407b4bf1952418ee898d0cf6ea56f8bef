@@ -1,0 +1,45 @@
+apps/web/src/App.tsx
+  s_ee6832b755b9a0::t_c0dd07e580edae 128,137-140,230-235,365-372
+apps/web/src/components/AgentDraft.css
+  s_ee6832b755b9a0::t_c805c61f0ae78a 1-242
+apps/web/src/components/AgentDraft.tsx
+  s_ee6832b755b9a0::t_a533994b959a7d 1-561
+apps/web/src/components/Diagnosis.tsx
+  s_ee6832b755b9a0::t_90908222b3b877 2-3,6,8,11,42,54,73-85,121-129
+apps/web/src/components/Monitoring.tsx
+  s_ee6832b755b9a0::t_c88edea19e2db2 85-89,171-182,184,186,230-253,539,541
+apps/web/src/components/Remediation.tsx
+  s_ee6832b755b9a0::t_e6e677df83d84b 2,7,9-12,19,36-41,92-109,111
+apps/web/src/components/Report.tsx
+  s_ee6832b755b9a0::t_de84dd8bfd663b 65,538,977-981,1018-1020,1120-1123,1133-1138,1143-1145,1196-1197,1209-1221
+apps/web/src/hooks/useEvidenceIndex.ts
+  s_ee6832b755b9a0::t_2a5c21dcb8af49 1-29
+apps/web/src/styles.css
+  s_ee6832b755b9a0::t_c501752ad66414 1621
+apps/web/src/types.ts
+  s_ee6832b755b9a0::t_525cb69dc50a15 354
+apps/web/src/ui/navigation.tsx
+  s_ee6832b755b9a0::t_386c5004d53c10 10-11,19
+apps/worker/src/workbench.test.ts
+  s_ee6832b755b9a0::t_0e8ae7f183c663 6,17-19,24-32,121-127,134-135,143,146-200
+apps/worker/src/workbench.ts
+  s_ee6832b755b9a0::t_bcbb033564221a 335-359,376-378,381,383,647,655-656,663,838,842,847,1092,1095-1097,1175,1181-1183,1185,1190-1196,1209-1215,1246-1249,1251-1262,1267-1296
+packages/core/src/schema.ts
+  s_ee6832b755b9a0::t_6e405846916195 326-328
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5dcf9ad407b4bf1952418ee898d0cf6ea56f8bef",
+  "prompts": {},
+  "sessions": {
+    "s_ee6832b755b9a0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "353d5fdc-b466-44f0-b76b-77da58f4ec97",
+        "model": "unknown"
+      },
+      "human_author": "honest.tai <honest.tai@outlook.com>"
+    }
+  }
+}
