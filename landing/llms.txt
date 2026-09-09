@@ -1,0 +1,22 @@
+# ZZ Geo
+
+> 开源 AI 搜索监测与内容运营工作台，AGPL-3.0-only，支持自行部署与依协议商用。
+
+采样来自供应商联网 API，不等同于消费端 App 回答。元宝渠道为“元宝搜索源 + 混元合成”。官网 Demo 是隔离模拟环境；不保证排名、收录或收益。
+
+## 产品与使用
+
+- [产品说明](https://www.honesttai.com/index.md): 能力、使用成本、许可和体验申请。
+- [操作手册](https://www.honesttai.com/help/index.md): 建档、监测、证据、整改、文章、发布与报告流程。
+- [Docker 一键启动](https://github.com/honestTai/geo-console/blob/main/docs/docker-quickstart.md): 环境要求、随机密钥、启动与停止。
+- [完整说明](https://www.honesttai.com/llms-full.txt): 产品和操作手册的合并文本。
+
+## 源码与许可
+
+- [GitHub 仓库](https://github.com/honestTai/geo-console): 全部业务源码、构建与部署文件。
+- [AGPL-3.0 全文](https://www.honesttai.com/LICENSE.txt): 使用、修改、分发及网络服务义务。
+- [指标口径](https://github.com/honestTai/geo-console/blob/main/docs/visibility-measurement-v2.md): 分母、汇总与比较边界。
+
+## Optional
+
+- [赞助商 HRouter](https://hrouter.net/): 多模型 API 路由服务。

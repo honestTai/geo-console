@@ -1,5 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { guide, guideVersion } from "./public-guide-data.mjs";
+import { buildDiscovery } from "./build-discovery.mjs";
 
 const escape = text => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 let lastGroup = "";
@@ -22,3 +23,4 @@ await writeFile("landing/help/index.html",html);
 const markdown = `# ZZ Geo 操作手册\n\n版本：${guideVersion}。实际系统截图已经脱敏；无数据页面保持真实空状态。\n\n体验账号请联系 honest.tai@outlook.com，由管理员私下提供登录方式。\n\n` + guide.map(item=>`## ${item.title}\n\n${item.intro}\n\n${item.image ? `![${item.title}](../landing/help/assets/current/${item.image}.jpg)\n\n`:""}${item.steps.map((step,index)=>`${index+1}. ${step}`).join("\n")}\n\n完成后：${item.result}\n\n注意：${item.note}\n`).join("\n");
 await writeFile("docs/user-guide.md",markdown);
 console.log(`Built ${guide.length} help chapters and ${guide.filter(item=>item.image).length} screenshot references.`);
+await buildDiscovery();

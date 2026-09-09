@@ -1,5 +1,7 @@
 # GEO Console Project Map
 
+搜索入口：`build-public-docs.mjs` → `build-discovery.mjs` → robots/sitemap/llms.txt/full/Markdown 与三页 canonical/JSON-LD；`check-discovery.mjs` 校验。`docker/caddy/Web.Caddyfile` 管理别名重定向、Markdown MIME、非搜索页面 noindex 与静态 404；见 `docs/search-discovery.md`。不要把体验地址、业务证据或虚构指标放入公开 AI 说明。
+
 官网 Demo：独立 `apps/web/preview.html` + `src/preview/` 复用 Shell/Page/ThemeProvider/antd，`vite.preview.config.ts` 构建到 `landing/interactive/`，正式入口不导入 Demo。20 个菜单在内存中模拟 CRUD/状态/导出，不调用 API，CSP 禁止 connect，嵌入 iframe 不授予 same-origin。公开业务数据仍禁止 mock。Docker 自构建入口位于 `docker/quickstart/`，与维护者制品升级分开，见 `docs/docker-quickstart.md`。
 
 完整开源：`scripts/export-source.mjs` → 完整源码目录 → `package-source.py` → `landing/source/` ZIP/哈希。AGPL-3.0-only 覆盖项目自有代码，第三方保留原许可；所有 Web/API/Workers/packages/桌面及 migration 开放，不再有社区展示层白名单或私有核心。`Login.tsx` 的登录/账号区提供同源版本源码入口。官网移除在线体验链接，改邮件申请，赞助仍为 HRouter。`public-guide-data.mjs` → `build-public-docs.mjs` → HTML/Markdown，PDF 从同一帮助 HTML 渲染；截图由 `refresh-public-screenshots.mjs` 只读访问既有页面并脱敏，位于 `help/assets/current/`。源码包不含 Git、运行环境数据或账号信息，详见 `docs/public-distribution.md`。

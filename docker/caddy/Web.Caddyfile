@@ -1,6 +1,16 @@
 :80 {
 	root * /srv
 	encode zstd gzip
+	@llmAlias path /llm.txt
+	redir @llmAlias /llms.txt 308
+	@homeIndex path /index.html
+	redir @homeIndex / 308
+	@helpIndex path /help/index.html
+	redir @helpIndex /help/ 308
+	@markdown path *.md
+	header @markdown Content-Type "text/markdown; charset=utf-8"
+	@nonSearch path /app /app/* /interactive/* /source/* /desktop/* /demo.html
+	header @nonSearch X-Robots-Tag "noindex"
 	handle_path /interactive/* {
 		root * /srv/interactive
 		header Access-Control-Allow-Origin "*"
@@ -28,11 +38,9 @@
 	redir @helpExact /help/ 308
 	handle_path /help/* {
 		root * /srv/help
-		try_files {path} /index.html
 		file_server
 	}
 	handle {
-		try_files {path} /index.html
 		file_server
 	}
 }

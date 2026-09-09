@@ -1,5 +1,7 @@
 # 架构与数据边界
 
+官网搜索与 AI 资料入口由 `scripts/build-discovery.mjs` 生成，与帮助内容源联动；JSON-LD 只描述实际公开产品，不含虚构评分或价格。Web Caddy 仅业务 SPA 使用首页回退，公开静态缺失资源返回 404。详见 `docs/search-discovery.md`，业务 API/证据/权限保持不变。
+
 2026-09-09 官网交互更新：独立 React Demo 复用 AppShell、Page 与主题，通过独立 Vite 构建输出，不进入正式应用入口。所有菜单只操作内存模拟记录，不调用数据库、Provider 或业务 API。iframe opaque origin + CSP connect-src none，静态 interactive 路径允许 CORS 载入资源；无新增业务授权。客户自行部署使用独立 Docker quickstart Compose，详见 `docs/docker-quickstart.md`。
 
 完整开源发行（2026-09-09）：项目自有代码采用 AGPL-3.0-only，所有 Web/API/Worker/package/桌面源码与 migration 同时开放。`scripts/export-source.mjs` 导出干净完整源码，`package-source.py` 生成带哈希的 ZIP，随官网 `/source/` 提供，Login/AccountControl 可获取本版本源码。官网与帮助不公开体验地址，采用邮件申请账号。`public-guide-data.mjs` 是新版 21 章帮助内容源，生成 HTML/Markdown 并以同一 HTML 渲染 PDF，20 张截图位于 `landing/help/assets/current/`。业务接口、队列和证据语义未变，见 `docs/public-distribution.md`。

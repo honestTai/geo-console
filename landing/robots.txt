@@ -1,0 +1,13 @@
+User-agent: *
+Disallow: /
+Allow: /$
+Allow: /help/
+Allow: /licensing.html$
+Allow: /assets/
+Allow: /site.css$
+Allow: /index.md$
+Allow: /llms.txt$
+Allow: /llms-full.txt$
+Allow: /sitemap.xml$
+
+Sitemap: https://www.honesttai.com/sitemap.xml

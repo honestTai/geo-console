@@ -1,5 +1,7 @@
 # 本机与服务器部署
 
+搜索入口见 `docs/search-discovery.md`：随 landing 发布 robots/sitemap/llms 与 Markdown。Web Caddy 对缺失静态页面返回 404，保留业务 SPA 回退；部署验证文本/XML MIME、canonical 别名重定向、noindex 和 404。站长平台验证需网站所有者账号，本次没有新增业务或数据库变更。
+
 源码使用者可使用 [Docker 一键启动](docker-quickstart.md)，不依赖维护者的私有基础镜像。该 Compose 用独立项目和新卷，默认 localhost；公网需自行配置真实域名/HTTPS。`deploy/package.sh` 仍用于维护者线上升级。Web build 额外构建独立 Demo，打包器显式携带 Git 忽略的 `landing/interactive/`；该静态路径允许 CORS，不开放业务 API 跨域。
 
 完整开源发行见 `docs/public-distribution.md`：`corepack pnpm export-source output/<新目录>` 包含全部业务源码和构建文件，排除运行数据、凭据与 Git 历史。以 `scripts/package-source.py` 生成 `landing/source/zzgeo-source.zip` 与校验文件，必须先于 `deploy/package.sh` 打包并与上线版本一致。官网与帮助提供邮件申请体验，不公开体验地址。`/demo.html` 仅保留申请页。帮助新版 21 章、20 张 current 截图及 PDF；本次没有新增 migration 或业务队列变更。

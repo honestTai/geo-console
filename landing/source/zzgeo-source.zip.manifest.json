@@ -1464,8 +1464,8 @@
     },
     {
       "path": "docker/caddy/Web.Caddyfile",
-      "bytes": 780,
-      "sha256": "412a6a9fd233421f6d6cf7919f28376dbbcdebe085a61a5202e038d719d239bb"
+      "bytes": 1087,
+      "sha256": "6109e530b67f394793a022f3334ddf378a6caa99f80be61a2e2c0462258968c8"
     },
     {
       "path": "docker/quickstart/Caddyfile",
@@ -1499,8 +1499,8 @@
     },
     {
       "path": "docs/architecture.md",
-      "bytes": 33035,
-      "sha256": "d650057733233dd849cdec462a4c87698bc6509ba69e41d8c67f1a80b3183e1d"
+      "bytes": 33363,
+      "sha256": "8c5e17b2b57013071bc2c9eb12ffae0c7962b0d301151c7073d2227c9bf6e695"
     },
     {
       "path": "docs/capability-matrix.md",
@@ -1519,8 +1519,8 @@
     },
     {
       "path": "docs/deployment.md",
-      "bytes": 18472,
-      "sha256": "79552421b3f9083e8b812251b0e57c5f1af1b6bbdb6f84c2dd7cfbe73e2c2445"
+      "bytes": 18809,
+      "sha256": "0cdc7c943f34b600bb5b9e392dbe8af2a35da409879e26263908a2b968007408"
     },
     {
       "path": "docs/docker-quickstart.md",
@@ -1551,6 +1551,11 @@
       "path": "docs/reader-report-workflow.md",
       "bytes": 8497,
       "sha256": "405e32a98f4207fa05a5ffdae4b8f515707ee5cecbec8466eec194a96edc62a2"
+    },
+    {
+      "path": "docs/search-discovery.md",
+      "bytes": 1941,
+      "sha256": "7b2e741cb9e4689f4df256273f0948094d8b32241bbb4c5b10817f84192f3fb2"
     },
     {
       "path": "docs/search-provider-adapters.md",
@@ -1749,8 +1754,13 @@
     },
     {
       "path": "landing/help/index.html",
-      "bytes": 32546,
-      "sha256": "e62bd11b4d179a6edb03c0dee31f47d480e10f6b6d08adfe9554b94e93e71bc9"
+      "bytes": 34025,
+      "sha256": "2e5ddc7741970ee0bc9a04987bbdd91d5d8c520326b1474d22bedd3d65678b0f"
+    },
+    {
+      "path": "landing/help/index.md",
+      "bytes": 13936,
+      "sha256": "97665709355d79011d9d01db0b10fcbcc966ed9ea4093ae13445159c08b689ce"
     },
     {
       "path": "landing/help/styles.css",
@@ -1759,18 +1769,43 @@
     },
     {
       "path": "landing/index.html",
-      "bytes": 12952,
-      "sha256": "bcb232c6e9798577e7a8c723efe31bea5cc29b76623fb7eada2e2274980787e8"
+      "bytes": 14434,
+      "sha256": "2e3c1dcccb43f48fd5c92cb90d15fb2deba3bf0c8875eb7bae8e27c896771cf4"
+    },
+    {
+      "path": "landing/index.md",
+      "bytes": 1437,
+      "sha256": "da15bb19354ed854494feb6328cf066e0d6a2218499206f635535884e10fd9da"
     },
     {
       "path": "landing/licensing.html",
-      "bytes": 2349,
-      "sha256": "c6b44d05e3b483a2672eed13b94b0b9f7e596ff0328f3519d0f5768d584c6eb3"
+      "bytes": 3925,
+      "sha256": "c1354495714293945534e2c9a49d6e279d41461b56f816ce50b52802c48a8a83"
+    },
+    {
+      "path": "landing/llms-full.txt",
+      "bytes": 15084,
+      "sha256": "8892c12805a11c5b89433e4512e80e1139dfe26015c748ec4fb53dbf5e89da57"
+    },
+    {
+      "path": "landing/llms.txt",
+      "bytes": 1282,
+      "sha256": "52d3e3c0a8272af59306fa5e11f024e685e1d1dda31419f8501fe3b604061e0e"
+    },
+    {
+      "path": "landing/robots.txt",
+      "bytes": 236,
+      "sha256": "b4fe4094c2427aedb4552a1783153969217f3684fd7e403ea4743f15b4fce65f"
     },
     {
       "path": "landing/site.css",
       "bytes": 10682,
       "sha256": "886bb0b15a5fb47d18d65ce1505b884d558743abe5ed717926473f32950e0a29"
+    },
+    {
+      "path": "landing/sitemap.xml",
+      "bytes": 271,
+      "sha256": "1289dca6eb818c7ce44a261917657f584198fa81f0672a6cc805f6564187369d"
     },
     {
       "path": "package.json",
@@ -2188,14 +2223,24 @@
       "sha256": "c43a40c0fe8d552a957277d11e1c321c73c26f274528fb6201eb732ebc30cddc"
     },
     {
+      "path": "scripts/build-discovery.mjs",
+      "bytes": 7528,
+      "sha256": "d12151631f721a32d2a72c5162ab40d45fd79f755864e4dc3accc486f48f4049"
+    },
+    {
       "path": "scripts/build-public-docs.mjs",
-      "bytes": 4839,
-      "sha256": "5a83efadf65ad12f0ae43297e07b480b83b686b3b7ab73cbb55e0b1f0995fbe5"
+      "bytes": 4919,
+      "sha256": "b92e9f303b61d02ceeddbed2b01efec99c36a4848982e973e47861318e5da968"
     },
     {
       "path": "scripts/capture-help-screenshots.mjs",
       "bytes": 19864,
       "sha256": "0a119408a51002b7f28d6263964ef6dfe3bcbe5998c28f7c357ac8fc197ca396"
+    },
+    {
+      "path": "scripts/check-discovery.mjs",
+      "bytes": 1946,
+      "sha256": "07e6e46b05c5fef054074208406455056359542905eaa3ce0340f55df79ff529"
     },
     {
       "path": "scripts/check-licenses.mjs",
