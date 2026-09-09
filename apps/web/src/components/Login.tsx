@@ -73,7 +73,14 @@ export function Login({ error, onLogin }: { error: string | null; onLogin(user: 
 				<Button variant="link" icon={<IconHelpCircle size={16} />} href="/help/" target="_blank" block>
 					查看操作手册
 				</Button>
-				<Button variant="link" icon={<IconCode size={16} />} href="/source/zzgeo-source.zip" block>
+				<Button
+					variant="link"
+					icon={<IconCode size={16} />}
+					href="https://github.com/honestTai/geo-console/releases/tag/v0.1.0"
+					target="_blank"
+					rel="noopener noreferrer"
+					block
+				>
 					获取本版本源码（AGPL-3.0）
 				</Button>
 			</Form>
@@ -94,7 +101,13 @@ export function AccountControl({ user, onLogout }: { user: UserIdentity; onLogou
 				</div>
 				{user.organizationSuspended && <Tag>已封禁</Tag>}
 				<DesktopUpdateButton />
-				<Button variant="link" icon={<IconCode size={16} />} href="/source/zzgeo-source.zip">
+				<Button
+					variant="link"
+					icon={<IconCode size={16} />}
+					href="https://github.com/honestTai/geo-console/releases/tag/v0.1.0"
+					target="_blank"
+					rel="noopener noreferrer"
+				>
 					源码
 				</Button>
 				{!user.localBypass && <ChangePassword />}

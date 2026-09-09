@@ -34,8 +34,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 7634,
-      "sha256": "de1d566eef3da6d6199e903d0123f5b119c9464e0fb5b661416e3681899d6bd1"
+      "bytes": 7641,
+      "sha256": "2987bdf7fd6c9428f91ff708bab65a899ffca92d86cfb6edee5311c410a0d02e"
     },
     {
       "path": "THIRD_PARTY_NOTICES.md",
@@ -399,8 +399,8 @@
     },
     {
       "path": "apps/web/src/components/Login.tsx",
-      "bytes": 6663,
-      "sha256": "bcb79b77cd620fbd9ca7fbf6f573dec26030078c99edb86041aa0dd5b2f4be89"
+      "bytes": 6884,
+      "sha256": "00382134431fae43222067f0984528be72ba67c00922df0f873a4421f380d06a"
     },
     {
       "path": "apps/web/src/components/Management.css",
@@ -1464,8 +1464,8 @@
     },
     {
       "path": "docker/caddy/Web.Caddyfile",
-      "bytes": 1087,
-      "sha256": "6109e530b67f394793a022f3334ddf378a6caa99f80be61a2e2c0462258968c8"
+      "bytes": 1217,
+      "sha256": "92e7aa86e39d2f1a6e21f736075a20e69e6e8041d0a2f9624fea7808598ba7fe"
     },
     {
       "path": "docker/quickstart/Caddyfile",
@@ -1499,8 +1499,8 @@
     },
     {
       "path": "docs/architecture.md",
-      "bytes": 33363,
-      "sha256": "8c5e17b2b57013071bc2c9eb12ffae0c7962b0d301151c7073d2227c9bf6e695"
+      "bytes": 33636,
+      "sha256": "fe1846490e930d0d9c7bdf63fc2b2d36b33978b7b110cfa870afb96625f1c7bb"
     },
     {
       "path": "docs/capability-matrix.md",
@@ -1519,8 +1519,8 @@
     },
     {
       "path": "docs/deployment.md",
-      "bytes": 18809,
-      "sha256": "0cdc7c943f34b600bb5b9e392dbe8af2a35da409879e26263908a2b968007408"
+      "bytes": 19171,
+      "sha256": "1ad2fa392ed0df0455120fc61adc2b59305bfbab55ea80e388856a860e075d50"
     },
     {
       "path": "docs/docker-quickstart.md",
@@ -1539,8 +1539,8 @@
     },
     {
       "path": "docs/public-distribution.md",
-      "bytes": 3724,
-      "sha256": "cf8dfef312339fc3f87d79042fefb59773cbe2bb8b4c0c43f6e75ea40b395071"
+      "bytes": 4158,
+      "sha256": "def3c4e6cf845aecced5b8f1c540a3927e895a2a38cb88c373662ccaaa7c9757"
     },
     {
       "path": "docs/rbac-v2.md",
@@ -1551,6 +1551,11 @@
       "path": "docs/reader-report-workflow.md",
       "bytes": 8497,
       "sha256": "405e32a98f4207fa05a5ffdae4b8f515707ee5cecbec8466eec194a96edc62a2"
+    },
+    {
+      "path": "docs/releases/v0.1.0.md",
+      "bytes": 2596,
+      "sha256": "dfa1370e49c0066aa2585db0508c293dfa32a9bf0e93740b560794775b5e594b"
     },
     {
       "path": "docs/search-discovery.md",
@@ -1769,8 +1774,8 @@
     },
     {
       "path": "landing/index.html",
-      "bytes": 14434,
-      "sha256": "2e3c1dcccb43f48fd5c92cb90d15fb2deba3bf0c8875eb7bae8e27c896771cf4"
+      "bytes": 14466,
+      "sha256": "732cec6ba380386a3a5dabb6d766dfdcfeebaca089f3b2f01277f14cea3799fa"
     },
     {
       "path": "landing/index.md",
@@ -1779,8 +1784,8 @@
     },
     {
       "path": "landing/licensing.html",
-      "bytes": 3925,
-      "sha256": "c1354495714293945534e2c9a49d6e279d41461b56f816ce50b52802c48a8a83"
+      "bytes": 4067,
+      "sha256": "722196781a74fc4d9aed802275002fc8adce6bfdbf49e0a19298865a9f3dcba1"
     },
     {
       "path": "landing/llms-full.txt",
@@ -2304,8 +2309,8 @@
     },
     {
       "path": "scripts/validate-help-docs.mjs",
-      "bytes": 2910,
-      "sha256": "6b36157086a6dafcfaac2702e8f64d024be391e2d9a1a3a2e760194fcef38407"
+      "bytes": 3388,
+      "sha256": "3fa33d314d6e0c9efeb276b037db33aaf5ce97e2dad31e51b244442891363690"
     },
     {
       "path": "scripts/verify-public-site.mjs",

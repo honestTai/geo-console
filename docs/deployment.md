@@ -1,5 +1,7 @@
 # 本机与服务器部署
 
+源码入口统一跳转 GitHub Releases，工作台固定对应版本、官网链接 latest；旧 `/source/*` 重定向到 GitHub。发布时先生成并核验源码归档，提交并打标签，然后上传同版归档为 Release 资产，最后部署。首版 v0.1.0。站内归档仍作为打包校验输入，不能把其 HTTP 302 判定为下载失败。
+
 搜索入口见 `docs/search-discovery.md`：随 landing 发布 robots/sitemap/llms 与 Markdown。Web Caddy 对缺失静态页面返回 404，保留业务 SPA 回退；部署验证文本/XML MIME、canonical 别名重定向、noindex 和 404。站长平台验证需网站所有者账号，本次没有新增业务或数据库变更。
 
 源码使用者可使用 [Docker 一键启动](docker-quickstart.md)，不依赖维护者的私有基础镜像。该 Compose 用独立项目和新卷，默认 localhost；公网需自行配置真实域名/HTTPS。`deploy/package.sh` 仍用于维护者线上升级。Web build 额外构建独立 Demo，打包器显式携带 Git 忽略的 `landing/interactive/`；该静态路径允许 CORS，不开放业务 API 跨域。

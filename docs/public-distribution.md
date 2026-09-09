@@ -1,5 +1,7 @@
 # 完整开源发行
 
+v0.1.0 起，用户源码入口统一在 GitHub：官网/README 使用仓库或 Releases，工作台源码链接固定到 v0.1.0 Release；未来版本更新须同步版本链接。旧 `/source/*` 地址 302 到该 GitHub 版本。站内 ZIP 保留为内部制品完整性校验输入，不再作为用户下载渠道；同一归档以版本文件名上传 GitHub Release，附 SHA-256。首版说明见 `docs/releases/v0.1.0.md`。
+
 当前使用原 GitHub 仓库 `honestTai/geo-console` 维护和公开源码。公开前检查全部历史，移除内部主机与验收地址并复扫；不要求同步维护第二个仓库。Docker quickstart 源码入口位于 `docker/quickstart/`。官网交互区是独立 React 模拟 Demo，20 个菜单仅改内存记录，CSP 禁止网络连接；生成文件在 `landing/interactive/`，源码位于 `apps/web/src/preview/`，不混入业务运行时。
 
 决策基准：`d880e092ec9342362161775f68bbe100d6d39fd0`。项目自有代码采用 AGPL-3.0-only，允许依协议商业使用；不保留私有核心。Elmo 上游部分保留 MIT，见 NOTICE 和第三方声明。

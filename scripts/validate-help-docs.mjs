@@ -42,3 +42,10 @@ assert.ok(!home('iframe').attr('sandbox').includes('allow-same-origin'));
 const demo=await readFile("apps/web/preview.html","utf8");
 assert.ok(demo.includes("connect-src 'none'"));
 console.log("Five platform logos, explicit sponsor/GitHub links and isolated Demo verified.");
+for(const file of ["landing/index.html","landing/licensing.html"]){
+  const $=load(await readFile(file,"utf8"));
+  for(const element of $('a[href]').toArray())assert.ok(!/(^|\/)source\/zzgeo-source/.test($(element).attr('href')),`${file}: old source download link`);
+}
+const login=await readFile("apps/web/src/components/Login.tsx","utf8");
+assert.ok(!login.includes('href="/source/'));
+assert.ok(login.includes("https://github.com/honestTai/geo-console/releases/tag/v0.1.0"));

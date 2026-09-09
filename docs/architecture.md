@@ -1,5 +1,7 @@
 # 架构与数据边界
 
+v0.1.0 源码与版本下载统一到 GitHub。Login/AccountControl 指向对应 Release，并在新标签打开；官网、许可页与 README 指向仓库/Releases。Web Caddy 将旧 source 路径重定向，不再直接返回站内 ZIP；业务接口与权限不变。
+
 官网搜索与 AI 资料入口由 `scripts/build-discovery.mjs` 生成，与帮助内容源联动；JSON-LD 只描述实际公开产品，不含虚构评分或价格。Web Caddy 仅业务 SPA 使用首页回退，公开静态缺失资源返回 404。详见 `docs/search-discovery.md`，业务 API/证据/权限保持不变。
 
 2026-09-09 官网交互更新：独立 React Demo 复用 AppShell、Page 与主题，通过独立 Vite 构建输出，不进入正式应用入口。所有菜单只操作内存模拟记录，不调用数据库、Provider 或业务 API。iframe opaque origin + CSP connect-src none，静态 interactive 路径允许 CORS 载入资源；无新增业务授权。客户自行部署使用独立 Docker quickstart Compose，详见 `docs/docker-quickstart.md`。

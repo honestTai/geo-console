@@ -1,5 +1,7 @@
 # GEO Console Project Map
 
+源码跳转：Login/AccountControl → GitHub Release v0.1.0（未来版本需同步），官网/README → GitHub 仓库与 Releases/latest；Web.Caddyfile 将旧 source 路径 302 至 GitHub。完整性校验仍使用本地源码归档，GitHub Release 上传版本 ZIP/校验文件，见 docs/releases/v0.1.0.md。
+
 搜索入口：`build-public-docs.mjs` → `build-discovery.mjs` → robots/sitemap/llms.txt/full/Markdown 与三页 canonical/JSON-LD；`check-discovery.mjs` 校验。`docker/caddy/Web.Caddyfile` 管理别名重定向、Markdown MIME、非搜索页面 noindex 与静态 404；见 `docs/search-discovery.md`。不要把体验地址、业务证据或虚构指标放入公开 AI 说明。
 
 官网 Demo：独立 `apps/web/preview.html` + `src/preview/` 复用 Shell/Page/ThemeProvider/antd，`vite.preview.config.ts` 构建到 `landing/interactive/`，正式入口不导入 Demo。20 个菜单在内存中模拟 CRUD/状态/导出，不调用 API，CSP 禁止 connect，嵌入 iframe 不授予 same-origin。公开业务数据仍禁止 mock。Docker 自构建入口位于 `docker/quickstart/`，与维护者制品升级分开，见 `docs/docker-quickstart.md`。

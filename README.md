@@ -8,7 +8,7 @@
 
 查看品牌提及和回答来源，跟进内容整改，复测后导出报告。
 
-[官网](https://www.honesttai.com/) · [GitHub](https://github.com/honestTai/geo-console) · [交互 Demo](https://www.honesttai.com/interactive/preview.html) · [帮助中心](https://www.honesttai.com/help/) · [快速开始](#快速开始) · [完整源码](https://www.honesttai.com/source/zzgeo-source.zip) · [申请体验](mailto:honest.tai@outlook.com?subject=ZZ%20Geo%20申请体验账号)
+[官网](https://www.honesttai.com/) · [GitHub](https://github.com/honestTai/geo-console) · [交互 Demo](https://www.honesttai.com/interactive/preview.html) · [帮助中心](https://www.honesttai.com/help/) · [快速开始](#快速开始) · [版本下载](https://github.com/honestTai/geo-console/releases/latest) · [申请体验](mailto:honest.tai@outlook.com?subject=ZZ%20Geo%20申请体验账号)
 
 **完整开源 · AGPL-3.0 · 自行部署 · 允许依协议商用**
 

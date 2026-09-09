@@ -1,5 +1,7 @@
 # GEO Console Release Workflow
 
+首版 GitHub Release 为 v0.1.0，使用已提交并验证的 commit 打标签，上传同版源码 ZIP 与 SHA-256。工作台源码链接固定版本，官网指向 Releases/latest；旧 source URL 返回 GitHub 302。先发布 GitHub Release，再部署带该版本入口的 Web，避免在线入口指向不存在的标签。
+
 官网搜索文件随 landing 发布；上线检查 robots.txt、sitemap.xml、llms.txt、llms-full.txt、Markdown MIME、canonical 308 和不存在页面的 404。生成/校验方法见 `docs/search-discovery.md`。只修改公开静态路由时，保留应用 SPA 路由、API 代理和访问控制。
 
 独立 Demo 随 Web build 构建到 Git 忽略的 `landing/interactive/`，release 显式复制此目录。公开源码用户的 Docker 自构建入口在 `docker/quickstart/`，使用独立项目、随机 Secret 和 localhost 默认绑定；维护者原升级流程不变。首次 Docker 构建会安装锁定依赖和 Chromium，用户需 Docker Compose v2。参见 `docs/docker-quickstart.md`。
