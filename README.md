@@ -1,28 +1,30 @@
 <div align="center">
 
-<img src="landing/assets/brand.svg" width="64" alt="ZZ Geo">
-
 # ZZ Geo
 
-**开源 AI 搜索监测与内容优化工作台**
+<img src="landing/assets/brand.svg" width="64" alt="ZZ Geo">
 
-查看品牌提及和回答来源，跟进内容整改，复测后导出报告。
+**品牌有没有出现在 AI 回答里？用证据看清，再动手优化。**  
+**Is your brand showing up in AI answers? Find the evidence, then improve.**
 
-[官网](https://www.honesttai.com/) · [GitHub](https://github.com/honestTai/geo-console) · [交互 Demo](https://www.honesttai.com/interactive/preview.html) · [帮助中心](https://www.honesttai.com/help/) · [快速开始](#快速开始) · [版本下载](https://github.com/honestTai/geo-console/releases/latest) · [申请体验](mailto:honest.tai@outlook.com?subject=ZZ%20Geo%20申请体验账号)
-
-**完整开源 · AGPL-3.0 · 自行部署 · 允许依协议商用**
+[交互演示 / Interactive demo](https://www.honesttai.com/interactive/preview.html) · [GitHub](https://github.com/honestTai/geo-console) · [HRouter](https://hrouter.net/home)
 
 </div>
 
-ZZ Geo 面向品牌、内容团队和 GEO 服务机构，将问题研究、多平台回答采样、原始证据、官网审计、文章质检、人工发布与同配置复测放在一套系统中。可以自行部署、研究实现、修改工作流，也可以依协议为客户提供商业服务。
+**AGPL-3.0 · 自行部署 / Self-hosted**
 
-完整源码包括 Web、API、采集与报告 Worker、指标、证据、授权、数据库迁移和桌面客户端。**没有单独保留的专有核心包。** 供应商联网 API 和模型服务需要自行配置密钥，并承担实际调用费用。
+[官网 / Website](https://www.honesttai.com/) · [帮助中心 / Help](https://www.honesttai.com/help/) · [快速开始 / Quick start](#快速开始)
 
-## 赞助商
+把品牌提及、回答来源、官网审计、内容整改与复测报告放在同一套工作台里，让每次优化都能回到具体问题和原始证据。
 
-<a href="https://hrouter.net/"><img src="landing/assets/hrouter-sponsor.svg" width="620" alt="HRouter · AI 编程模型路由"></a>
+Bring brand mentions, answer sources, website audits, content improvements, and retest reports into one evidence-led workspace.
 
-感谢 [HRouter](https://hrouter.net/) 支持本项目。HRouter 提供面向开发者的多模型 API 路由服务，服务与价格以其官网为准。
+**适合谁 / Who it’s for**  
+品牌运营、内容团队与 GEO 服务机构。  
+Brand teams, content teams, and GEO service providers.
+
+供应商联网 API 采样不等同于消费端 App 实际回答。同配置复测用于比较，不单独证明整改效果。  
+Sampling uses provider APIs, not consumer-app answers. Matched retests support comparison, not causal proof.
 
 ## 解决什么问题
 
@@ -129,3 +131,16 @@ corepack pnpm license-check
 官方体验环境采用人工开通方式，不在公开文档中提供登录地址。请说明团队、用途和希望体验的流程，通过 **[honest.tai@outlook.com](mailto:honest.tai@outlook.com?subject=ZZ%20Geo%20申请体验账号)** 私下申请账号。
 
 部署、培训、维护、定制开发及赞助合作也可联系同一邮箱。服务是可选项，不是使用开源功能的前置条件；范围、周期和费用另行约定。
+
+## 作者与 HRouter · About the author
+
+我是 **honestTai**，开发工具，也运营 [HRouter](https://hrouter.net/home)。这里持续分享实用代码、AI 应用、Skills 与插件，把工作中的需求变成可复用的项目。  
+I’m **honestTai**, the developer and operator behind HRouter. I share practical code, AI apps, skills, and plugins built around real workflows.
+
+需要为 AI 编程或应用开发选择模型服务？HRouter 是我运营的模型路由服务。项目的供应商选择与接入方式见下方配置说明。  
+Building with AI? HRouter is my model-routing service for AI coding and applications. Follow this project’s configuration guide when choosing a model provider.
+
+[了解 HRouter · Explore HRouter](https://hrouter.net/home) · [发现更多项目 · More projects](https://github.com/honestTai)
+
+**觉得有用，欢迎 Star；有想法，欢迎到 Issues 交流。**  
+**Star the project if it helps, and share your ideas in Issues.**
