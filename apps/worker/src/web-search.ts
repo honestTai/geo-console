@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { Type } from "@earendil-works/pi-ai";
+import { type AgentTool, Type } from "@geo/agent-runtime";
 import {
 	type CompetitorVerification,
 	type Database,
@@ -17,8 +16,7 @@ import { normalizeDomain, parseJsonColumn } from "./utils";
 /**
  * HRouter Agent 的联网搜索能力。
  *
- * pi-ai 的 openai-responses 适配器只向模型传 function tool，不会透传 OpenAI 托管的 `web_search`
- * 工具，也不保留回答里的 `url_citation` 标注。因此联网搜索作为一个普通函数工具实现：每次调用单独
+ * 搜索与 Agent 框架分离，以保留逐次预算、费用、原始响应和引用来源。每次调用单独
  * 向 HRouter `/responses` 发一次带 `tools:[{type:"web_search"}]` 的请求，把触发的搜索、归纳文本和来源
  * URL 落成一条只追加的 `web_search_evidence` 记录，Agent 只能引用这条记录的 ID。
  */

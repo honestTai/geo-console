@@ -4156,6 +4156,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",
@@ -5577,6 +5578,7 @@ dependencies = [
 name = "zz-geo-desktop"
 version = "0.2.0"
 dependencies = [
+ "base64 0.22.1",
  "reqwest",
  "rustls",
  "serde",
@@ -5588,4 +5590,5 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "url",
+ "uuid",
 ]

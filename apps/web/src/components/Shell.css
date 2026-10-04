@@ -207,6 +207,19 @@
 
 .workspace.workspace-wide {
 	max-width: 1600px;
+	padding: 26px 28px;
+}
+
+.app-agent-nav.ant-menu-item {
+	font-weight: 600;
+	margin-bottom: 14px;
+}
+.app-sider {
+	background: #fafbfd !important;
+}
+.app-sider .app-sider-menu .ant-menu-item-group-title {
+	letter-spacing: 0.6px;
+	font-size: 10px;
 }
 
 .app-shell-alert {

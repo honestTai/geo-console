@@ -31,8 +31,13 @@ function useNarrow(): boolean {
 }
 
 function buildMenuItems(navigation: ShellNavigationItem[], collapsed: boolean): MenuProps["items"] {
+	const agent = navigation.find((item) => item.id === "workbench");
+	const featured = agent
+		? [{ key: agent.id, icon: <agent.icon size={18} />, label: "GEO Agent", className: "app-agent-nav" }]
+		: [];
 	const groups = new Map<string, ShellNavigationItem[]>();
 	for (const item of navigation) {
+		if (item.id === "workbench") continue;
 		const group = item.group ?? "客户工作台";
 		groups.set(group, [...(groups.get(group) ?? []), item]);
 	}
@@ -42,13 +47,21 @@ function buildMenuItems(navigation: ShellNavigationItem[], collapsed: boolean): 
 			(groupOrder.indexOf(right) === -1 ? 99 : groupOrder.indexOf(right)),
 	);
 	if (ordered.length <= 1 || collapsed)
-		return navigation.map((item) => ({ key: item.id, icon: <item.icon size={18} />, label: item.label }));
-	return ordered.map(([group, items]) => ({
-		type: "group" as const,
-		key: `group:${group}`,
-		label: group,
-		children: items.map((item) => ({ key: item.id, icon: <item.icon size={18} />, label: item.label })),
-	}));
+		return [
+			...featured,
+			...navigation
+				.filter((item) => item.id !== "workbench")
+				.map((item) => ({ key: item.id, icon: <item.icon size={18} />, label: item.label })),
+		];
+	return [
+		...featured,
+		...ordered.map(([group, items]) => ({
+			type: "group" as const,
+			key: `group:${group}`,
+			label: group,
+			children: items.map((item) => ({ key: item.id, icon: <item.icon size={18} />, label: item.label })),
+		})),
+	];
 }
 
 export function AppShell({
@@ -122,7 +135,7 @@ export function AppShell({
 				{(!collapsed || narrow) && (
 					<div>
 						<strong>ZZ Geo</strong>
-						<small>AI 搜索监测</small>
+						<small>GEO 智能工作空间</small>
 					</div>
 				)}
 			</div>
@@ -155,7 +168,7 @@ export function AppShell({
 				<Layout.Sider
 					className="app-sider"
 					theme="light"
-					width={256}
+					width={216}
 					collapsedWidth={64}
 					collapsible
 					collapsed={collapsed}

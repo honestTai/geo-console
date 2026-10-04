@@ -53,6 +53,18 @@ export type ServiceLogQueryResult = {
 	totalPages: number;
 };
 
+export type LocalLogStore = {
+	append: (logs: StructuredLogInput[]) => Promise<unknown>;
+	query: (query: ServiceLogQuery) => Promise<ServiceLogQueryResult>;
+	exportCsv: (query: ServiceLogQuery) => Promise<string>;
+	prune: (organizationId: string, olderThanDays: number) => Promise<{ deleted: number }>;
+};
+let localStore: LocalLogStore | null = null;
+/** Installed by the desktop host before workers start; never by renderer/model input. */
+export function installLocalLogStore(store: LocalLogStore): void {
+	localStore = store;
+}
+
 const sensitiveKey =
 	/(?:authorization|cookie|password|secret|token|api.?key|credential|ciphertext|auth.?tag|answer.?text|content.?text|raw.?response)/i;
 
@@ -122,6 +134,7 @@ async function serviceRequest(path: string, init: RequestInit = {}): Promise<Res
 }
 
 export async function checkLogService(): Promise<Record<string, unknown>> {
+	if (localStore) return { status: "healthy", storage: "sqlite", execution: "client" };
 	const baseUrl = process.env.GEO_LOG_SERVICE_URL?.trim().replace(/\/$/, "");
 	if (!baseUrl) return { status: "unconfigured" };
 	try {
@@ -149,14 +162,17 @@ function queryString(query: ServiceLogQuery): string {
 }
 
 export async function queryServiceLogs(query: ServiceLogQuery): Promise<ServiceLogQueryResult> {
+	if (localStore) return localStore.query(query);
 	return (await (await serviceRequest(`/v1/logs?${queryString(query)}`)).json()) as ServiceLogQueryResult;
 }
 
 export async function exportServiceLogsCsv(query: ServiceLogQuery): Promise<string> {
+	if (localStore) return localStore.exportCsv(query);
 	return (await serviceRequest(`/v1/logs/export.csv?${queryString(query)}`)).text();
 }
 
 export async function pruneServiceLogs(organizationId: string, olderThanDays: number): Promise<{ deleted: number }> {
+	if (localStore) return localStore.prune(organizationId, olderThanDays);
 	return (await (
 		await serviceRequest("/v1/logs/retention", {
 			method: "POST",
@@ -202,7 +218,7 @@ export class StructuredLogger {
 		};
 		const consoleMethod = level === "error" ? console.error : level === "warn" ? console.warn : console.log;
 		consoleMethod(JSON.stringify(entry));
-		if (!process.env.GEO_LOG_SERVICE_URL?.trim()) return;
+		if (!localStore && !process.env.GEO_LOG_SERVICE_URL?.trim()) return;
 		this.queue.push(entry);
 		if (this.queue.length > 500) this.queue.splice(0, this.queue.length - 500);
 		void this.flush();
@@ -213,7 +229,8 @@ export class StructuredLogger {
 		this.flushing = true;
 		const batch = this.queue.splice(0, 50);
 		try {
-			await serviceRequest("/v1/logs", { method: "POST", body: JSON.stringify({ logs: batch }) });
+			if (localStore) await localStore.append(batch);
+			else await serviceRequest("/v1/logs", { method: "POST", body: JSON.stringify({ logs: batch }) });
 			if (this.retryTimer) clearTimeout(this.retryTimer);
 			this.retryTimer = null;
 		} catch {

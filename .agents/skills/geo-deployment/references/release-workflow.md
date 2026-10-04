@@ -1,5 +1,8 @@
 # GEO Console Release Workflow
 
+
+先 prepare-runtime 再 cargo fmt/test 和 Tauri bundle；平台 Node、engine.mjs、Playwright/Chromium、manifest、许可证必须同包。按 OS/CPU 原生构建。验证 SQLite 重启/恢复、受控 auth/storage stdio、人工确认和独立指标入口。三平台 CI 为验证包，不代替正式签名/公证/更新链；见 `docs/desktop-agent.md`。
+
 ## 1. 单一发布流程
 
 每次发布都执行同一条链路：
@@ -24,7 +27,7 @@ corepack pnpm lint
 bash deploy/package.sh
 ```
 
-若变更包含桌面 Agent 协议，还要运行 `cargo fmt --check`、`cargo test`，确认 Web build 生成独立 desktop-agent chunk，并在 Tauri 开发客户端验证 Channel 首字节、取消和工具恢复。服务器 `.run` 与 Tauri 签名更新包仍是两条独立产物链。
+若变更包含桌面 Agent 协议，还要运行 `cargo fmt --check`、`cargo test`，确认 Web build 只含订阅桥、Node bundle 完整，并在 Tauri 开发客户端验证 stdio 首字节、取消和工具恢复。服务器 `.run` 与 Tauri 签名更新包仍是两条独立产物链。
 
 Demo 默认目标为 `linux/amd64`；只有目标服务器明确为 ARM64 时设置 `GEO_SERVER_PLATFORM=linux/arm64`。发布机需要代理时，可为单次 BuildKit 构建设置 `GEO_BUILD_PROXY=http://<host>:<port>`；该值不进入 artifact、manifest 或服务器配置。
 
@@ -104,12 +107,12 @@ sudo geo-console upgrade /tmp/geo-console-<release>.run
 
 ## 6. 上线验证与回滚
 
-升级后执行 `geo-console version/status/doctor`，并验证 HTTPS 根路径、`/help/` 在线手册及帮助 PDF、`/app/`、`/api/health`、Log Service、migration、结构化日志、对象读写、Provider 连接和业务报告中文 PDF。桌面 Agent 协议变更还要确认 `0018_desktop_agent_runtime.sql` 已执行，桌面新会话不会产生 `agent_session_turn` job，Responses Channel 与一个只读业务工具能完成往返。
+旧版服务器升级后执行 `geo-console version/status/doctor`，验证 HTTPS、Log Service、已授权 migration、对象与报告。新桌面控制面改为验证 auth/storage、账户对象隔离与 CAS，业务路由必须返回 410；客户端在本机 SQLite 中创建 agent_session_turn，模型不经过云端 Responses 代理。不要用旧版桌面租约 RPC 冒充新链路验收。
 
 - 构建或 pre-switch 失败保持旧版本在线。
 - 切换后失败且 migration 兼容时，重新激活旧 release；保留旧应用镜像和 Worker base 到回滚窗口结束。
 - migration 不兼容时，用切换前 dump 与 evidence/S3 版本恢复到新建空数据库和隔离对象位置，不能覆盖唯一数据库。
-- 服务器回滚前查询是否有运行中的 desktop 会话；旧应用不消费 `desktop_pending_*`，应先让客户端回合结束或明确终止这些会话。旧客户端对新服务器仍默认创建 server 会话；新客户端连旧服务器会退回旧服务端执行，但迁移后已存在的 pending desktop 会话不会自动变成 Worker job。
+- 新客户端依赖 auth/storage 控制面。回滚到不支持该协议的服务器会明确启动失败，不回退云端执行；先备份本机工作区和当前云端 storage 对象，不能因回滚覆盖 SQLite 或删除同步数据。
 - 部署窗口结束后按明确文件名清理 `/tmp` 的 `.run`/checksum，不使用 glob。
 
 桌面客户端继续使用独立 Tauri 签名发布链，不进入服务器 bundle。协议变更按“服务器 migration/API 先上线并验证，签名客户端后发布”的顺序执行；客户端回滚只替换签名包，不回滚数据库。
@@ -117,3 +120,11 @@ sudo geo-console upgrade /tmp/geo-console-<release>.run
 ## 2026-09-06 跨架构与 checksum 修正
 
 artifact Dockerfile 的 Node/corepack 在 BUILDPLATFORM 原生运行，pnpm 用显式目标 OS/CPU/libc 与 ignore-scripts 安装锁定依赖。必须在目标服务器临时隔离容器/恢复测试库验证 tsx 原生执行、迁移和重复启动，不依靠 QEMU 成功假设。输出路径绝对化；checksum 空值或失败直接终止。清理测试恢复库，保留原实例成对备份，普通发布不改固定运行时 base。
+
+## SQLite 桌面执行边界（2026-10-04）
+
+当前桌面为 React → Tauri IPC → 本机 Node 业务引擎 → 新 SQLite 工作区。模型/搜索/采集/网站分析/指标/内容质检/报告/调度均在客户端；云端只鉴权、权限管理与账户私有快照存储。代码事实源：`apps/desktop/src/engine.ts`、`src-tauri/src/local_engine.rs`、`packages/core/src/sqlite.ts`、`apps/worker/src/api-service.ts` 和 `desktop-storage.ts`。独立指标、证据页面保留，不迁移旧数据库或业务数据。
+
+会话/工具账本/等待状态/租约落 SQLite；MemorySaver 仅回合内使用。结果不确定的工具停止自动重放并要求成员核查。关闭客户端会停止本机执行；鉴权断网 fail-closed。哈希分块 + CAS 同步不自动合并冲突，设备主密钥不上传，新设备重配 Provider Key。桌面公开分享暂未接静态托管，会明确拒绝创建无效链接，PDF/Word 本地导出仍可用。
+
+完整开发、恢复、测试和限制见 `docs/desktop-agent.md`。云端新部署显式使用 `compose.desktop-cloud.yaml`，不启动业务 Workers；其余服务器拓扑与 PostgreSQL 操作章节仅适用于旧版兼容部署，不代表新桌面执行位置。

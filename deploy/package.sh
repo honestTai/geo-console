@@ -84,6 +84,7 @@ if [[ -n "$REUSE_SERVER_BUNDLE" ]]; then
 		apps/worker/package.json apps/worker/tsconfig.json apps/worker/src
 		apps/log-service/package.json apps/log-service/tsconfig.json apps/log-service/src
 		packages/authorization/package.json packages/authorization/tsconfig.json packages/authorization/src
+		packages/agent-runtime/package.json packages/agent-runtime/tsconfig.json packages/agent-runtime/src
 		packages/core/package.json packages/core/tsconfig.json packages/core/src packages/core/migrations
 		packages/evidence/package.json packages/evidence/tsconfig.json packages/evidence/src
 		packages/logging/package.json packages/logging/tsconfig.json packages/logging/src
@@ -136,6 +137,7 @@ fi
 	cd "$REPO_DIR"
 	git ls-files --cached --others --exclude-standard -z -- \
 		compose.yaml \
+		compose.desktop-cloud.yaml \
 		deploy/install.sh \
 		deploy/geo-console \
 		docker/Dockerfile \

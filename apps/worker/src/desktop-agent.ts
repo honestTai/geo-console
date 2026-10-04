@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import type { ServerResponse } from "node:http";
-import type { AgentMessage, AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, AgentTool, AgentToolResult } from "@geo/agent-runtime";
 import { type Database, type DesktopAgentTrigger, readEncryptedCredential } from "@geo/core";
 import { z } from "zod";
 import { authorizeWorkbench } from "./authorization/execution";

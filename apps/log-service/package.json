@@ -4,6 +4,7 @@
 	"private": true,
 	"license": "UNLICENSED",
 	"type": "module",
+	"exports": {"./service":"./src/service.ts"},
 	"scripts": {
 		"start": "tsx src/index.ts",
 		"build": "tsc --noEmit",

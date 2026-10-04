@@ -30,7 +30,9 @@ import {
 } from "../types";
 import { FormattedAnswer } from "../ui/markdown";
 import { useWorkspaceNavigation } from "../ui/navigation";
-import { cleanSourceUrl, Empty, shortDate, sourceHost } from "../ui/primitives";
+import { cleanSourceUrl, shortDate, sourceHost } from "../ui/primitives";
+import { AgentResourceLinks, AgentWorkspaceIntro } from "./AgentWorkspaceIntro";
+import { DesktopEngineStatus } from "./DesktopEngineStatus";
 import { Page } from "./Page";
 import { type ScopeProposalAnswer, ScopeProposalCard } from "./ScopeProposalCard";
 import "./Workbench.css";
@@ -688,12 +690,11 @@ export function Workbench({
 	}>({
 		model: null,
 		thinkingLevel: null,
-		autoApprove: true,
+		autoApprove: false,
 		webSearchEnabled: true,
 	});
 	const lastSeq = useRef(0);
 	const activeSessionId = useRef<string | null>(activeId);
-	const lastDesktopAttempt = useRef<string | null>(null);
 	activeSessionId.current = activeId;
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const loadSessions = useCallback(async () => {
@@ -737,10 +738,6 @@ export function Workbench({
 			.catch(() => setModels([]));
 		void loadWebSearchStatus();
 	}, [loadWebSearchStatus]);
-	useEffect(() => {
-		// 桌面端空闲时预加载本地 Agent，避免首个新会话再等待运行时解析。
-		if (isDesktopAgentClient()) void import("../desktop-agent");
-	}, []);
 	async function testWebSearchModel(model: string | null) {
 		const target = model ?? webSearchStatus?.defaultModel ?? null;
 		setTestingModel(target ?? "default");
@@ -801,48 +798,6 @@ export function Workbench({
 		return () => controller.abort();
 	}, [activeId, polling, loadSession]);
 	useEffect(() => {
-		if (
-			!isDesktopAgentClient() ||
-			!activeId ||
-			!session ||
-			session.execution_target !== "desktop" ||
-			session.status !== "running"
-		)
-			return;
-		const attemptKey = `${activeId}:${session.desktop_pending_trigger ?? ""}:${session.desktop_turn_start_index ?? -1}`;
-		if (lastDesktopAttempt.current === attemptKey) return;
-		lastDesktopAttempt.current = attemptKey;
-		void import("../desktop-agent").then(({ startDesktopAgent }) =>
-			startDesktopAgent(activeId, {
-				onEvent: (event) => {
-					if (activeSessionId.current !== activeId) return;
-					setLocalEvents((current) => {
-						const id = event.payload.clientEventId;
-						if (current.some((item) => item.payload.clientEventId === id)) return current;
-						const retained =
-							event.type === "assistant_message"
-								? current.filter(
-										(item) =>
-											item.type !== "assistant_delta" || Number(item.payload.turn) !== Number(event.payload.turn),
-									)
-								: current;
-						return [...retained, event];
-					});
-				},
-				onSession: (updated) => {
-					if (activeSessionId.current !== activeId) return;
-					setSession(updated);
-					void loadSession(activeId, false).catch(() => undefined);
-				},
-				onError: (error) => {
-					if (activeSessionId.current !== activeId) return;
-					message.error(error.message);
-					void loadSession(activeId, false).catch(() => undefined);
-				},
-			}),
-		);
-	}, [activeId, session, loadSession, message]);
-	useEffect(() => {
 		if (session && ["done", "failed", "waiting_user", "idle"].includes(session.status)) {
 			void loadSessions().catch(() => undefined);
 			void refresh().catch(() => undefined);
@@ -875,7 +830,8 @@ export function Workbench({
 				thinkingLevel: newSession.thinkingLevel,
 				model: newSession.model,
 				webSearchEnabled: newSession.webSearchEnabled,
-				executionTarget: isDesktopAgentClient() ? "desktop" : "server",
+				// The API is native-routed to the local combined executor in desktop builds.
+				executionTarget: "server",
 			});
 			setDraft("");
 			onConsumeInitial();
@@ -979,15 +935,15 @@ export function Workbench({
 	};
 	const composerPlaceholder =
 		session?.status === "waiting_user"
-			? "请先在上方回答 HRouter Agent 的问题"
+			? "请先确认上方方案，或回答 Agent 的问题"
 			: session?.status === "running"
-				? "HRouter Agent 正在执行…"
-				: "输入指令，例如：跑一次正式基线并生成报告";
+				? "Agent 正在执行，你可以随时停止"
+				: "描述你的目标，例如：分析当前表现，找出值得优先优化的问题…";
 
 	const sidebar = (
 		<aside className="wb-sessions">
 			<div className="wb-sessions-head">
-				<h3>会话</h3>
+				<h3>最近任务</h3>
 				<Button
 					variant="secondary"
 					size="small"
@@ -998,7 +954,7 @@ export function Workbench({
 						setDraft("");
 					}}
 				>
-					新会话
+					新任务
 				</Button>
 			</div>
 			<div className="wb-sessions-list">
@@ -1016,7 +972,17 @@ export function Workbench({
 						</span>
 					</button>
 				))}
-				{!sessions.length && <p className="wb-sessions-empty">还没有会话。输入一条指令开始。</p>}
+				{!sessions.length && (
+					<p className="wb-sessions-empty">
+						任务和成果将在这里归档。
+						<br />
+						从右侧交代第一个目标。
+					</p>
+				)}
+			</div>
+			<div className="agent-sidebar-resources">
+				<span>随时查看</span>
+				<AgentResourceLinks compact />
 			</div>
 		</aside>
 	);
@@ -1123,8 +1089,9 @@ export function Workbench({
 	if (!session)
 		main = (
 			<div className="wb-welcome">
-				<Empty title="开始新对话" detail="还没有对话记录。" />
+				<AgentWorkspaceIntro customer={project.name} />
 				{composer}
+				<AgentResourceLinks />
 			</div>
 		);
 	else
@@ -1191,12 +1158,14 @@ export function Workbench({
 							<Popconfirm
 								title="终止会话？"
 								description="正在进行的后台批次不会被取消，但 Agent 不会再继续后续步骤。"
-								onConfirm={() =>
-									import("../desktop-agent")
-										.then(({ abortDesktopAgent }) => abortDesktopAgent(session.id))
-										.then(() => post(`/api/workbench/sessions/${session.id}/cancel`))
-										.then(() => loadSession(session.id, false))
-								}
+								onConfirm={async () => {
+									try {
+										await post(`/api/workbench/sessions/${session.id}/cancel`);
+										await loadSession(session.id, false);
+									} catch (error) {
+										message.error(error instanceof Error ? error.message : "终止未完成，请检查会话状态后重试");
+									}
+								}}
 							>
 								<Button variant="danger" size="small" permission="workbench.run">
 									终止
@@ -1282,7 +1251,7 @@ export function Workbench({
 						{session.status === "running" && bubbles.at(-1)?.kind !== "assistant" && (
 							<div className="wb-thinking-indicator">
 								<IconLoader2 className="spin" size={14} />
-								HRouter Agent 正在思考…
+								Agent 正在思考下一步…
 							</div>
 						)}
 					</div>
@@ -1320,7 +1289,23 @@ export function Workbench({
 		);
 
 	return (
-		<Page breadcrumb={project.name} eyebrow="AI 工作台" title="AI 工作台" className="wb-page">
+		<Page
+			breadcrumb={project.name}
+			eyebrow="GEO Agent"
+			title="GEO Agent"
+			description="让目标变成行动，让结论有据可查。"
+			className="wb-page"
+			extra={
+				isDesktopAgentClient() ? (
+					<DesktopEngineStatus />
+				) : (
+					<span className="agent-engine-label">
+						<IconSparkles size={14} />
+						Deep Agents · 云端执行
+					</span>
+				)
+			}
+		>
 			<div className="wb-layout">
 				{sidebar}
 				<section className="wb-main">{main}</section>

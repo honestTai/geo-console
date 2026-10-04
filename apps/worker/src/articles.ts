@@ -132,11 +132,11 @@ export async function listArticles(
 	  WHEN er.decision='approve' THEN 'approved' ELSE 'rejected' END AS review_status,
 	 COALESCE(po.status,CASE WHEN a.status='published' THEN 'verified' ELSE 'unplanned' END) AS publication_status
 	 FROM optimization_articles a
-	 LEFT JOIN LATERAL (SELECT * FROM article_quality_runs WHERE article_id=a.id ORDER BY created_at DESC,id DESC LIMIT 1) qr ON true
+	 LEFT JOIN article_quality_runs qr ON qr.id=(SELECT id FROM article_quality_runs WHERE article_id=a.id ORDER BY created_at DESC,id DESC LIMIT 1)
 	 LEFT JOIN article_quality_attempts qa ON qa.id=qr.selected_attempt_id AND qa.run_id=qr.id
-	 LEFT JOIN LATERAL (SELECT decision FROM article_quality_reviews WHERE run_id=qr.id ORDER BY created_at DESC,id DESC LIMIT 1) qv ON true
-	 LEFT JOIN LATERAL (SELECT id,article_version,decision FROM article_editorial_reviews WHERE article_id=a.id ORDER BY created_at DESC,id DESC LIMIT 1) er ON true
-	 LEFT JOIN LATERAL (SELECT status FROM publication_orders WHERE article_id=a.id AND article_version=a.version ORDER BY updated_at DESC,id DESC LIMIT 1) po ON true
+	 LEFT JOIN article_quality_reviews qv ON qv.id=(SELECT id FROM article_quality_reviews WHERE run_id=qr.id ORDER BY created_at DESC,id DESC LIMIT 1)
+	 LEFT JOIN article_editorial_reviews er ON er.id=(SELECT id FROM article_editorial_reviews WHERE article_id=a.id ORDER BY created_at DESC,id DESC LIMIT 1)
+	 LEFT JOIN publication_orders po ON po.id=(SELECT id FROM publication_orders WHERE article_id=a.id AND article_version=a.version ORDER BY updated_at DESC,id DESC LIMIT 1)
 	 WHERE a.project_id=$1 AND a.deleted_at IS NULL
 	 AND ($2::text IS NULL OR a.batch_id=$2) AND ($3::text IS NULL OR a.status=$3)
 	 AND ($6::text IS NULL OR a.title ILIKE '%'||$6||'%' OR a.summary ILIKE '%'||$6||'%'))

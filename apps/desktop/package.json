@@ -6,13 +6,17 @@
 	"type": "module",
 	"scripts": {
 		"dev": "tauri dev",
-		"build": "cargo check --manifest-path src-tauri/Cargo.toml",
+		"build": "corepack pnpm prepare-runtime && cargo check --manifest-path src-tauri/Cargo.toml",
 		"bundle": "tauri build",
 		"prepare-frontend": "node scripts/prepare-frontend.mjs",
+		"prepare-runtime": "node scripts/prepare-runtime.mjs",
 		"check-types": "tsc --noEmit",
 		"test": "vitest run"
 	},
+	"dependencies": { "@geo/agent-runtime": "workspace:*", "@geo/core": "workspace:*", "@geo/logging":"workspace:*", "@geo/log-service":"workspace:*", "@geo/worker": "workspace:*" },
 	"devDependencies": {
+		"esbuild": "0.27.3",
+		"@types/node": "^26.2.0",
 		"@tauri-apps/cli": "2.11.4",
 		"typescript": "^7.0.2",
 		"vitest": "^4.1.10"

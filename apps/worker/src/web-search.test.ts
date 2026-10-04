@@ -1,4 +1,4 @@
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentTool } from "@geo/agent-runtime";
 import { migrateDatabase, openMemoryDatabase, writeEncryptedCredential } from "@geo/core";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createEvidenceReadTools, knownEvidenceIds } from "./agent";

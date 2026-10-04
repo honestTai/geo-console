@@ -7,6 +7,8 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./database": "./src/database.ts",
+		"./desktop-workspace": "./src/desktop-workspace.ts",
+		"./sqlite": "./src/sqlite.ts",
 		"./repository": "./src/repository.ts",
 		"./schema": "./src/schema.ts",
 		"./paths": "./src/paths.ts",

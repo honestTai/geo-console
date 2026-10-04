@@ -19,7 +19,7 @@ export async function projectOperations(database: Database, projectId: string, i
 			label: "质检异常",
 			view: "articles",
 			filter: "quality:failed",
-			sql: `SELECT count(*)::int AS count FROM optimization_articles a JOIN LATERAL(SELECT status FROM article_quality_runs WHERE article_id=a.id AND article_version=a.version ORDER BY created_at DESC,id DESC LIMIT 1) q ON true WHERE a.project_id=$1 AND a.deleted_at IS NULL AND q.status='failed'`,
+			sql: `SELECT count(*)::int AS count FROM optimization_articles a JOIN article_quality_runs q ON q.id=(SELECT id FROM article_quality_runs WHERE article_id=a.id AND article_version=a.version ORDER BY created_at DESC,id DESC LIMIT 1) WHERE a.project_id=$1 AND a.deleted_at IS NULL AND q.status='failed'`,
 		});
 	}
 	if (allowed("page.publications")) {

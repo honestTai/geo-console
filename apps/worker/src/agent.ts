@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Agent, type AgentTool, type StreamFn } from "@earendil-works/pi-agent-core";
-import { contentText, type Model, Type } from "@earendil-works/pi-ai";
-import { streamSimple as streamOpenAIResponses } from "@earendil-works/pi-ai/api/openai-responses";
+import { Agent, type AgentTool, contentText, type Model, Type } from "@geo/agent-runtime";
 import type { ExecutionActor } from "@geo/authorization";
 import {
 	type AgentJobPayload,
@@ -598,9 +596,6 @@ export function createHRouterModel(modelId: string, baseUrl: string): Model<"ope
 	};
 }
 
-export const hrouterStreamFn: StreamFn = (model, context, options) =>
-	streamOpenAIResponses(model as Model<"openai-responses">, context, options);
-
 type AgentDraftInput = {
 	actor?: ExecutionActor;
 	projectId: string;
@@ -808,7 +803,6 @@ export async function executeAgentDraft(database: Database, runId: string, targe
 				thinkingLevel,
 				tools,
 			},
-			streamFn: hrouterStreamFn,
 			getApiKey: (provider) => (provider === "hrouter" ? apiKey : undefined),
 			toolExecution: "sequential",
 			beforeToolCall: async ({ toolCall }) =>
@@ -941,10 +935,10 @@ export async function listAgentRuns(
 	const rows = (
 		await database.query<Record<string, unknown>>(
 			`SELECT r.*,j.attempts AS job_attempts,j.max_attempts AS job_max_attempts,j.last_error AS job_last_error
-			 FROM agent_runs r LEFT JOIN LATERAL (
-				 SELECT attempts,max_attempts,last_error FROM jobs
+			 FROM agent_runs r LEFT JOIN jobs j ON j.id=(
+				 SELECT id FROM jobs
 				 WHERE type='agent_draft' AND payload->>'runId'=r.id ORDER BY created_at DESC LIMIT 1
-				 ) j ON true WHERE r.project_id=$1 AND ($2::text IS NULL OR r.batch_id=$2)
+				 ) WHERE r.project_id=$1 AND ($2::text IS NULL OR r.batch_id=$2)
 				 AND (cardinality($3::text[])=0 OR r.purpose=ANY($3::text[]))
 				 AND ($4::text IS NULL OR r.session_id=$4)
 				 ORDER BY r.created_at DESC LIMIT $5 OFFSET $6`,

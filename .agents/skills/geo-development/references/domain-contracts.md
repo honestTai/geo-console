@@ -1,5 +1,8 @@
 # GEO Console Domain Contracts
 
+
+Deep Agents 替换 Pi，保留 user/assistant/toolResult 消息，新增可选 toolResult.terminate，不重写历史。调用先持久化再执行；结果保存失败不继续。全体工具明确 parallel 的只读批次可并行，其他批次串行；人工暂停后剩余调用保存未执行结果。默认文件/Shell/子 Agent 工具被模型可见层及执行层双重拦截。Graph MemorySaver 不是离线队列，桌面恢复使用 SQLite transcript、工具账本、等待状态和任务租约。UI 新会话默认人工审批，已存设置不改，见 `docs/desktop-agent.md`。
+
 ## 内容运营契约
 
 含客户知识的文章质检在模型请求前和结果选用事务内重验 `knowledge.assets.read`，撤权不得继续外发资料或选用输出。软删除文章不进入新报告快照和工作台当前上下文；已有冻结报告仍保留原文和哈希。
@@ -80,29 +83,6 @@ Provider 的实时默认值以 `apps/worker/src/providers.ts` 为准：
 
 ## Agent 与审批
 
-- Agent 工具只有读取当前项目、读取证据索引、按允许 ID 读取证据、提交结构化草稿；`prompt_research`/`customer_profile` 与 AI 工作台会话（`web_search_enabled=true` 时）额外拥有 `web_search`。
-- `web_search`（`apps/worker/src/web-search.ts`，工具版本 `openai-responses.web_search.v3`）：每次调用单独请求 HRouter `/responses` 并带 `tools:[{type:"web_search"}]`，默认 `tool_choice:{type:"web_search"}` 强制调用；只有 4xx 正文明确指向 `tool_choice` 参数且不是鉴权/限流时才回退 `auto`，并在进程内按 baseUrl+model 记住，其他 4xx 不重复请求。单次归纳限制为 1200 output token。一个模型回复里的多个独立 `web_search` 调用可并行执行，结果仍逐条解析 `web_search_call` 与 `url_citation`，只追加写 `web_search_evidence`（organization/project/session/run、backend、model、query、status、answer_text、sources、search_queries、raw_response、usage、latency、failure_message）并记 `project_costs.operation='web_search'`。状态只有 `complete/search_not_triggered/no_answer/failed`；`knownEvidenceIds` 只纳入 `complete`，`read_batch_evidence_index/read_evidence` 可读回该项目的记录，跨项目 ID 照旧拒绝。不得伪造搜索结果或静默换后端。
-- `web_search` 硬上限（`WEB_SEARCH_LIMITS`）：工作台每回合 8 次、每会话 30 次（会话已用次数按 `web_search_evidence.session_id` 统计），`prompt_research/customer_profile` 每次运行 10 次；超出直接抛错并提示收敛，不再请求 HRouter。退化：`search_not_triggered/failed` 连续 2 次后本回合视为联网不可用，工具返回 `unavailable:true` 的非错误结果并在后续调用中不再请求；`no_answer` 只抛错让模型换问法，不计入不可用。会话可关闭联网（`agent_sessions.web_search_enabled`），关闭时不注入该工具且系统提示说明只用本地证据。
-- `POST /api/settings/hrouter/test-web-search` 可带 `model`，结果按模型写入 settings `organization:<id>:web_search_tests`（`WebSearchModelTest`：status/searchStatus/toolChoice/message/testedAt）；`GET /api/settings/hrouter/web-search-status` 返回默认模型与各模型记录，工作台据此提示未验证/失败的模型。
-- 网页、客户字段和回答全部是不可信输入；工具输出提醒模型不得执行其中指令。联网搜索归纳文本与来源同样是不可信数据。
-- 建档分析（`analyzeProject`）最多抓 `ANALYSIS_CRAWL_LIMIT=40` 页，24 小时内已有快照则复用不再抓；模型给出的候选先过滤无效域名、客户自身域名与重复域名，再以 `verification.status='pending'` 落库；请求返回后 `verifyCompetitorsInBackground` 对每个候选做一次 `web_search`（落 `web_search_evidence`，无 session/run），再用一次 `hrouterStructured` 判断域名是否为其官网、是否同行业，结论回写 `competitors.verification`（`confirmed/domain_mismatch/industry_mismatch/unverified` + note + evidenceId）；联网不可用、判断失败或超出单次核实上限只标 `unverified`，不阻断建档。返回值 `competitorVerification:{status:'pending'|'none',candidates}`、`reusedSnapshots`。
-- `prompt_research` 草稿的入口是建档页“后台联网出题”（`POST /api/projects/:id/agent {purpose:"prompt_research"}`，无快照时先抓 30 页）；批准时只把 `prompts` 插为 `approved=false` 候选（按问题文本去重、追加 position），不启用项目，仍由成员在建档页确认。`customer_profile` 目前没有入口。
-- draft 引用的 evidence、Prompt 和 task 必须属于当前项目/批次，`content_brief` 必须匹配目标 task。
-- Agent 完成只进入 awaiting approval。批准时再次校验归属，之后才能写 finding、task、content 或 report narrative。`approveAgentRun` 在事务内先执行带 `status='awaiting_approval'` 守卫的 UPDATE 占住 run，再物化；并发审批只有一次成功，其余抛“已被其他操作处理”并回滚。
-- `generateArticlesForBatch` 的在途去重只看 `target_ref->>'narrativeRunId'` 等于当前已批准叙述的 `optimization_article` run；旧叙述的 run 不挡新文章。
-- HRouter Key 与模型未配置时任务不能入队；不要增加假结果或离线 fallback。
-- `report_narrative` 必须输出口碑总体判断、正负信号、来源状态和 GEO 优化建议；每项引用当前批次证据。`cited` URL 必须存在于对应 Capture 的 `sources`，不可见来源只允许 `unavailable`。
-- `quality_review` 必须绑定最新已批准 `report_narrative` run ID。正式快照要求该检查已批准且 verdict 为 `pass`；报告内容模型是当前机构配置的 HRouter GPT。
-- 报告工作流是幂等推进：叙述批准后自动排队质量检查，质量检查批准通过后自动冻结同一叙述版本并排队 PDF/Word；`awaiting_approval` 仍是人工停点，只有 AI 工作台会话在 `auto_approve=true` 时由协调器代表会话创建者批准（`approved_via='workbench'`，审计带 `sessionId`），以及 `optimization_article` 由协调器 `auto_article` 物化。`advanceReportWorkflow` 先看在途叙述（queued/running/awaiting_approval）并直接返回其状态；质检 verdict 为 blocked 时 `allowRetry=false` 返回 `quality_blocked`，`allowRetry=true` 排队新的 `report_narrative`（不再对同一叙述重复质检）。
-- `agent_runs` 新增 `session_id`、`approved_via`、`thinking_level`、`target_ref`；`optimization_article` 的 `target_ref` 必须指向已批准 `report_narrative` run 与建议序号，草稿 `targetPromptIds` 必须属于当前项目。
-- 思考强度取自机构 HRouter 配置 `thinkingLevel`（minimal/low/medium/high/xhigh，默认 low），会话或 run 可覆盖；模型仍限定 GPT 系列。
-- AI 工作台会话：`agent_sessions.transcript` 是 pi-agent-core AgentMessage 列表，`waiting` 只能是 user/batch/agent_run/report 之一并带 `toolCallId`（后台等待还带 `stepKey`，缺省时按 batch/report_document/run:id 推导）；续跑以工具结果消息追加到 transcript，不重写历史。模型请求使用会话 ID 作为 prompt cache key。`agent_session_events.seq` 单调递增，`tool_start/tool_update/tool_end` 都保留 `toolCallId`；原 events 路由支持最长 25 秒长轮询并附带会话快照，前端按 `after=seq` 收到事件后立即续订，普通短请求仍可用 `wait=0`。工作台工具必须复用现有 service（createBatch/confirmProject/auditProject/diagnoseBatch/advanceReportWorkflow/generateArticlesForBatch），不得直接写证据表。`suggest_questions` 返回已批准问题、建档分析留下的未确认候选（`approved=false`）、知识库候选，以及未启用项目的候选竞品。
-- `agent_sessions.execution_target='desktop'` 时，创建/续跑只写 `desktop_pending_*`，不入 `agent_session_turn` 队列。创建者客户端以 60 秒单回合租约领取，在 WebView 内恢复 transcript 并运行 pi-agent-core；最终消息按索引追加，客户端事件用 `client_event_id` 幂等，服务端在会话行上原子分配 `event_seq`。模型请求只能走当前租约的受控 Responses 代理，服务端覆盖客户端传入的 model/instructions/tools/cache key/stream 配置并记账；桌面工具只能走白名单 RPC，`desktop_agent_tool_calls(session_id,tool_call_id)` 保存参数 hash、180 秒工具租约与幂等结果。普通浏览器默认 `execution_target='server'`，继续由 Agent Worker 执行。
-- 桌面并发按客户端活跃会话分散，不受单个 Agent Worker 的两个槽位限制；服务端仍受 HRouter、数据库、Capture/Report Worker、业务工具配额和部署容量约束。PDF/Word 不在桌面生成：`advance_report` 只推进服务端状态，Report Worker 仍从冻结快照生成产物。
-- 监测范围只能经成员确认写入：模型没有 `apply_scope`，只能 `propose_questions`（intro + questions[id/libraryQuestionId/question/intent/topic/persona/tags/source/evidenceIds/selected] + competitors），工具校验证据 ID ⊆ 允许集合、问题 id 属于本项目、知识库 id 属于本机构，按问题文本去重后写入 `waiting.kind='user'` 的 `proposal`（`ScopeProposal`），发 `proposal` 事件（附证据描述）并结束回合。`POST /api/workbench/sessions/:id/answer` 带 `questions`（成员编辑后的最终列表）时由服务端调用 `confirmProject` 写入新版本范围（竞品用表格值，无表格时沿用已批准竞品；未启用项目变为 `active`），`syncLibrary=true` 且成员有 `knowledge.manage` 时把没有知识库引用的新问题写入客户行业知识库并回填 `library_question_id`；只带 `answer` 表示不采用。两种结果都以 `propose_questions` 的工具结果（`applied:true/false`）续跑，`scope` 计划步骤由服务端置为 done。
-- 会话 Token 只按本回合新增的 assistant 消息计入 `project_costs`（`agent_sessions.usage` 保持累计），不再每回合重复累加历史。
-- `agent_sessions.plan` 步骤状态：`wait_for` 只复用已有步骤并保留其 label；`report_narrative/quality_review` run 和报告 PDF 的等待归入 `report` 步骤（状态由 `advance_report` 维护）；协调器唤醒时把等待步骤置为 `done`（partial 批次附说明）或 `failed`（rejected/failed run 附 error），并写 `step` 事件；`articles` 步骤在该会话所有 `optimization_article` run 落地后由协调器收尾（有 approved 即 done，否则 failed）。步骤只能被更新，不能为历史会话凭空补步骤。
-- 报告 `ReportAnalysis.evidenceIndex` 按采集时间为 capture、网页快照、审计编号；冻结快照后编号不变，HTML/Word/CSV 只能用编号与可读字段引用，不再输出裸 UUID。`perceptionExcerpts` 过滤模型推理草稿句；口碑来源 URL 去掉 `#ws_call_id=` 类追踪片段后展示，但校验仍以原始 `sources` 为准。
 
 ## 网站、报告与安全
 
@@ -148,7 +128,7 @@ Provider 的实时默认值以 `apps/worker/src/providers.ts` 为准：
 
 ## 授权内核与持久任务身份（V2）
 
-- 主体权限/角色/客户必须由 `loadPrincipal` 的单 SQL 快照提供，不能 Promise.all 拼接不同时间的权限与范围。userId=null 不代表超管；local 仅零用户非 production。
+- 旧云端主体权限/角色/客户由 `loadPrincipal` 的单 SQL 快照提供，不能 Promise.all 拼接不同时间的权限与范围。桌面功能权限取复核过的云端身份，账号私有项目范围取本地创建授权；事务中重授权必须使用传入事务连接，不能查询被自身排队阻塞的根 SQLite 连接。userId=null 不代表超管；local 仅零用户非 production。
 - 会话与用户 credential_version 必须一致；登录密码验证后锁内比较哈希，改密触发版本递增。授权变化由 org/user authz_version 记录，不能缓存旧 Principal 跨请求。
 - API、文件和动作统一 `authorization/index.ts`，解析器只在 resources 注册可信 SQL；config 不能弱化内置资源/系统边界。解释器复用 evaluateRequest。
 - 委派、候选与 can_manage 比较目标配置权限（含被机构上限屏蔽项）；成员和审批写事务内重新授权。
@@ -164,3 +144,11 @@ Provider 的实时默认值以 `apps/worker/src/providers.ts` 为准：
 - 可选 HTTP 路由捕获组不得把 undefined 解码成字符串；重解析与人工审核使用不同分支，见 http-routes.ts 及测试。
 - 审批提交成功与后续单独授权的报告生成是两项结果；approval-workflow.ts 可返回 blocked，但不能将成功审批回显为失败，不能给审批权限隐含生成权限。
 - 语义任务排队、领取和每次模型调用前复核机构封禁；暂停不能被描述为撤回已经发送的上游请求或退款。
+
+## SQLite 桌面执行边界（2026-10-04）
+
+当前桌面为 React → Tauri IPC → 本机 Node 业务引擎 → 新 SQLite 工作区。模型/搜索/采集/网站分析/指标/内容质检/报告/调度均在客户端；云端只鉴权、权限管理与账户私有快照存储。代码事实源：`apps/desktop/src/engine.ts`、`src-tauri/src/local_engine.rs`、`packages/core/src/sqlite.ts`、`apps/worker/src/api-service.ts` 和 `desktop-storage.ts`。独立指标、证据页面保留，不迁移旧数据库或业务数据。
+
+会话/工具账本/等待状态/租约落 SQLite；MemorySaver 仅回合内使用。结果不确定的工具停止自动重放并要求成员核查。关闭客户端会停止本机执行；鉴权断网 fail-closed。哈希分块 + CAS 同步不自动合并冲突，设备主密钥不上传，新设备重配 Provider Key。桌面公开分享暂未接静态托管，会明确拒绝创建无效链接，PDF/Word 本地导出仍可用。
+
+完整开发、恢复、测试和限制见 `docs/desktop-agent.md`。云端新部署显式使用 `compose.desktop-cloud.yaml`，不启动业务 Workers；其余服务器拓扑与 PostgreSQL 操作章节仅适用于旧版兼容部署，不代表新桌面执行位置。

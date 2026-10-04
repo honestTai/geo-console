@@ -53,20 +53,9 @@ corepack pnpm geo start
 
 ## 发布边界
 
-- 每次 release 只运行 `deploy/package.sh`。它要求本地 Git、Node/corepack pnpm、Docker/Buildx；默认在本地 Linux `amd64` 构建容器中安装锁定的服务端依赖并导出 `/opt/geo-app` tar，再构建 Web dist。
-- Web-only release 可显式设置 `GEO_REUSE_SERVER_BUNDLE` 指向同一 Git commit 的已验证 `.run`。打包器必须校验源 bundle/内层 artifact 哈希、commit、平台、Worker base，并确认全部后端/runtime 输入相对 HEAD 无改动；任一不符即拒绝，不能用它绕过后端构建。
-- 服务器使用固定 `geo-console-worker-base:node24-playwright1234`，它只承载 Node、Playwright Chromium、中文字体和系统库。基础镜像升级是独立维护动作；普通 release 不能在服务器安装或下载这些内容。
-- release payload 必须包含 `server-runtime.tar`、Web dist、landing、Compose/Caddy 和无网络重构 Dockerfile；不含 `.agents`/Demo 凭据、Git、desktop、宿主机 node_modules、Secret、`.env`、数据库、证据、备份或本地打包脚本。
-- `deploy/install.sh` 和 `geo-console prepare` 必须在停止旧服务前验证 `local-server-artifacts`/`reconstruct` 标记、目标平台、artifact SHA-256、基础镜像及 Dockerfile 没有 `RUN` 指令；随后才允许 `docker compose build api web`，且不得 `--pull`。
-- 桌面客户端使用独立 Tauri 签名链。私钥只能在发布机 owner-only 文件或受控 CI Secret 中，绝不能打入服务器 `.run`、Git 或 `latest.json`；客户端只保存公钥。桌面 WebView 内置交互 Agent 运行时，但不保存 HRouter Key、数据库或证据；模型流经 Tauri Channel 调受控 Responses 代理，业务工具仍由服务器执行。
-- 涉及桌面 Agent 协议时先发布并验证服务器 migration/API，再发布签名客户端。验证桌面会话不创建 `agent_session_turn`、Channel 能流式返回首字、工具结果可幂等恢复，且旧桌面/浏览器默认的服务端执行仍兼容。回滚服务器前先检查是否存在 `execution_target='desktop' AND status='running'` 的会话；旧代码不会消费其 `desktop_pending_*`，不能把它们当作可自动恢复的 Worker job。
-- 外层 release bundle 必须在本地与服务器分别校验 SHA-256，内层 server artifact 由 manifest SHA-256 在重构前再次校验。
-- 首次安装会创建 Secret、可选 2 GB Swap，按 PostgreSQL -> Log Service -> API -> Workers -> Web/Caddy 顺序启动，并创建首份数据库/本地 evidence 成对备份。
-- 升级会在旧版本在线时用本地产物重构新镜像，切换前自动备份 PostgreSQL 与本地 evidence，然后停止应用、切换 `current` 并重启新镜像；Log Service/API 启动时继续执行向前 migration。
-- 管理命令没有自动数据库 rollback。只有 migration 兼容时才可单纯使用旧应用版本；不兼容时必须把升级前备份恢复到新建空 PostgreSQL/对象位置，验证后切换。
-- 不部署浏览器登录档案、Collector node 或页面 adapter；当前云架构只使用五家联网 API。
-
 ## 防飘逸
+
+Deep Agents 桌面包需随平台捆绑 Node 24、engine.mjs、Playwright/Chromium、manifest 与许可证；先 prepare-runtime 再 cargo/Tauri。三平台 CI 不等于签名发布或安装实测。新桌面业务全部本地执行；云端仅 auth/storage。只初始化新 SQLite，不导入旧业务数据库。部署切换用显式控制面覆盖配置，不自动改动旧实例；见 `docs/desktop-agent.md`。
 
 如果修改 Compose 服务、端口、镜像、Secret、对象存储、安装器、升级切换、备份或恢复语义，按重大功能变更执行 [../geo-development/references/drift-control.md](../geo-development/references/drift-control.md)。必须从当前部署代码重新蒸馏事实，在同一变更中更新 `docs/deployment.md` 以及本 skill 或对应 preflight/release reference，并运行 `corepack pnpm check-drift -- --major ...`。仅执行既有安装/升级步骤不触发。
 
@@ -93,3 +82,11 @@ corepack pnpm geo start
 发布必须包含 packages/authorization 和 0021_authorization_kernel.sql；API、Agent、Web/Tauri 同步升级。无创建者历史任务保持 unassigned 不得冒充超管续跑。Docker 不得删除 workspace 的 minimumReleaseAge/trustPolicy；仅 corepack pnpm 冻结安装。回退须对应升级前备份/制品，具体见 docs/rbac-v2.md。
 
 - ARM 发布机使用原生 BUILDPLATFORM 安装目标 Linux OS/CPU/libc 的冻结依赖，禁止用宿主 node_modules 或关闭供应链控制规避 QEMU。必须验证 artifact 的目标 tsx 和独立 PostgreSQL migration，checksum 失败即阻止发布。
+
+## SQLite 桌面执行边界（2026-10-04）
+
+当前桌面为 React → Tauri IPC → 本机 Node 业务引擎 → 新 SQLite 工作区。模型/搜索/采集/网站分析/指标/内容质检/报告/调度均在客户端；云端只鉴权、权限管理与账户私有快照存储。代码事实源：`apps/desktop/src/engine.ts`、`src-tauri/src/local_engine.rs`、`packages/core/src/sqlite.ts`、`apps/worker/src/api-service.ts` 和 `desktop-storage.ts`。独立指标、证据页面保留，不迁移旧数据库或业务数据。
+
+会话/工具账本/等待状态/租约落 SQLite；MemorySaver 仅回合内使用。结果不确定的工具停止自动重放并要求成员核查。关闭客户端会停止本机执行；鉴权断网 fail-closed。哈希分块 + CAS 同步不自动合并冲突，设备主密钥不上传，新设备重配 Provider Key。桌面公开分享暂未接静态托管，会明确拒绝创建无效链接，PDF/Word 本地导出仍可用。
+
+完整开发、恢复、测试和限制见 `docs/desktop-agent.md`。云端新部署显式使用 `compose.desktop-cloud.yaml`，不启动业务 Workers；其余服务器拓扑与 PostgreSQL 操作章节仅适用于旧版兼容部署，不代表新桌面执行位置。

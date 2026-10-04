@@ -1,5 +1,6 @@
 # GEO Console Project Map
 
+
 品牌等待：`ui/BrandLoading.tsx/css` 提供 Z 描绘标记和字标，ThemeProvider 通过 ConfigProvider 统一 Spin/Table/Button/Select 指示器；App、ViewBoundary、趋势/设置/归因/证据/文章详情消费同一展示件。保留 Page 延迟、具体业务状态和错误重试，见 docs/ui-refinement.md。
 
 全工作台参考布局：Shell(256/64/48 尺寸及顶栏导航) → Page(唯一 H1/操作) → shared primitives/theme(表格/空态/表单/统计)；Remediation 用 TaskManagementLayout 做主列表、已完成折叠、统计和运行区，任务详情复用 TaskItem 抽屉。无新增后端/迁移/队列行为，运行状态不能推断 Worker 在线。布局验证见 docs/content-operations.md。
@@ -32,60 +33,9 @@ Agent 的 `read_project_context` 通过 `agent-measurement-context.ts` 提供运
 
 ## 运行拓扑
 
-```text
-Browser -> Caddy -> static landing (/)
-                 -> static help + PDF (/help/)
-                 -> React Web (/app/)
-                 -> API (apps/worker/src/index.ts) -> PGlite/PostgreSQL
-                                                  -> local/S3 artifacts
-API/Workers -> Log Service -> structured service_logs
-Capture Worker -> frozen provider adapter -> raw response + QueryCapture v2
-Agent Worker   -> background HRouter Agent / browser fallback -> pending structured draft -> human approval
-Report Worker  -> immutable snapshot -> Playwright PDF -> artifact store
-Tauri WebView  -> local Pi Agent -> controlled Responses relay + business-tool RPC -> API
-```
-
-Tauri 2 桌面客户端加载同一个工作台构建，是所有角色的正式客户端；浏览器保留同步调试。交互式工作台 Agent 在 WebView 内运行 `pi-agent-core`，每个桌面会话独立执行；模型流通过 Tauri Channel 访问服务端受控 Responses 代理，工具通过服务端 RPC 复用现有业务 service。页面导航、API 策略、会话、证据和审批仍以服务器为事实源，HRouter Key、数据库和文件不进入客户端。
-
 本机 `corepack pnpm geo start` 启动独立 Log Service、包含四个队列执行器的组合 API 进程和 Vite Web，避免多进程 PGlite 目录争用；Log Service 使用独立本机 PGlite。服务器 PostgreSQL Compose 将 Log/API/四个 Worker/Web/Caddy 分开，只有 Caddy 暴露 80/443。
 
 ## 所有者地图
-
-| 关注点 | 首要事实来源 | 主要消费端 |
-| --- | --- | --- |
-| 数据库接口、迁移执行 | `packages/core/src/database.ts`、`packages/core/migrations/` | 所有 Worker/API |
-| 表、枚举、冻结配置 | `packages/core/src/schema.ts` | service、workers、tests |
-| Capture 租约 | `packages/core/src/repository.ts` | `cloud-runner.ts` |
-| 证据 JSON 契约 | `packages/evidence/src/schema.ts` | adapters、cloud runner、metrics、reports |
-| 五平台协议 | `packages/search-providers/src/*.ts` | `apps/worker/src/providers.ts` |
-| V2 语义与指标快照 | `packages/evidence/src/semantic.ts`、`apps/worker/src/measurement.ts`、`semantic-runtime.ts`、`0019_visibility_v2.sql` | Semantic Worker、证据中心审核、API、报告 |
-| 指标分母与汇总 | `packages/metrics/src/visibility.ts` | batch/report UI |
-| HTTP、RBAC、租户隔离、公开分享 | `apps/worker/src/index.ts`、`auth.ts`、`tenancy.ts` | `apps/web/src/api.ts` |
-| 动态权限目录与分页 | `apps/worker/src/rbac.ts`、`pagination.ts`、`permissions/authorization_policies/roles` migration | API、Web/Tauri 导航与列表 |
-| Web 外壳与页头导航 | `apps/web/src/components/Shell.tsx`、`Page.tsx`、`ui/navigation.tsx` | 全部页面；顶栏客户切换/授权页面下拉，Page 只渲染唯一主标题；原证据/批次/工作台定位不变 |
-| 结构化运行日志 | `packages/logging`、`apps/log-service`、`service_logs` migration | API、Capture/Agent/Report Worker、Web 日志中心 |
-| 行业问题知识库 | `apps/worker/src/knowledge-base.ts`、`packages/core/src/schema.ts` | onboarding、Web 知识库 |
-| 配置导入导出（平台设置/知识库/监测范围） | `apps/worker/src/config-transfer.ts`、`apps/web/src/ui/transfer.tsx`、`apps/web/src/ui/scope-bundle.ts` | Settings、知识库、ScopeEditor |
-| 项目、批次、诊断、整改、漂移 | `apps/worker/src/service.ts` | API、Web（整改中心任务/Agent 草稿分面板切换） |
-| 官网抓取与审计 | `apps/worker/src/crawler.ts` | onboarding、audit、diagnosis、verification |
-| Provider 配置与密钥 | `apps/worker/src/providers.ts`、`packages/core/src/secrets.ts` | Settings、Capture Worker |
-| Agent 工具与审批 | `apps/worker/src/agent.ts`、`agent-jobs.ts` | Agent Worker、Web |
-| Agent 联网搜索证据 | `apps/worker/src/web-search.ts`（HRouter `web_search` 请求/解析/落库、独立检索并行执行、`WEB_SEARCH_LIMITS` 配额与退化、按模型测试记录、竞品联网核实 `verifyCompetitors`）、`web_search_evidence` 与 `web_search_controls` migration | 工作台会话、`prompt_research/customer_profile` 草稿、建档分析、Settings、证据中心“联网搜索”分区 |
-| AI 工作台会话与协调 | `apps/worker/src/workbench.ts`（工具、`propose_questions` 候选与服务端确认写入、服务端兼容回合、长轮询事件快照、协调器、计划步骤状态、快捷指令排序、工具调用 ID 与事件裁剪 `toolEventDetails`）、`desktop-agent.ts`（桌面回合租约、受控 Responses 代理、工具 RPC 与幂等结果）、`agent-jobs.ts`（浏览器兼容回合优先、双 I/O 槽位）、相关 migration | Tauri 本地 Agent、Agent Worker、Web Workbench（本地文本流 + 服务端事件恢复；联网搜索合成 SearchCard 展示检索词与来源链接） |
-| 候选问题确认卡 | `apps/web/src/components/ScopeProposalCard.tsx`（可勾选/可编辑表格、竞品确认、知识库同步开关） | Workbench |
-| Agent 草稿展示与审批卡 | `apps/web/src/components/AgentDraft.tsx`（按用途分节渲染、`AgentDraftCard`）、`hooks/useEvidenceIndex.ts`（批次报告索引 + 项目联网搜索索引） | Diagnosis、Remediation、Report、Onboarding |
-| 优化文章 | `apps/worker/src/articles.ts`、`optimization_articles` 表、`agent.ts optimization_article` purpose | Web Articles、工作台 |
-| 报告证据索引与引用 | `apps/worker/src/report.ts buildEvidenceIndex`、`report-snapshots.ts citationMarks`、`docx.ts` | Report/PDF/Word/CSV、Web EvidenceRef |
-| 报告快照/PDF/Word/分享 | `apps/worker/src/report-snapshots.ts`、`report.ts`、`docx.ts` | Report Worker、Web |
-| 归因 CSV | `apps/worker/src/attribution.ts` | Attribution view |
-| 对象存储 | `apps/worker/src/object-store.ts` | captures、snapshots、PDF |
-| 工作台 UI | `apps/web/src/`(App.tsx 外壳 + components/ 视图 + ui/primitives + hooks)、`styles.css` | browser |
-| 桌面 Agent、原生流与签名更新 | `apps/web/src/desktop-agent.ts`、`apps/desktop/src-tauri`、`apps/web` 更新入口 | macOS/Windows/Linux 用户 |
-| 静态官网与帮助中心 | `landing/`、`landing/help/`、`scripts/capture-help-screenshots.mjs` | browser root/help paths; no API/DB access |
-| 本机 CLI | `scripts/geo.ts` | setup/start/doctor/backup |
-| 本机组合 Worker | `apps/worker/src/local-workers.ts` | 仅 `GEO_LOCAL_COMBINED=true`；生产禁用 |
-| 防飘逸检查 | `scripts/check-skill-drift.mjs`、`references/drift-control.md` | 重大功能变更交付 |
-| 服务器发布 | `deploy/package.sh`（本地 Linux server artifact + Web dist）、`install.sh`、`geo-console`、`compose.yaml`、`docker/Dockerfile.artifacts`（本地构建）、`docker/Dockerfile`（服务器仅 ADD/COPY） | installer/management command |
 
 ## 业务数据流
 
@@ -127,3 +77,11 @@ API 使用 same-origin Cookie。公开面只有登录、健康检查和带 token
 - 角色系统边界：0022_tenant_role_boundaries.sql + core/access.ts；默认角色不得包含 system_only。
 - 页面按需加载：web/lazy-views.tsx + components/ViewBoundary.tsx；保持桌面/机构工作区同一注册表。
 - 全功能真实验收与限制：docs/full-audit-2026-09-06.md。
+
+## SQLite 桌面执行边界（2026-10-04）
+
+当前桌面为 React → Tauri IPC → 本机 Node 业务引擎 → 新 SQLite 工作区。模型/搜索/采集/网站分析/指标/内容质检/报告/调度均在客户端；云端只鉴权、权限管理与账户私有快照存储。代码事实源：`apps/desktop/src/engine.ts`、`src-tauri/src/local_engine.rs`、`packages/core/src/sqlite.ts`、`apps/worker/src/api-service.ts` 和 `desktop-storage.ts`。独立指标、证据页面保留，不迁移旧数据库或业务数据。
+
+会话/工具账本/等待状态/租约落 SQLite；MemorySaver 仅回合内使用。结果不确定的工具停止自动重放并要求成员核查。关闭客户端会停止本机执行；鉴权断网 fail-closed。哈希分块 + CAS 同步不自动合并冲突，设备主密钥不上传，新设备重配 Provider Key。桌面公开分享暂未接静态托管，会明确拒绝创建无效链接，PDF/Word 本地导出仍可用。
+
+完整开发、恢复、测试和限制见 `docs/desktop-agent.md`。云端新部署显式使用 `compose.desktop-cloud.yaml`，不启动业务 Workers；其余服务器拓扑与 PostgreSQL 操作章节仅适用于旧版兼容部署，不代表新桌面执行位置。

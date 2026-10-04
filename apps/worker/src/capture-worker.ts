@@ -15,8 +15,8 @@ logger.info("service.started", "GEO Capture Worker 已启动");
 await new Promise<void>((resolve) => {
 	for (const signal of ["SIGINT", "SIGTERM"] as const)
 		process.once(signal, () => {
-			stop();
-			void Promise.all([logger.flush(), flushCaptureLogs()])
+			void stop()
+				.then(() => Promise.all([logger.flush(), flushCaptureLogs()]))
 				.then(() => database.close())
 				.finally(resolve);
 		});

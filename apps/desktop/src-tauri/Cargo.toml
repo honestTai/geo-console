@@ -19,7 +19,9 @@ tauri = { version = "2.8.2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-process = "2"
 tauri-plugin-updater = "2"
-tokio = { version = "1", features = ["macros", "sync"] }
+tokio = { version = "1", features = ["macros", "sync", "process", "io-util", "time"] }
+base64 = "0.22"
+uuid = { version = "1", features = ["v4"] }
 url = "2.5"
 
 [profile.release]
@@ -28,3 +30,8 @@ lto = "thin"
 opt-level = "s"
 panic = "unwind"
 strip = "symbols"
+
+# Keep build-time proc-macro dylibs loadable on macOS 27 / Rust 1.96
+# (rust-lang/rust#157750); this does not enlarge the shipped executable.
+[profile.release.build-override]
+strip = "none"

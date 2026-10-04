@@ -1,5 +1,8 @@
 # 运行与故障处理
 
+
+桌面 Agent 在独立 Node 进程运行，不在 WebView 跑 Pi。先区分进程启动、登录失效、模型网关、云端 Worker 故障。刷新不杀任务，退出整个应用会停止本地执行；心跳失败中止，崩溃后待租约过期重领，用原 toolCallId 恢复。已存 terminate/人工等待不能自动越过。离线不承诺续跑，不修改原始证据；见 `docs/desktop-agent.md`。
+
 ## 内容运营队列与交付
 
 文章质检在 Semantic Worker 的独立一槽执行，`article_quality` 最多两次、5 分钟租约，耗尽由 queue-recovery 收尾；没有通过且仍有效的质检和人工审核不能发布。检查失败看 article_quality_runs/attempts 与当前权限，不覆盖历史重试。人工发布失败或结果不明需要操作员核对后推进，系统不会重发。新表纳入数据库备份，现有机构需显式获得新权限。详见 `docs/content-operations.md`。
@@ -73,8 +76,6 @@ Report Worker 每 15 秒检查一次定时监测最近完成的批次。手工�
 
 ## Agent Worker
 
-Agent 请求只创建 `agent_draft` 数据库任务并立即返回。Agent Worker 每 250ms 尝试领取任务，默认同时执行两个以模型/联网等待为主的 I/O 任务，并优先领取浏览器调试入口的 `agent_session_turn`；正式桌面工作台回合不进入该队列，因此不受这两个槽位限制。每个服务端任务仍有独立 15 分钟租约和续期。页面展示排队、工具步骤、结构校验重试、Token、失败原因与待审批草稿。单次失败会在 30 秒后重试一次；不要手工把未完成任务改成成功。审批带状态守卫：同一草稿被手动和协调器同时批准时只有一次生效，另一次返回“已被其他操作处理”，属正常并发，不是故障。
-
 报告口碑来源校验失败时先对照 Capture `sources` 和 `source_visibility`。不得把任意网页 URL 写进口碑信号；平台未开放来源时保留 `unavailable`。质量检查引用过期的叙述 run 时应重新排队检查，不能手工改 run ID。
 
 Agent 的 `web_search` 工具依赖 HRouter 透传 OpenAI `web_search`。工作台里“联网搜索”步骤反复报“未触发”或 HTTP 4xx 时，先到平台设置点“测试联网搜索”或在工作台模型旁点“测试此模型”（`POST /api/settings/hrouter/test-web-search`，可带 `model`，不落证据，结果按模型记住并在工作台选模型时提示）；未触发通常是 HRouter 或所选模型不支持该工具，换模型或联系 HRouter，不要改代码伪造结果。工具默认强制调用（`tool_choice:{type:"web_search"}`），只有 4xx 正文明确指向 `tool_choice` 参数时才自动回退 `auto`，其他 4xx 不重复请求。工作台一次研究会把 2–4 个独立问题放在同一批工具调用中并行搜索，单次归纳最多 1200 output token；每次搜索（含失败）仍分别落在 `web_search_evidence` 并计费，是证据，不作为日常修复的删除对象。证据中心“联网搜索”分区可查；只有 `status='complete'` 的记录可被草稿引用。
@@ -83,7 +84,6 @@ Agent 的 `web_search` 工具依赖 HRouter 透传 OpenAI `web_search`。工作�
 
 ## AI 工作台
 
-会话状态：`idle`（等待指令）、`running`（Agent 回合执行中）、`waiting_user`（等待成员回答问题、在候选问题表格里确认，或手动审批）、`waiting_job`（等待批次/Agent run/报告 PDF 完成）、`done`、`failed`。候选问题确认由服务端直接写入监测范围（`agent_session_events` 里是 `proposal` → `step(scope)` + `user_answer(applied=true)`），成员确认失败时错误直接返回给页面，会话仍停在 `waiting_user`，可重新确认。桌面 `execution_target='desktop'` 会话由创建者客户端领取 60 秒租约，本地 Agent 直接渲染文本流，最终消息、工具进度和状态回写服务器；`desktop_agent_tool_calls` 以 `session_id + tool_call_id` 保存参数 hash、180 秒工具租约和幂等结果，崩溃重连只补缺失的 toolResult。浏览器兼容会话继续通过最长 25 秒的 events 长轮询接收增量；桌面也用该路由恢复服务端事实。协调器每 5 秒检查等待对象：桌面会话只写待领取的 `desktop_pending_*`，浏览器会话才入队 `agent_session_turn`，两者都更新 `plan`。桌面卡在 `running` 时先看 `desktop_run_id/client_id/lease_expires_at/pending_trigger`、最后的 transcript 与工具调用表；过期租约允许原客户端或同账号另一客户端重新领取。会话卡在 `waiting_job` 时再看批次、Agent run 或报告对象本身。不要手工修改 `transcript`、`plan` 或工具调用结果；终止会话只改状态，不会取消已排队的批次。
 
 优化文章 run（`purpose='optimization_article'`）到 `awaiting_approval` 后由协调器自动物化到 `optimization_articles`，失败会写 `error_message`；重新生成会覆盖同一建议的文章并递增 `version`。“生成文章”只把绑定当前已批准叙述的在途 run 视为重复；叙述重生成后旧叙述的 run 不会挡住新文章。
 
@@ -99,7 +99,6 @@ Provider/HRouter 凭据继续按机构隔离；环境变量 Key 只对默认机�
 
 ## 桌面客户端
 
-正式产品使用 Tauri 2 客户端，浏览器暂时保留服务端执行的工作台用于调试。客户端 User-Agent 为 `ZZGeoDesktop/<version>`；桌面专用路由还要求 `x-geo-client: desktop`。WebView 内运行交互 Agent，模型流经原生 Channel 转发，业务工具仍在服务器鉴权并执行。页面和 API 继续使用服务端会话、动态权限和活动机构，客户端不保存业务数据库、证据文件或 Provider/HRouter Key。PDF/Word、采集、后台草稿与定时报告由服务端 Worker 完成，关闭桌面不会中断这些已排队任务。
 
 应用内更新只接受 `tauri.conf.json` 内 GEO 公钥验证通过的 HTTPS 更新清单和签名包。更新故障先检查清单是否为有效 SemVer、目标平台/架构、下载 URL 和 `.sig` 内容，再检查客户端版本；不要关闭签名校验或复用其他产品私钥。
 
@@ -147,3 +146,11 @@ cloud-search.v2 是最终回答/引用提取修正，不是重写旧 evidence。
 # 2026-09-06 全功能验收运行补充
 
 最终 Demo 应用版本 a8e8cd284ee0-dev-20260906T063820Z，迁移 0022，adapter cloud-search.v2；此记录不替代后续运行时 health/doctor。旧合同批次不能重解析为当前分数，应创建新批次并保留原始证据。审批接口 approved=true 但 continuationStatus=blocked 表示审批已落库，需有下一阶段权限的成员显式续跑，不应反复提交审批或修改执行者绕过权限。机构封禁暂停新的语义任务领取/调用，不保证取消已发出的模型请求。实测、限制与清理记录见 docs/full-audit-2026-09-06.md。
+
+## SQLite 桌面执行边界（2026-10-04）
+
+当前桌面为 React → Tauri IPC → 本机 Node 业务引擎 → 新 SQLite 工作区。模型/搜索/采集/网站分析/指标/内容质检/报告/调度均在客户端；云端只鉴权、权限管理与账户私有快照存储。代码事实源：`apps/desktop/src/engine.ts`、`src-tauri/src/local_engine.rs`、`packages/core/src/sqlite.ts`、`apps/worker/src/api-service.ts` 和 `desktop-storage.ts`。独立指标、证据页面保留，不迁移旧数据库或业务数据。
+
+会话/工具账本/等待状态/租约落 SQLite；MemorySaver 仅回合内使用。结果不确定的工具停止自动重放并要求成员核查。关闭客户端会停止本机执行；鉴权断网 fail-closed。哈希分块 + CAS 同步不自动合并冲突，设备主密钥不上传，新设备重配 Provider Key。桌面公开分享暂未接静态托管，会明确拒绝创建无效链接，PDF/Word 本地导出仍可用。
+
+完整开发、恢复、测试和限制见 `docs/desktop-agent.md`。云端新部署显式使用 `compose.desktop-cloud.yaml`，不启动业务 Workers；其余服务器拓扑与 PostgreSQL 操作章节仅适用于旧版兼容部署，不代表新桌面执行位置。

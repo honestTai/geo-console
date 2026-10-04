@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import { Agent, type AgentMessage, type AgentTool } from "@earendil-works/pi-agent-core";
-import { contentText, Type } from "@earendil-works/pi-ai";
+import { Agent, type AgentMessage, type AgentTool, contentText, Type } from "@geo/agent-runtime";
 import type { ExecutionActor } from "@geo/authorization";
 import {
 	type AgentSessionPlanStep,
@@ -28,7 +27,6 @@ import {
 	createEvidenceReadTools,
 	createHRouterModel,
 	enqueueAgentDraft,
-	hrouterStreamFn,
 	knownEvidenceIds,
 	toolResult,
 } from "./agent";
@@ -37,6 +35,7 @@ import { AccessDeniedError as AuthorizationDenied, authorizeAction } from "./aut
 import { authorizeWorkbench, authorizeWorkbenchTool, parseActor } from "./authorization/execution";
 import { getHRouterConfig } from "./hrouter";
 import { listLibraryQuestions } from "./knowledge-base";
+import { finishLocalToolCall, recoverLocalToolResults, startLocalToolCall } from "./local-turn-recovery";
 import { currentMeasurement } from "./measurement";
 import { type Paginated, type PaginationInput, paginated } from "./pagination";
 import { providerDefinitions } from "./providers";
@@ -1428,6 +1427,31 @@ export async function executeSessionTurn(
 		return;
 	if (["done", "failed"].includes(session.status) && trigger !== "user") return;
 	await authorizeWorkbench(database, sessionId);
+	if (process.env.GEO_DESKTOP_LOCAL === "true") {
+		const recovery = await recoverLocalToolResults(database, sessionId, session.transcript);
+		if (recovery.messages.length !== session.transcript.length) {
+			session.transcript = recovery.messages;
+			await database.query("UPDATE agent_sessions SET transcript=$2::jsonb,updated_at=now() WHERE id=$1", [
+				sessionId,
+				JSON.stringify(recovery.messages),
+			]);
+		}
+		// A recovered original job must not cross a human pause saved just before a crash.
+		if (session.waiting?.kind === "user" && trigger === "user") {
+			await database.query("UPDATE agent_sessions SET status='waiting_user',updated_at=now() WHERE id=$1", [sessionId]);
+			return;
+		}
+		if (recovery.uncertain) {
+			await database.query(
+				"UPDATE agent_sessions SET status='failed',error_message='上次工具执行结果不确定，已停止自动重试。请先核查任务与证据，再发送新指令继续。',updated_at=now() WHERE id=$1",
+				[sessionId],
+			);
+			await appendEvent(database, sessionId, "error", {
+				message: "工具执行结果不确定，未自动重复执行；请核查后继续。",
+			});
+			return;
+		}
+	}
 	const config = await getHRouterConfig(database, session.organization_id);
 	const apiKey = await readEncryptedCredential(database, "hrouter_api_key", session.organization_id);
 	const model = session.model ?? config.model;
@@ -1439,11 +1463,10 @@ export async function executeSessionTurn(
 		currentBatchId: session.current_batch_id,
 	};
 	const persistControl = async () => {
-		await database.query("UPDATE agent_sessions SET plan=$2::jsonb,current_batch_id=$3,updated_at=now() WHERE id=$1", [
-			sessionId,
-			JSON.stringify(control.plan),
-			control.currentBatchId,
-		]);
+		await database.query(
+			"UPDATE agent_sessions SET plan=$2::jsonb,current_batch_id=$3,waiting=$4::jsonb,updated_at=now() WHERE id=$1",
+			[sessionId, JSON.stringify(control.plan), control.currentBatchId, JSON.stringify(control.waiting)],
+		);
 	};
 	const emit = async (type: string, payload: Record<string, unknown>) => {
 		await appendEvent(database, sessionId, type, payload);
@@ -1466,7 +1489,6 @@ export async function executeSessionTurn(
 			tools,
 			messages: session.transcript,
 		},
-		streamFn: hrouterStreamFn,
 		getApiKey: (provider) => (provider === "hrouter" ? apiKey : undefined),
 		sessionId: session.id,
 		toolExecution: "parallel",
@@ -1496,6 +1518,17 @@ export async function executeSessionTurn(
 	let assistantSeq = 0;
 	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: One subscriber maps every agent event type to a persisted session event.
 	agent.subscribe(async (event) => {
+		if (process.env.GEO_DESKTOP_LOCAL === "true") {
+			if (event.type === "message_end")
+				await database.query("UPDATE agent_sessions SET transcript=$2::jsonb,updated_at=now() WHERE id=$1", [
+					sessionId,
+					JSON.stringify(agent.state.messages),
+				]);
+			if (event.type === "tool_execution_start")
+				await startLocalToolCall(database, sessionId, event.toolCallId, event.toolName, event.args ?? {});
+			if (event.type === "tool_execution_end")
+				await finishLocalToolCall(database, sessionId, event.toolCallId, event.result, event.isError);
+		}
 		if (event.type === "message_start" && event.message.role === "assistant") {
 			streamedText = "";
 			assistantSeq += 1;

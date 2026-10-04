@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { PGlite, type PGliteInterface, type Transaction } from "@electric-sql/pglite";
 import pg from "pg";
 import { geoPaths } from "./paths";
+import { openMemorySqliteDatabase, SqliteDatabase } from "./sqlite";
 
 export type QueryResult<Row extends Record<string, unknown> = Record<string, unknown>> = {
 	rows: Row[];
@@ -94,10 +95,12 @@ export async function openDatabase(): Promise<Database> {
 }
 
 export function openMemoryDatabase(): Database {
+	if (process.env.NODE_ENV === "test" && process.env.GEO_TEST_DATABASE === "sqlite") return openMemorySqliteDatabase();
 	return new PGliteDatabase(new PGlite());
 }
 
 export async function migrateDatabase(database: Database): Promise<void> {
+	if (database instanceof SqliteDatabase) return; // Fresh SQLite schema is initialized by its constructor; no migration runner.
 	await database.query(`CREATE TABLE IF NOT EXISTS geo_migrations (
 		name text PRIMARY KEY,
 		applied_at timestamptz NOT NULL DEFAULT now()

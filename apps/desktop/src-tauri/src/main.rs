@@ -2,17 +2,15 @@ use reqwest::header::{
     HeaderMap as ReqwestHeaderMap, HeaderName as ReqwestHeaderName,
     HeaderValue as ReqwestHeaderValue,
 };
-use serde::Serialize;
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{atomic::AtomicBool, Arc};
 use tauri::{
     http::{header, Request, Response, StatusCode},
-    ipc::Channel,
     webview::NewWindowResponse,
-    State, WebviewUrl, WebviewWindowBuilder,
+    Manager, WebviewUrl, WebviewWindowBuilder,
 };
 use url::Url;
+mod local_engine;
 
 const DEFAULT_SERVER_ORIGIN: &str = "https://www.honesttai.com";
 const DESKTOP_USER_AGENT: &str = "ZZGeoDesktop/0.2.0";
@@ -22,29 +20,16 @@ static CHILD_WINDOW_ID: AtomicU64 = AtomicU64::new(1);
 struct CloudClient {
     client: reqwest::Client,
     origin: Url,
-    requests: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<()>>>>,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(tag = "event", rename_all = "snake_case")]
-enum AgentStreamEvent {
-    Head {
-        status: u16,
-        content_type: String,
-        request_id: Option<String>,
-    },
-    Chunk {
-        data: Vec<u8>,
-    },
-    End,
-    Error {
-        message: String,
-    },
 }
 
 fn server_origin() -> Url {
-    let configured = std::env::var("GEO_DESKTOP_SERVER_ORIGIN")
-        .unwrap_or_else(|_| DEFAULT_SERVER_ORIGIN.to_string());
+    let configured = std::env::var("GEO_DESKTOP_SERVER_ORIGIN").unwrap_or_else(|_| {
+        if cfg!(debug_assertions) {
+            "http://127.0.0.1:3010".to_string()
+        } else {
+            DEFAULT_SERVER_ORIGIN.to_string()
+        }
+    });
     let origin =
         Url::parse(configured.trim()).expect("GEO_DESKTOP_SERVER_ORIGIN must be a valid URL");
     let local_http = origin.scheme() == "http"
@@ -265,152 +250,12 @@ async fn proxy_request(
     response
 }
 
+#[cfg(test)]
 fn is_safe_runtime_id(value: &str) -> bool {
     (8..=128).contains(&value.len())
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
-}
-
-fn remove_agent_request(state: &CloudClient, request_id: &str) {
-    if let Ok(mut requests) = state.requests.lock() {
-        requests.remove(request_id);
-    }
-}
-
-#[tauri::command]
-async fn stream_agent_response(
-    state: State<'_, CloudClient>,
-    session_id: String,
-    run_id: String,
-    client_id: String,
-    request_id: String,
-    body: String,
-    on_event: Channel<AgentStreamEvent>,
-) -> Result<(), String> {
-    if !is_safe_runtime_id(&session_id)
-        || !is_safe_runtime_id(&run_id)
-        || !is_safe_runtime_id(&client_id)
-        || !is_safe_runtime_id(&request_id)
-    {
-        return Err("Invalid desktop Agent identifier".to_string());
-    }
-    if body.len() > 2_000_000 {
-        return Err("Desktop Agent request is too large".to_string());
-    }
-    let request: serde_json::Value = serde_json::from_str(&body)
-        .map_err(|_| "Desktop Agent request is not valid JSON".to_string())?;
-    let mut target = state.origin.clone();
-    target.set_path(&format!(
-        "/api/workbench/sessions/{session_id}/desktop/responses"
-    ));
-    target.set_query(None);
-    let request = state
-        .client
-        .post(target)
-        .header("content-type", "application/json")
-        .header("x-geo-client", "desktop")
-        .json(&serde_json::json!({
-            "runId": run_id,
-            "clientId": client_id,
-            "request": request,
-        }));
-    let (cancel, mut cancelled) = tokio::sync::oneshot::channel();
-    if let Ok(mut requests) = state.requests.lock() {
-        if let Some(previous) = requests.insert(request_id.clone(), cancel) {
-            let _ = previous.send(());
-        }
-    } else {
-        return Err("Desktop Agent request registry is unavailable".to_string());
-    }
-    let upstream = match tokio::select! {
-        _ = &mut cancelled => {
-            let _ = on_event.send(AgentStreamEvent::End);
-            return Ok(());
-        }
-        response = request.send() => response
-    } {
-        Ok(response) => response,
-        Err(error) => {
-            remove_agent_request(&state, &request_id);
-            let message = format!("无法连接 Agent 请求代理：{error}");
-            let _ = on_event.send(AgentStreamEvent::Error {
-                message: message.clone(),
-            });
-            return Err(message);
-        }
-    };
-    let status = upstream.status().as_u16();
-    let content_type = upstream
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("text/event-stream; charset=utf-8")
-        .to_string();
-    let upstream_request_id = upstream
-        .headers()
-        .get("x-request-id")
-        .and_then(|value| value.to_str().ok())
-        .map(ToOwned::to_owned);
-    if let Err(error) = on_event.send(AgentStreamEvent::Head {
-        status,
-        content_type,
-        request_id: upstream_request_id,
-    }) {
-        remove_agent_request(&state, &request_id);
-        return Err(error.to_string());
-    }
-    let mut upstream = upstream;
-    loop {
-        let chunk = tokio::select! {
-            _ = &mut cancelled => {
-                let _ = on_event.send(AgentStreamEvent::End);
-                remove_agent_request(&state, &request_id);
-                return Ok(());
-            }
-            chunk = upstream.chunk() => chunk
-        };
-        match chunk {
-            Ok(Some(chunk)) => {
-                if let Err(error) = on_event.send(AgentStreamEvent::Chunk {
-                    data: chunk.to_vec(),
-                }) {
-                    remove_agent_request(&state, &request_id);
-                    return Err(error.to_string());
-                }
-            }
-            Ok(None) => break,
-            Err(error) => {
-                remove_agent_request(&state, &request_id);
-                let message = format!("Agent 响应流中断：{error}");
-                let _ = on_event.send(AgentStreamEvent::Error {
-                    message: message.clone(),
-                });
-                return Err(message);
-            }
-        }
-    }
-    remove_agent_request(&state, &request_id);
-    on_event
-        .send(AgentStreamEvent::End)
-        .map_err(|error| error.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-fn cancel_agent_response(state: State<'_, CloudClient>, request_id: String) -> Result<(), String> {
-    if !is_safe_runtime_id(&request_id) {
-        return Err("Invalid desktop Agent request identifier".to_string());
-    }
-    let sender = state
-        .requests
-        .lock()
-        .map_err(|_| "Desktop Agent request registry is unavailable".to_string())?
-        .remove(&request_id);
-    if let Some(sender) = sender {
-        let _ = sender.send(());
-    }
-    Ok(())
 }
 
 fn main() {
@@ -421,26 +266,28 @@ fn main() {
         .user_agent(DESKTOP_USER_AGENT)
         .build()
         .expect("failed to initialize the desktop cloud client");
-    let cloud = CloudClient {
-        client,
-        origin,
-        requests: Arc::new(Mutex::new(HashMap::new())),
-    };
+    let cloud = CloudClient { client, origin };
     let protocol_cloud = cloud.clone();
     let setup_origin = cloud.origin.clone();
 
     tauri::Builder::default()
+		.manage(local_engine::LocalEngine::default())
 		.manage(cloud)
-		.invoke_handler(tauri::generate_handler![stream_agent_response, cancel_agent_response])
+		.invoke_handler(tauri::generate_handler![local_engine::desktop_api_request])
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .register_asynchronous_uri_scheme_protocol("geo", move |context, request, responder| {
             let path = request.uri().path().to_string();
             if is_cloud_path(&path) {
-                let client = protocol_cloud.client.clone();
-                let origin = protocol_cloud.origin.clone();
+                let cloud = protocol_cloud.clone();
+                let app=context.app_handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    responder.respond(proxy_request(client, origin, request).await);
+                    if !matches!(*request.method(),tauri::http::Method::GET|tauri::http::Method::HEAD){responder.respond(text_response(StatusCode::METHOD_NOT_ALLOWED,"Use the authenticated desktop API"));return;}
+                    if local_engine::is_control_path(&path){responder.respond(proxy_request(cloud.client,cloud.origin,request).await);return;}
+                    match app.state::<local_engine::LocalEngine>().ensure(&app,&cloud).await {
+                        Ok(local)=>{let mut request=request;request.headers_mut().insert("x-geo-local-token",tauri::http::HeaderValue::from_str(&local.token).expect("safe generated token"));responder.respond(proxy_request(local.client,local.origin,request).await);},
+                        Err(error)=>responder.respond(text_response(StatusCode::SERVICE_UNAVAILABLE,&error)),
+                    }
                 });
                 return;
             }
@@ -498,8 +345,22 @@ fn main() {
                 .build()?;
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("failed to run ZZ Geo desktop client");
+        .build(tauri::generate_context!())
+        .expect("failed to build ZZ Geo desktop client")
+        .run({
+            let closing=Arc::new(AtomicBool::new(false));
+            move |app,event| {
+                if let tauri::RunEvent::ExitRequested {api,..}=event {
+                    if closing.swap(true,Ordering::SeqCst) { return; }
+                    api.prevent_exit();
+                    let app=app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(error)=app.state::<local_engine::LocalEngine>().stop().await { eprintln!("Local shutdown: {error}"); }
+                        app.exit(0);
+                    });
+                }
+            }
+        });
 }
 
 #[cfg(test)]

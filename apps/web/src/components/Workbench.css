@@ -1,16 +1,13 @@
 /* AI 工作台：左侧会话列表 + 主区对话流 + 右侧执行进度 */
 .wb-layout {
 	display: grid;
-	grid-template-columns: 260px minmax(0, 1fr);
-	gap: 24px;
-	height: max(640px, calc(100dvh - 210px));
-	max-height: 920px;
+	grid-template-columns: 212px minmax(0, 1fr);
+	gap: 16px;
+	height: max(460px, calc(100dvh - 208px));
 }
 
 .wb-sessions {
-	background: var(--surface);
-	border: 1px solid var(--line);
-	border-radius: var(--radius);
+	background: transparent;
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
@@ -20,9 +17,9 @@
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	padding: 18px 20px;
+	padding: 12px 8px;
 	min-height: 60px;
-	border-bottom: 1px solid var(--line);
+	border-bottom: 1px solid transparent;
 }
 
 .wb-sessions-head h3 {
@@ -55,7 +52,8 @@
 }
 
 .wb-session-item.active {
-	background: var(--brand-soft);
+	background: #eaf0fc;
+	box-shadow: inset 2px 0 0 #4366bc;
 }
 
 .wb-session-item strong {
@@ -116,8 +114,8 @@
 .wb-main {
 	background: var(--surface);
 	border: 1px solid var(--line);
-	border-radius: var(--radius);
-	box-shadow: var(--shadow-1);
+	border-radius: 18px;
+	box-shadow: 0 4px 24px rgb(24 39 75 / 3%);
 	display: flex;
 	flex-direction: column;
 	min-width: 0;
@@ -129,9 +127,10 @@
 	display: flex;
 	flex-direction: column;
 	flex: 1;
-	justify-content: center;
+	justify-content: flex-start;
 	gap: var(--space-4);
-	padding: var(--space-6);
+	padding: clamp(24px, 3vw, 40px);
+	overflow-y: auto;
 }
 
 .wb-welcome .empty {
@@ -139,6 +138,24 @@
 	background: transparent;
 	min-height: 0;
 	padding: var(--space-6) 0 var(--space-2);
+}
+
+.wb-welcome > * {
+	flex-shrink: 0;
+}
+.wb-welcome .agent-intro {
+	margin-top: auto;
+}
+.wb-welcome > .agent-resources {
+	margin-bottom: auto;
+}
+@media (min-width: 901px) and (max-width: 1100px) {
+	.wb-layout {
+		grid-template-columns: 172px minmax(0, 1fr);
+	}
+	.wb-welcome {
+		padding: 24px 20px;
+	}
 }
 
 .wb-head {
@@ -205,7 +222,7 @@
 
 .wb-body {
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) 260px;
+	grid-template-columns: minmax(0, 1fr) 210px;
 	flex: 1;
 	min-height: 0;
 }
@@ -253,7 +270,7 @@
 }
 
 .wb-bubble.assistant .wb-bubble-body {
-	background: var(--surface-2);
+	background: transparent;
 	border-radius: 4px 14px 14px 14px;
 	padding: 10px 14px;
 	line-height: 1.7;
@@ -605,8 +622,11 @@
 }
 
 .wb-welcome .wb-composer {
-	border: 0;
-	padding: 0;
+	border: 1px solid #dce2ed;
+	border-radius: 16px;
+	padding: 16px;
+	background: #fff;
+	box-shadow: 0 6px 28px rgb(37 56 88 / 5%);
 	max-width: 760px;
 	margin: 0 auto;
 	width: 100%;
@@ -651,8 +671,168 @@
 
 .wb-composer-row .ant-input {
 	flex: 1;
-	border-radius: var(--radius);
+	border-radius: 10px;
 	padding: 8px 12px;
+}
+
+.wb-page .page-title {
+	font-size: 24px;
+	letter-spacing: -0.6px;
+}
+.wb-page .page-description {
+	font-size: 13px;
+}
+.agent-engine-label {
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	color: var(--ink-3);
+	font-size: 12px;
+}
+.agent-intro {
+	text-align: center;
+	margin: 0 auto 12px;
+	max-width: 640px;
+}
+.agent-intro-symbol {
+	display: grid;
+	place-items: center;
+	width: 58px;
+	height: 58px;
+	margin: 0 auto 20px;
+	border: 1px solid #e3e8f2;
+	border-radius: 18px;
+	color: #4e67a5;
+	background: linear-gradient(145deg, #fafcff, #edf2fc);
+	box-shadow: inset 0 1px 0 #fff;
+}
+.agent-intro-eyebrow {
+	display: block;
+	font-size: 10px;
+	letter-spacing: 2px;
+	font-weight: 600;
+	color: #8592aa;
+}
+.agent-intro h2 {
+	margin: 14px 0 12px;
+	color: #202c40;
+	font-size: clamp(22px, 2.1vw, 30px);
+	line-height: 1.5;
+	font-weight: 550;
+	letter-spacing: -0.8px;
+}
+.agent-intro p {
+	margin: 0;
+	color: #8390a4;
+	font-size: 13px;
+	line-height: 1.9;
+}
+.agent-intro p strong {
+	font-weight: 500;
+	color: #54647c;
+	overflow-wrap: anywhere;
+}
+.agent-resources {
+	width: 100%;
+	max-width: 760px;
+	margin: 8px auto 0;
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 10px;
+}
+.agent-resources button {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	text-align: left;
+	padding: 14px 10px;
+	color: #56647b;
+	border: 1px solid transparent;
+	border-radius: 12px;
+	background: transparent;
+	cursor: pointer;
+	min-width: 0;
+	transition:
+		background 140ms,
+		border-color 140ms;
+}
+.agent-resources button:hover {
+	background: #f7f9fd;
+	border-color: #e5eaf3;
+}
+.agent-resources button:focus-visible,
+.wb-session-item:focus-visible {
+	outline: 2px solid var(--brand);
+	outline-offset: 2px;
+}
+.agent-resources strong {
+	display: block;
+	font-size: 12px;
+	font-weight: 550;
+}
+.agent-resources small {
+	display: block;
+	margin-top: 4px;
+	font-size: 11px;
+	color: #98a2b3;
+	line-height: 1.5;
+}
+.agent-resource-icon {
+	flex-shrink: 0;
+	display: grid;
+	place-items: center;
+	color: #7a8aa6;
+}
+.agent-resource-arrow {
+	margin-left: auto;
+	flex-shrink: 0;
+	color: #a7b1c0;
+}
+.agent-sidebar-resources {
+	margin: auto 0 8px;
+	padding: 20px 8px 0;
+	border-top: 1px solid var(--line);
+}
+.agent-sidebar-resources > span {
+	padding-left: 8px;
+	color: var(--ink-4);
+	font-size: 10px;
+	letter-spacing: 1px;
+}
+.agent-resources.compact {
+	grid-template-columns: 1fr;
+	gap: 0;
+}
+.agent-resources.compact button {
+	padding: 10px 8px;
+}
+@media (min-width: 901px) and (max-width: 1350px) {
+	.wb-body {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.wb-side {
+		border-left: 0;
+		border-top: 1px solid var(--line);
+		max-height: 140px;
+		overflow-y: auto;
+	}
+	.agent-resources:not(.compact) {
+		gap: 4px;
+	}
+	.agent-resources:not(.compact) small {
+		display: none;
+	}
+	.agent-resources:not(.compact) button {
+		padding: 8px 10px;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.agent-resources button {
+		transition: none;
+	}
+	.wb-bubble.assistant.streaming .wb-bubble-body::after {
+		animation: none;
+	}
 }
 
 .wb-composer-row .ant-btn {

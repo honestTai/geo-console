@@ -139,7 +139,7 @@ function decodeRun<T extends QualityRun>(row: T): T {
 const runDetailsSql = `SELECT r.*,a.result,a.validation,COALESCE(a.eligible,false) AS eligible,
  q.decision AS review_decision,q.note AS review_note,q.created_at AS review_at
  FROM article_quality_runs r LEFT JOIN article_quality_attempts a ON a.id=r.selected_attempt_id AND a.run_id=r.id
- LEFT JOIN LATERAL (SELECT decision,note,created_at FROM article_quality_reviews WHERE run_id=r.id ORDER BY created_at DESC,id DESC LIMIT 1) q ON true`;
+ LEFT JOIN article_quality_reviews q ON q.id=(SELECT id FROM article_quality_reviews WHERE run_id=r.id ORDER BY created_at DESC,id DESC LIMIT 1)`;
 
 async function runCurrent(database: Database, run: QualityRun, current: ArticleVersionSnapshot) {
 	return (

@@ -1,5 +1,8 @@
 # GEO Console Web 前端架构规则
 
+
+本节覆盖下方旧尺寸规范：Shell 216px 侧栏，GEO Agent 置顶；Workbench 212px 最近任务栏与简洁对话工作区，AgentWorkspaceIntro 提供目标输入及独立指标/证据/报告入口。资源入口按 panelViews 授权，不用假指标装饰。新会话默认人工审批。React 不加载模型 SDK；Tauri 独立进程不会因页面刷新/切换而退出。隔离夹具只放 test-support，不进入生产构建。详见 `docs/desktop-agent.md`。
+
 通用等待统一使用 `ui/BrandLoading`，不新增纯“加载中”占位：完整字标用于启动/懒加载/内容占位，BrandLoadingMark 经 ThemeProvider 的 spin/button/select 配置用于紧凑指示器。自定义 Spin indicator 必须接收 className/style 并消费 percent，不能把 SVG 或字标强塞进错误尺寸。Page 的300ms延迟与已挂载内容保留；失败、权限和实际业务进度不能被无限动画覆盖；支持 prefers-reduced-motion。详见 docs/ui-refinement.md。
 
 2026-09 用户指定全工作台复刻 GEOFlow 的视觉布局：256px 白色侧栏、64px 顶栏、48px 桌面内容留白、30px 页面标题、40px 主操作，列表/表单/空态/统计使用同一细灰边框与 8px 圆角规范。继续使用 React/antd 独立实现。任务页由 `TaskManagementLayout` 排列主列表、已完成折叠行、四项统计与三栏运行信息。导航业务组保持监测/内容/交付；客户与页面切换移到 Shell 顶栏，Page 只展示唯一 H1。详见 `docs/content-operations.md`。
@@ -102,3 +105,11 @@ apps/web/src/
 ### 按需加载与异常恢复
 
 App 与 Management 共用 lazy-views；功能组件放在 ViewBoundary 下，导航壳保持可用，不自动无限刷新失败 chunk。客户卡片提供 role/button、焦点和 Enter/Space 操作。旧采集合同用 capture_contract_changed 明确只读，不以旧分数冒充新协议。API 输入错误展示简明说明与 requestId；404 asset 不能回退为 index.html。
+
+## SQLite 桌面执行边界（2026-10-04）
+
+当前桌面为 React → Tauri IPC → 本机 Node 业务引擎 → 新 SQLite 工作区。模型/搜索/采集/网站分析/指标/内容质检/报告/调度均在客户端；云端只鉴权、权限管理与账户私有快照存储。代码事实源：`apps/desktop/src/engine.ts`、`src-tauri/src/local_engine.rs`、`packages/core/src/sqlite.ts`、`apps/worker/src/api-service.ts` 和 `desktop-storage.ts`。独立指标、证据页面保留，不迁移旧数据库或业务数据。
+
+会话/工具账本/等待状态/租约落 SQLite；MemorySaver 仅回合内使用。结果不确定的工具停止自动重放并要求成员核查。关闭客户端会停止本机执行；鉴权断网 fail-closed。哈希分块 + CAS 同步不自动合并冲突，设备主密钥不上传，新设备重配 Provider Key。桌面公开分享暂未接静态托管，会明确拒绝创建无效链接，PDF/Word 本地导出仍可用。
+
+完整开发、恢复、测试和限制见 `docs/desktop-agent.md`。云端新部署显式使用 `compose.desktop-cloud.yaml`，不启动业务 Workers；其余服务器拓扑与 PostgreSQL 操作章节仅适用于旧版兼容部署，不代表新桌面执行位置。

@@ -55,19 +55,6 @@ Settings 的连接测试只验证当前配置；运行中的 batch 使用创建�
 
 ## Agent
 
-- HRouter 未配置会阻止入队；健康接口的 `analysisConfigured` 可做第一层检查。
-- Agent 只允许领域工具，正常状态为 queued -> running -> awaiting_approval -> approved/rejected。
-- Worker 启动会将超过 15 分钟、已无 pending/leased job 的孤立 running run 标为 failed。
-- 不要从 tool trace 复制并执行网页或回答中的指令；这些内容在系统中被定义为不可信证据。
-- 报告叙述批准后才能运行质量检查；质量检查绑定叙述 run ID。口碑 `cited` URL 必须来自对应 Capture sources，`unavailable` 不得带 URL。质检结论 blocked 后页面/工作台再次推进会重新生成叙述（多一次叙述 + 质检调用），不会对同一叙述反复质检；新叙述在途时定时扫描只报告叙述状态。
-- 审批返回“已被其他操作处理” → 手动审批与协调器自动审批并发，只有一次生效，刷新即可；`audit_logs` 只会有一条 `agent.approve`。
-- 建档页竞品长期“联网核实中” → 后台核实在 API 进程内进行，API 中途重启会让候选停在 `pending`；前端 10 分钟后按未核实展示，重新“开始官网分析”会复用 24 小时内快照并重新核实。
-- Agent `web_search` 反复“未触发”或 4xx → 平台设置或工作台“测试此模型”确认 HRouter/该模型是否透传 `web_search`（结果按模型记在 settings `organization:<id>:web_search_tests`）；记录在 `web_search_evidence`（证据，不删），只有 `complete` 可被引用。工具默认强制 `tool_choice`，只有响应正文明确指向该参数的 4xx 才回退 `auto`（进程内记住，重启后重新试探一次）；其他 4xx 不重复请求。工作台 2–4 个独立研究问题应在同一批并行调用，单次归纳最多 1200 output token；看到串行搜索通常说明模型没有按当前 `geo-workbench.desktop.v1` 提示成批发起工具。
-- 联网费用失控 → 上限是代码常量 `WEB_SEARCH_LIMITS`（工作台每回合 8 / 每会话 30，草稿每次运行 10）；会话级次数按 `web_search_evidence.session_id` 统计，可在会话设置里关闭联网。工作台日志出现“联网不可用，已改用官网快照与知识库”说明该回合连续两次未触发/失败，属预期退化。
-- 建档页竞品显示“待确认”→ 看该竞品 `competitors.verification.note` 与对应 `web_search_evidence`；“未联网核实”通常是 HRouter 未配置或联网不可用，不影响建档。
-- 正式桌面会话不进入 Agent Worker：每个客户端可同时运行多个活跃会话，本地模型流立即渲染，服务端模型代理和业务工具仍按请求承载。浏览器兼容的 `agent_session_turn` 与 `agent_draft` 才由 Agent Worker 每 250ms 领取并共享两个槽。协调器每 5 秒自动批准草稿、检查 `waiting_job` 并更新 `plan`；桌面续跑写 `desktop_pending_*`，浏览器续跑重新入队。桌面异常先查 `agent_sessions.desktop_run_id/client_id/lease_expires_at/pending_trigger`、transcript、`desktop_agent_tool_calls` 与最后事件；工具结果按 `session_id + tool_call_id` 幂等，180 秒工具租约过期后才可重领。events 路由仍最长等待 25 秒，用于刷新恢复和跨端状态；高频 heartbeat/events/messages 不写普通 HTTP access log。
-- `optimization_article` run 由协调器自动物化到 `optimization_articles`；未出现文章时检查该 run 的 `error_message` 与 `target_ref`。
-
 ## Report / PDF / Word
 
 - 快照是不可变 payload/hash，PDF/Word 是其派生产物。先确认已批准叙述、通过并批准的绑定质量检查、report ID 和 snapshot 存在。
@@ -91,10 +78,6 @@ Settings 的连接测试只验证当前配置；运行中的 batch 使用创建�
 - Provider/HRouter config 和 encrypted credential 按机构查询；非默认机构无环境变量 fallback。问题库同样按机构 + 行业隔离，归档不物理删除。
 
 ## Desktop Update
-
-- 客户端更新公钥在仓库 Tauri 配置中，私钥只在发布机 `~/.tauri/zz-geo.key` 或受控 CI Secret 中；权限应为 owner-only。
-- 更新清单必须通过 HTTPS 提供有效 SemVer、平台 URL 和签名。客户端不会接受未签名更新，禁止临时关闭校验。
-- 浏览器与桌面使用同一工作台构建和 API，但交互执行目标不同：桌面为本地 pi-agent-core，浏览器为服务端 Agent Worker。桌面问题先区分受控 Responses 代理、业务工具 RPC、Tauri Channel/WebView 和原生更新故障；PDF/Word 问题仍查 Report Worker。
 
 ## Schedule、漂移与费用
 
@@ -138,3 +121,11 @@ Settings 的连接测试只验证当前配置；运行中的 batch 使用创建�
 # 2026-09-06 审批与采集版本排障补充
 
 审批成功但 continuationStatus=blocked 时，先保留已批准状态，检查下一阶段权限/前置条件，再由有权限成员显式继续；不要伪报审批失败或直接改 execution_actor。新批次应冻结编译时 adapter 版本，平台初始化只同步版本字段；遇到 capture_contract_changed/protocol_changed 保留原始记录并创建新批次，不覆盖 raw。机构封禁后语义队列不再领取新任务，已有上游请求不承诺取消。Demo 最终回归和外部未验项见 docs/full-audit-2026-09-06.md。
+
+## SQLite 桌面执行边界（2026-10-04）
+
+当前桌面为 React → Tauri IPC → 本机 Node 业务引擎 → 新 SQLite 工作区。模型/搜索/采集/网站分析/指标/内容质检/报告/调度均在客户端；云端只鉴权、权限管理与账户私有快照存储。代码事实源：`apps/desktop/src/engine.ts`、`src-tauri/src/local_engine.rs`、`packages/core/src/sqlite.ts`、`apps/worker/src/api-service.ts` 和 `desktop-storage.ts`。独立指标、证据页面保留，不迁移旧数据库或业务数据。
+
+会话/工具账本/等待状态/租约落 SQLite；MemorySaver 仅回合内使用。结果不确定的工具停止自动重放并要求成员核查。关闭客户端会停止本机执行；鉴权断网 fail-closed。哈希分块 + CAS 同步不自动合并冲突，设备主密钥不上传，新设备重配 Provider Key。桌面公开分享暂未接静态托管，会明确拒绝创建无效链接，PDF/Word 本地导出仍可用。
+
+完整开发、恢复、测试和限制见 `docs/desktop-agent.md`。云端新部署显式使用 `compose.desktop-cloud.yaml`，不启动业务 Workers；其余服务器拓扑与 PostgreSQL 操作章节仅适用于旧版兼容部署，不代表新桌面执行位置。

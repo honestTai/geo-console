@@ -62,10 +62,10 @@ export async function startLocalWorkers(database: Database): Promise<() => Promi
 		metadata: { capture: true, agent: true, report: true },
 	});
 	return async () => {
-		await stopSemantic();
 		clearInterval(agentTimer);
 		clearInterval(reportTimer);
-		stopCapture();
+		await Promise.all([stopSemantic(), stopCapture()]);
+		while (activeAgentJobs > 0 || reportActive) await new Promise((resolve) => setTimeout(resolve, 50));
 		await Promise.all([logger.flush(), flushCaptureLogs(), flushAgentLogs(), flushReportLogs()]);
 	};
 }

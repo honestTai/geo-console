@@ -64,7 +64,7 @@ export function App() {
 		evidenceRequest = useRef(0);
 	evidenceProject.current = projectId;
 	const [project, setProject] = useState<Project | null>(null);
-	const [view, setView] = useState<View>("overview");
+	const [view, setView] = useState<View>("workbench");
 	const [viewFilter, setViewFilter] = useState<string | null>(null);
 	const [creating, setCreating] = useState(false);
 	const [loading, setLoading] = useState(true);
@@ -295,7 +295,7 @@ export function App() {
 		setProjects([]);
 		setProjectId(null);
 		setProject(null);
-		setView("overview");
+		setView("workbench");
 		setProjectPagination((current) => ({ ...current, page: 1, total: 0, totalPages: 1, items: [] }));
 		setLoading(true);
 	}

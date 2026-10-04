@@ -18,6 +18,8 @@ description: Develop or review GEO Console application code, including the Web/A
 
 ## 开发边界
 
+- 桌面 Agent 底座为 `packages/agent-runtime` 的 Deep Agents / LangGraph；先读 `docs/desktop-agent.md`。React 只订阅，Tauri 管理独立 Node 进程。必须保留双重工具白名单、先保存调用再执行、人工确认、幂等恢复和独立指标页；不得重新引入 Pi 或把回合内 MemorySaver 当离线队列。桌面全部业务在本机 Node + SQLite 执行，云端仅鉴权和不透明工作区存储。只初始化新 SQLite，不迁移旧数据；不得回退云端模型/工具。桌面复用领域执行器而不是删除其源码。详见 desktop-agent.md；持久恢复依据 SQLite 领域检查点，不把回合内 MemorySaver 当持久恢复。
+
 - 内容运营修改先读 `docs/content-operations.md`：文章版本/知识修订/质检和人工审核必须一致；发布工单固定版本及渠道，回执只证明人工交付。用户当前只选择人工发布，不接自动 CMS 或浏览器发文。新表必须接入项目写保护和资源授权。
 
 - 使用 Node.js 24、`corepack pnpm` 和 workspace 依赖；不得绕过 `pnpm-workspace.yaml` 的供应链限制。

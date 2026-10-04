@@ -1,5 +1,8 @@
 # 本机与服务器部署
 
+
+桌面包新增原生平台 Node 24 sidecar、agent.cjs、版本/SHA-256 manifest 与 Node LICENSE。先 `corepack pnpm --filter @geo/desktop prepare-runtime` 再 cargo/Tauri；不得跨 OS 复制 Node。三平台手动 CI 只产出验证安装包，不等于签名发布或安装实测。开发业务默认 127.0.0.1:3010，所有桌面 API 统一经 Rust Cookie 会话。云端 Workers 仍需保留，详见 `docs/desktop-agent.md`。
+
 内容运营升级需 0028-0031、同版 API/Web/Agent/Semantic Worker，暂无新增服务或依赖。只能在明确授权目标库迁移；先备份所有文章与原始证据。新质检、知识资产、人工发布权限需显式授予既有机构和角色。回滚保留新表和历史，不使用旧 writer 绕过文章版本与发布门禁。具体范围及验证限制见 `docs/content-operations.md`。
 
 客户封档/逻辑删除需执行 `0027_project_lifecycle.sql` 并统一发布 API/Web/Workers。先备份状态字段与原始证据；仅在已授权的部署库迁移。新动作需显式授予既有机构和角色。旧 API 不理解 deleted_at，不能直接回退，否则可能重新开放已删除客户的访问；保持 0027 和访问保护，详见 `docs/customer-management.md`。
@@ -42,8 +45,6 @@ corepack pnpm geo start
 
 ## 桌面客户端
 
-`apps/desktop` 是面向全部用户的 Tauri 2 客户端。正式版内置与 `/app/` 同源构建的 Web 资产，开发版加载本机 `/app/`；浏览器暂时保留同步调试。正式桌面工作台在 WebView 内运行 `pi-agent-core`，模型请求通过 Tauri Channel 流式访问服务器的受控 Responses 代理，工具通过服务器业务 RPC 执行。桌面不内置数据库、证据文件或 Provider/HRouter Key，权限、会话、工具幂等结果和业务数据仍来自服务器。
-
 开发运行：
 
 ```bash
@@ -58,7 +59,7 @@ export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
 corepack pnpm desktop:build
 ```
 
-桌面构建必须同时包含 `apps/web/src/desktop-agent.ts` 的独立运行时 chunk 和 Rust `stream_agent_response/cancel_agent_response` 命令。发布前至少验证首个文本增量可通过 Channel 到达、取消可中止上游请求、断线后不会重复执行已完成的工具，以及普通浏览器创建的会话仍走服务端兼容执行。
+桌面构建必须同时包含 React 订阅桥、Node sidecar、agent.cjs 和 Rust run_local_agent/cancel_local_agent/desktop_api_request 命令。发布前验证 stdio 模型增量、显式取消、刷新不中断、工具幂等恢复与浏览器兼容执行；上游已接收请求的费用不保证可取消。
 
 macOS/Windows/Linux 更新产物及 `.sig` 由 Tauri 生成。发布时生成有效的 `latest.json`，上传到配置的 HTTPS 地址 `https://www.honesttai.com/desktop/latest.json`，并确保所有已声明平台条目都有 URL 和签名。丢失私钥会导致已安装客户端无法接受后续更新，必须离线备份。
 
@@ -209,3 +210,11 @@ Docker artifact builder 使用 BUILDPLATFORM 原生 Linux Node 24 执行 corepac
 # 仓库凭据与本地验收制品
 
 SSH 密码、管理员初始密码和模型密钥不得写入仓库文档；连接认证通过 SSH agent 或用户受控的安全凭据存储取得。本地 `deliverables/` 中的业务截图、报告及一次性环境操作制品不随源码提交。删除当前文件中的明文凭据不等于清除 Git 历史；曾进入提交历史的真实密码应轮换，历史重写须另行明确授权，不能在普通发布或推送时擅自执行。
+
+## SQLite 桌面执行边界（2026-10-04）
+
+当前桌面为 React → Tauri IPC → 本机 Node 业务引擎 → 新 SQLite 工作区。模型/搜索/采集/网站分析/指标/内容质检/报告/调度均在客户端；云端只鉴权、权限管理与账户私有快照存储。代码事实源：`apps/desktop/src/engine.ts`、`src-tauri/src/local_engine.rs`、`packages/core/src/sqlite.ts`、`apps/worker/src/api-service.ts` 和 `desktop-storage.ts`。独立指标、证据页面保留，不迁移旧数据库或业务数据。
+
+会话/工具账本/等待状态/租约落 SQLite；MemorySaver 仅回合内使用。结果不确定的工具停止自动重放并要求成员核查。关闭客户端会停止本机执行；鉴权断网 fail-closed。哈希分块 + CAS 同步不自动合并冲突，设备主密钥不上传，新设备重配 Provider Key。桌面公开分享暂未接静态托管，会明确拒绝创建无效链接，PDF/Word 本地导出仍可用。
+
+完整开发、恢复、测试和限制见 `docs/desktop-agent.md`。云端新部署显式使用 `compose.desktop-cloud.yaml`，不启动业务 Workers；其余服务器拓扑与 PostgreSQL 操作章节仅适用于旧版兼容部署，不代表新桌面执行位置。

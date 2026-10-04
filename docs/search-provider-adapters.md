@@ -1,5 +1,9 @@
 # 五平台联网适配器契约
 
+## 桌面执行位置（2026-10-04）
+
+新桌面直接在本机 Node 引擎运行这些适配器，凭据在本机加密，原始证据写本地 SQLite/artifacts 并按工作区同步；云端不代理模型或采集。现有平台协议、失败分类、引用与冻结配置契约不因执行位置改变。Deep Agents 的研究检索仍是独立 `web_search` 工具，预算/费用/失败/引用落盘；不能以一般研究搜索替代正式五平台采集，也不宣称换底座自动改善搜索质量。验证包括 SQLite 领域回归和回环 SSE，不包含真实付费 Provider 验收。详见 `desktop-agent.md`。
+
 额度失败是 `status=failed/failureCode=quota_exceeded`：HTTP 402，或 HTTP 429 且响应显式含 insufficient_quota / quota_exceeded / insufficient balance。普通 429 仍是 rate_limited，未知错误不推断余额。此增量分类不改变成功回答解析、Provider 协议或 adapter version。Capture Runner 在已有真实失败证据后停止同批次同平台的未执行任务；兼容读取旧 `provider_error + HTTP 402` 做队列收尾，不改旧证据、冻结配置或其他平台，也不自动换 Key/模型。充值后由用户手动同条件复测。见 `docs/website-audit-and-capture-recovery.md`。
 
 统一接口位于 `packages/search-providers`。每个适配器实现连接测试、能力声明和一次真实采集；页面、指标和报告不直接解析供应商响应。

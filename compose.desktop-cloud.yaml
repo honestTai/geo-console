@@ -1,0 +1,15 @@
+# Opt-in desktop control plane. No changes to an existing deployment are made by development.
+# docker compose -f compose.yaml -f compose.desktop-cloud.yaml up -d
+services:
+  api:
+    environment:
+      GEO_SERVER_MODE: storage
+      GEO_LOCAL_COMBINED: "false"
+  capture-worker:
+    profiles: [legacy-server]
+  agent-worker:
+    profiles: [legacy-server]
+  report-worker:
+    profiles: [legacy-server]
+  semantic-worker:
+    profiles: [legacy-server]

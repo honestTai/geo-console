@@ -204,10 +204,10 @@ type AnalysisPage = { id: string; url: string; title: string | null; text: strin
 async function recentProjectPages(database: Database, projectId: string, domain: string): Promise<AnalysisPage[]> {
 	const rows = await database.query<{ id: string; url: string; title: string | null; content_text: string }>(
 		`SELECT id,url,title,content_text FROM (
-			SELECT DISTINCT ON (url) id,url,title,content_text,fetched_at FROM website_snapshots
+			SELECT id,url,title,content_text,fetched_at,ROW_NUMBER() OVER(PARTITION BY url ORDER BY fetched_at DESC,id DESC) AS latest FROM website_snapshots
 			WHERE project_id=$1 AND (domain=$4 OR domain LIKE '%.'||$4)
-			  AND fetched_at>now()-($2::text||' hours')::interval ORDER BY url,fetched_at DESC
-		 ) recent ORDER BY fetched_at ASC LIMIT $3`,
+			  AND fetched_at>now()-($2::text||' hours')::interval
+		 ) recent WHERE latest=1 ORDER BY fetched_at ASC LIMIT $3`,
 		[projectId, ANALYSIS_SNAPSHOT_REUSE_HOURS, ANALYSIS_CRAWL_LIMIT, domain],
 	);
 	return rows.rows.map((row) => ({ id: row.id, url: row.url, title: row.title, text: row.content_text }));
@@ -1493,8 +1493,9 @@ async function loadDiagnosisWebEvidence(
 	captures: QueryCapture[],
 ): Promise<DiagnosisWebEvidence[]> {
 	const rows = await database.query<Record<string, unknown>>(
-		`SELECT DISTINCT ON (url) id,url,domain,title,content_text,structured_data
-		 FROM website_snapshots WHERE project_id=$1 ORDER BY url,fetched_at DESC LIMIT 250`,
+		`SELECT id,url,domain,title,content_text,structured_data FROM (
+		 SELECT id,url,domain,title,content_text,structured_data,ROW_NUMBER() OVER(PARTITION BY url ORDER BY fetched_at DESC,id DESC) AS latest
+		 FROM website_snapshots WHERE project_id=$1) recent WHERE latest=1 ORDER BY url LIMIT 250`,
 		[projectId],
 	);
 	const customerDomain = normalizeDomain(config.project.domain);

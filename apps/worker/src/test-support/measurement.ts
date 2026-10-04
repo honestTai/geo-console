@@ -87,9 +87,26 @@ export async function seedMetricSnapshot(database: Database, batchId: string): P
 	const contract = config.measurement ?? testMeasurementContract;
 	const payload = { ...pendingMetrics(config, []), contract, configHash: sha256(stableJson(config)) };
 	payload.overall.status = "ready";
+	// This fixture promises the latest derived run. SQLite can create both the queued
+	// run and this replacement within one millisecond; random UUID order is not time.
+	const latest = (
+		await database.query<{ created_at: string | null }>(
+			"SELECT max(created_at) AS created_at FROM semantic_parse_runs WHERE batch_id=$1",
+			[batchId],
+		)
+	).rows[0]?.created_at;
+	const createdAt = new Date(Math.max(Date.now(), latest ? new Date(latest).getTime() + 1 : 0)).toISOString();
 	await database.query(
-		`INSERT INTO semantic_parse_runs(id,organization_id,project_id,batch_id,contract,contract_hash,status) VALUES($1,$2,$3,$4,$5::jsonb,$6,'ready')`,
-		[runId, row.organization_id, row.project_id, batchId, JSON.stringify(contract), sha256(stableJson(contract))],
+		`INSERT INTO semantic_parse_runs(id,organization_id,project_id,batch_id,contract,contract_hash,status,created_at) VALUES($1,$2,$3,$4,$5::jsonb,$6,'ready',$7)`,
+		[
+			runId,
+			row.organization_id,
+			row.project_id,
+			batchId,
+			JSON.stringify(contract),
+			sha256(stableJson(contract)),
+			createdAt,
+		],
 	);
 	await database.query(
 		`INSERT INTO metric_snapshots(id,run_id,batch_id,algorithm_version,contract_hash,input_hash,payload,payload_hash,status) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,'ready')`,

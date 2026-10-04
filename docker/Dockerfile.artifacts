@@ -8,6 +8,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY apps/worker/package.json apps/worker/tsconfig.json ./apps/worker/
 COPY apps/log-service/package.json apps/log-service/tsconfig.json ./apps/log-service/
 COPY packages/authorization/package.json packages/authorization/tsconfig.json ./packages/authorization/
+COPY packages/agent-runtime/package.json packages/agent-runtime/tsconfig.json ./packages/agent-runtime/
 COPY packages/core/package.json packages/core/tsconfig.json ./packages/core/
 COPY packages/evidence/package.json packages/evidence/tsconfig.json ./packages/evidence/
 COPY packages/logging/package.json packages/logging/tsconfig.json ./packages/logging/
@@ -25,6 +26,7 @@ RUN --mount=type=cache,id=geo-pnpm-store,target=/pnpm-store \
 COPY apps/worker/src ./apps/worker/src
 COPY apps/log-service/src ./apps/log-service/src
 COPY packages/authorization/src ./packages/authorization/src
+COPY packages/agent-runtime/src ./packages/agent-runtime/src
 COPY packages/core/src ./packages/core/src
 COPY packages/core/migrations ./packages/core/migrations
 COPY packages/evidence/src ./packages/evidence/src

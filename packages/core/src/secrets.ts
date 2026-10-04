@@ -35,6 +35,7 @@ export async function readSecret(key: SecretKey): Promise<string | null> {
 	if (fromEnvironment) return fromEnvironment;
 	const filePath = process.env[`${envNames[key]}_FILE`]?.trim();
 	if (filePath) return (await readFile(filePath, "utf8")).trim() || null;
+	if (process.env.GEO_DESKTOP_LOCAL === "true") return null;
 	if (process.platform !== "darwin") return null;
 	try {
 		const { stdout } = await execFileAsync("security", ["find-generic-password", "-s", serviceName, "-a", key, "-w"]);

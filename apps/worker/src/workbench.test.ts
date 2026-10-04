@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentTool } from "@geo/agent-runtime";
 import {
 	type AgentSessionWaiting,
 	migrateDatabase,
@@ -14,6 +14,7 @@ import {
 	answerQuestion,
 	cancelSession,
 	createWorkbenchTools,
+	executeSessionTurn,
 	listSessionEvents,
 	orderQuickCommands,
 	resumeWaitingSessions,
@@ -82,6 +83,23 @@ function pick(tools: AgentTool[], name: string): AgentTool {
 	if (!tool) throw new Error(`缺少工具 ${name}`);
 	return tool;
 }
+
+it("restores a local human pause instead of retrying the interrupted turn past confirmation", async () => {
+	const waiting = { kind: "user", question: "Confirm?", options: [], multiple: false, toolCallId: "confirm-call" };
+	const database = await seedSession("running", waiting, false);
+	const previous = process.env.GEO_DESKTOP_LOCAL;
+	process.env.GEO_DESKTOP_LOCAL = "true";
+	try {
+		await executeSessionTurn(database, "session", "user", "original request");
+		expect(
+			(await database.query("SELECT status,waiting FROM agent_sessions WHERE id='session'")).rows[0],
+		).toMatchObject({ status: "waiting_user", waiting });
+	} finally {
+		if (previous === undefined) delete process.env.GEO_DESKTOP_LOCAL;
+		else process.env.GEO_DESKTOP_LOCAL = previous;
+		await database.close();
+	}
+});
 
 /** 构造工作台工具集并收集事件；control 与真实回合一致，只是不经过模型。 */
 async function toolHarness(database: Awaited<ReturnType<typeof seedSession>>, session: WorkbenchSession) {

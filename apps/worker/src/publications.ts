@@ -171,7 +171,7 @@ export async function listPublicationOrders(
 	 o.channel_snapshot->>'account_name' AS account_name,u.email AS assignee_email,
 	 (a.version<>o.article_version OR a.deleted_at IS NOT NULL) AS stale,
 	 r.result_url,r.submitted_at FROM publication_orders o JOIN optimization_articles a ON a.id=o.article_id
-	 LEFT JOIN users u ON u.id=o.assigned_to LEFT JOIN LATERAL (SELECT result_url,submitted_at FROM publication_receipts WHERE order_id=o.id ORDER BY submitted_at DESC,id DESC LIMIT 1) r ON true
+	 LEFT JOIN users u ON u.id=o.assigned_to LEFT JOIN publication_receipts r ON r.id=(SELECT id FROM publication_receipts WHERE order_id=o.id ORDER BY submitted_at DESC,id DESC LIMIT 1)
 	 WHERE ${where} ORDER BY o.updated_at DESC,o.id LIMIT $6 OFFSET $7`,
 			[...params, input.pageSize, input.offset],
 		)

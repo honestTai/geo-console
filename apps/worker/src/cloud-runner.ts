@@ -251,34 +251,39 @@ export async function sweepExpiredCaptureJobs(database: Database): Promise<numbe
 	return batchIds.length;
 }
 
-export function startCloudRunner(database: Database): () => void {
+export function startCloudRunner(database: Database): () => Promise<void> {
 	const concurrency = Math.max(1, Math.min(20, Number(process.env.GEO_CAPTURE_CONCURRENCY || 2)));
 	let active = 0;
 	let stopped = false;
+	const inFlight = new Set<Promise<unknown>>();
 	const tick = (): void => {
 		while (!stopped && active < concurrency) {
 			active += 1;
-			runOneCloudCapture(database)
+			const task = runOneCloudCapture(database)
 				.catch(() => undefined)
 				.finally(() => {
 					active -= 1;
+					inFlight.delete(task);
 				});
+			inFlight.add(task);
 		}
 	};
 	const sweep = (): void => {
-		sweepExpiredCaptureJobs(database).catch((error) =>
-			captureLogger.error("capture.sweep_failed", safeErrorMessage(error)),
-		);
+		const task = sweepExpiredCaptureJobs(database)
+			.catch((error) => captureLogger.error("capture.sweep_failed", safeErrorMessage(error)))
+			.finally(() => inFlight.delete(task));
+		inFlight.add(task);
 	};
 	const timer = setInterval(tick, 1_000);
 	const sweepTimer = setInterval(sweep, 60_000);
 	sweepTimer.unref();
 	sweep();
 	tick();
-	return () => {
+	return async () => {
 		stopped = true;
 		clearInterval(timer);
 		clearInterval(sweepTimer);
+		await Promise.allSettled([...inFlight]);
 	};
 }
 

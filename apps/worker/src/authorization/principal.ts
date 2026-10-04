@@ -8,6 +8,14 @@ export type PrincipalRecord = Principal & {
 	organizationName: string;
 	homeOrganizationName: string;
 };
+
+let desktopPrincipal: ((database: Database) => Promise<PrincipalRecord | null>) | null = null;
+/** Only the private desktop process installs this; cloud processes always resolve from their database. */
+export function setDesktopPrincipalResolver(resolve: (database: Database) => Promise<PrincipalRecord | null>): void {
+	if (process.env.GEO_DESKTOP_LOCAL !== "true")
+		throw new Error("Desktop identity resolver is not available on the server");
+	desktopPrincipal = resolve;
+}
 type SnapshotRow = {
 	id: string;
 	email: string;
@@ -72,6 +80,14 @@ export async function loadPrincipal(
 	input: { userId?: string; tokenHash?: string; organizationId?: string },
 ): Promise<PrincipalRecord | null> {
 	if (!input.userId && !input.tokenHash) throw new Error("loadPrincipal requires a user or session identifier");
+	if (desktopPrincipal) {
+		const principal = await desktopPrincipal(database);
+		return principal &&
+			input.userId === principal.userId &&
+			(!input.organizationId || input.organizationId === principal.organizationId)
+			? principal
+			: null;
+	}
 	const row = (
 		await database.query<SnapshotRow>(principalSnapshotSql, [
 			input.userId ? [input.userId] : null,
@@ -109,6 +125,17 @@ export async function loadActorPrincipal(
 ): Promise<Principal | null> {
 	if (actor.kind === "user") return loadPrincipal(database, { userId: actor.userId, organizationId });
 	if (actor.kind === "unassigned") return null;
+	if (desktopPrincipal) {
+		const current = await desktopPrincipal(database);
+		if (!current || current.organizationId !== organizationId || actor.kind !== "service") return null;
+		return {
+			...current,
+			systemAdmin: false,
+			permissions: servicePermissions[actor.serviceId].filter(
+				(key) => current.systemAdmin || current.permissions.includes(key),
+			),
+		};
+	}
 	const org = (
 		await database.query<{ id: string; suspended_at: string | null; authz_version: number }>(
 			"SELECT id,suspended_at,authz_version FROM organizations WHERE id=$1",
