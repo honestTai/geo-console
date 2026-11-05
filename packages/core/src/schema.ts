@@ -1687,3 +1687,177 @@ export const publicationEvents = pgTable("publication_events", {
 	receiptId: text("receipt_id").references(() => publicationReceipts.id),
 	createdAt,
 });
+
+// Multi-agent platform core (migration 0032). Organization is the only isolation boundary.
+export const agentAdapters = ["acp", "cli-exec", "builtin"] as const;
+export type AgentAdapter = (typeof agentAdapters)[number];
+export type AgentTrustTier = "T1" | "T2";
+export type AgentStatus = "pending" | "approved" | "disabled";
+export type AgentTaskStatus = "pending" | "leased" | "complete" | "failed" | "cancelled";
+export type AgentRunStatus = "running" | "complete" | "failed" | "expired";
+/** Self-reported by the agent and never verified by the platform. */
+export type DeclaredModel = { provider?: string; name?: string };
+export type AgentRoutingMatch = { source: string; types: string[]; projectId?: string };
+export type AgentRoutingTarget = { capability: string; agentId?: string; skill?: string };
+
+export const agents = pgTable(
+	"agents",
+	{
+		id: id("id"),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id),
+		name: text("name").notNull(),
+		adapter: text("adapter").$type<AgentAdapter>().notNull(),
+		command: jsonb("command").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+		capabilities: jsonb("capabilities").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+		declaredModel: jsonb("declared_model").$type<DeclaredModel | null>(),
+		trustTier: text("trust_tier").$type<AgentTrustTier>().notNull(),
+		status: text("status").$type<AgentStatus>().notNull().default("pending"),
+		revision: integer("revision").notNull().default(1),
+		createdBy: text("created_by").references(() => users.id),
+		approvedBy: text("approved_by").references(() => users.id),
+		approvedAt: timestamp("approved_at", { withTimezone: true }),
+		createdAt,
+		updatedAt,
+	},
+	(t) => [uniqueIndex("agents_org_name_idx").on(t.organizationId, t.name)],
+);
+export const agentVersions = pgTable(
+	"agent_versions",
+	{
+		id: id("id"),
+		agentId: text("agent_id")
+			.notNull()
+			.references(() => agents.id),
+		revision: integer("revision").notNull(),
+		snapshot: jsonb("snapshot").notNull(),
+		actor: jsonb("actor").$type<ExecutionActor>().notNull(),
+		createdAt,
+	},
+	(t) => [uniqueIndex("agent_versions_agent_revision_idx").on(t.agentId, t.revision)],
+);
+export const orgAgentSettings = pgTable("org_agent_settings", {
+	organizationId: text("organization_id")
+		.primaryKey()
+		.references(() => organizations.id),
+	masterAgentId: text("master_agent_id").references(() => agents.id),
+	updatedBy: text("updated_by").references(() => users.id),
+	updatedAt,
+});
+export const runners = pgTable(
+	"runners",
+	{
+		id: id("id"),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id),
+		name: text("name").notNull(),
+		tokenHash: text("token_hash").notNull().unique(),
+		agentIds: jsonb("agent_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+		maxConcurrency: integer("max_concurrency").notNull().default(1),
+		status: text("status").$type<"active" | "revoked">().notNull().default("active"),
+		lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+		createdBy: text("created_by").references(() => users.id),
+		createdAt,
+		revokedAt: timestamp("revoked_at", { withTimezone: true }),
+	},
+	(t) => [uniqueIndex("runners_org_name_idx").on(t.organizationId, t.name)],
+);
+export const eventInbox = pgTable(
+	"event_inbox",
+	{
+		id: id("id"),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id),
+		projectId: text("project_id").references(() => projects.id),
+		source: text("source").notNull(),
+		type: text("type").notNull(),
+		subject: jsonb("subject").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+		summary: text("summary").notNull().default(""),
+		link: text("link"),
+		dedupeKey: text("dedupe_key").notNull(),
+		status: text("status").$type<"new" | "routed" | "ignored" | "failed">().notNull().default("new"),
+		routeNote: text("route_note"),
+		receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+		routedAt: timestamp("routed_at", { withTimezone: true }),
+	},
+	(t) => [uniqueIndex("event_inbox_dedupe_idx").on(t.organizationId, t.source, t.dedupeKey)],
+);
+export const routingRules = pgTable(
+	"routing_rules",
+	{
+		id: id("id"),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id),
+		ruleKey: text("rule_key").notNull(),
+		version: integer("version").notNull(),
+		enabled: boolean("enabled").notNull().default(true),
+		match: jsonb("match").$type<AgentRoutingMatch>().notNull(),
+		target: jsonb("target").$type<AgentRoutingTarget>().notNull(),
+		groupKey: text("group_key"),
+		parallel: integer("parallel").notNull().default(1),
+		tell: text("tell").$type<"needed" | "always" | "never">().notNull().default("needed"),
+		createdBy: text("created_by").references(() => users.id),
+		createdAt,
+	},
+	(t) => [uniqueIndex("routing_rules_key_version_idx").on(t.organizationId, t.ruleKey, t.version)],
+);
+export const agentTasks = pgTable(
+	"agent_tasks",
+	{
+		id: id("id"),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id),
+		projectId: text("project_id").references(() => projects.id),
+		ruleKey: text("rule_key"),
+		ruleVersion: integer("rule_version"),
+		eventIds: jsonb("event_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+		capability: text("capability").notNull(),
+		skill: text("skill"),
+		agentId: text("agent_id").references(() => agents.id),
+		input: jsonb("input").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+		groupKey: text("group_key"),
+		groupParallel: integer("group_parallel").notNull().default(1),
+		status: text("status").$type<AgentTaskStatus>().notNull().default("pending"),
+		attempts: integer("attempts").notNull().default(0),
+		maxAttempts: integer("max_attempts").notNull().default(2),
+		availableAt: timestamp("available_at", { withTimezone: true }).notNull().defaultNow(),
+		leaseOwner: text("lease_owner").references(() => runners.id),
+		leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+		result: jsonb("result"),
+		lastError: text("last_error"),
+		createdAt,
+		updatedAt,
+		completedAt: timestamp("completed_at", { withTimezone: true }),
+	},
+	(t) => [index("agent_tasks_claim_idx").on(t.organizationId, t.status, t.availableAt, t.leaseExpiresAt)],
+);
+export const agentTaskRuns = pgTable(
+	"agent_task_runs",
+	{
+		id: id("id"),
+		taskId: text("task_id")
+			.notNull()
+			.references(() => agentTasks.id),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id),
+		projectId: text("project_id").references(() => projects.id),
+		runnerId: text("runner_id")
+			.notNull()
+			.references(() => runners.id),
+		agentId: text("agent_id").references(() => agents.id),
+		attempt: integer("attempt").notNull(),
+		status: text("status").$type<AgentRunStatus>().notNull().default("running"),
+		output: jsonb("output"),
+		error: text("error"),
+		reportedUsage: jsonb("reported_usage").$type<Record<string, unknown> | null>(),
+		startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+		finishedAt: timestamp("finished_at", { withTimezone: true }),
+	},
+	(t) => [uniqueIndex("agent_task_runs_task_attempt_idx").on(t.taskId, t.attempt)],
+);

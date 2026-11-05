@@ -1,4 +1,5 @@
 export * from "./access";
+export * from "./agent-platform";
 export * from "./comparability";
 export * from "./database";
 export * from "./paths";
