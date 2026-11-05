@@ -22,8 +22,6 @@
 
 </div>
 
-[![Repository summary](https://raw.githubusercontent.com/honestTai/honestTai/main/assets/badges/geo-console.svg)](#-project-activity)
-
 > Sampling uses provider APIs, **not consumer-app answers**. Matched retests support comparison, **not causal proof**. No guarantee of inclusion or ranking is made.
 
 ## ❤️ Sponsor

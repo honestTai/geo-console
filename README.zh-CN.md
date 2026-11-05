@@ -22,8 +22,6 @@
 
 </div>
 
-[![Repository summary](https://raw.githubusercontent.com/honestTai/honestTai/main/assets/badges/geo-console.svg)](#-项目动态)
-
 > 数据来自供应商联网 API，**不等同于消费端 App 的实际回答**。同配置复测用于比较，**不单独证明整改效果**，不保证收录或排名。
 
 ## ❤️ 赞助商
