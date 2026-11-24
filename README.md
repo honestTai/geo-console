@@ -28,7 +28,7 @@
 
 | Sponsor | What it is |
 | :--- | :--- |
-| [![HRouter](landing/assets/hrouter-sponsor.svg)](https://hrouter.net/home) | **[HRouter](https://hrouter.net/home)**: model access, API key management, and usage tracking for AI coding and application development. Also operated by the maintainer. |
+| [![HRouter](landing/assets/hrouter-sponsor.svg)](https://hrouter.net/) | **[HRouter](https://hrouter.net/)**: pay-as-you-go AI coding API gateway — one API key for **Claude, OpenAI Codex / GPT, Google Gemini & DeepSeek** with live [Models & 24h Status](https://hrouter.net/models/), native setup for [Claude Code](https://hrouter.net/docs/claude-code/), [Codex CLI](https://hrouter.net/docs/codex/), [Gemini CLI](https://hrouter.net/docs/gemini-cli/) & [DeepSeek](https://hrouter.net/docs/deepseek/). Also operated by the maintainer. |
 
 ## ✨ Why use it
 
@@ -207,7 +207,7 @@ Products, orders, electronic contracts, installment bills, and operations.
 
 <div align="center">
 
-Made by **[honestTai](https://github.com/honestTai)** · [HRouter](https://hrouter.net/home) · [More projects](https://github.com/honestTai)
+Made by **[honestTai](https://github.com/honestTai)** · [HRouter](https://hrouter.net/) · [More projects](https://github.com/honestTai)
 
 **Star the project if it helps, and share your ideas in Issues.**
 
