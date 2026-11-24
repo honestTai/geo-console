@@ -28,7 +28,7 @@
 
 | 赞助商 | 简介 |
 | :--- | :--- |
-| [![HRouter](landing/assets/hrouter-sponsor.svg)](https://hrouter.net/home) | **[HRouter](https://hrouter.net/home)**：面向 AI 编程与应用开发的模型接入、API Key 管理与用量统计，也由作者运营。 |
+| [![HRouter](landing/assets/hrouter-sponsor.svg)](https://hrouter.net/) | **[HRouter](https://hrouter.net/)**：面向开发者的 AI 编程模型按量计费网关 —— 一把 API Key 直连 **Claude、OpenAI Codex / GPT、Google Gemini、DeepSeek**，零月费订阅，提供 [模型价格与 24h 实时状态](https://hrouter.net/models/)，一键接入 [Claude Code](https://hrouter.net/docs/claude-code/)、[Codex CLI](https://hrouter.net/docs/codex/)、[Gemini CLI](https://hrouter.net/docs/gemini-cli/) 与 [DeepSeek](https://hrouter.net/docs/deepseek/)。 |
 
 ## ✨ 为什么用它
 
@@ -213,7 +213,7 @@ corepack pnpm license-check
 
 <div align="center">
 
-Made by **[honestTai](https://github.com/honestTai)** · [HRouter](https://hrouter.net/home) · [更多项目](https://github.com/honestTai)
+Made by **[honestTai](https://github.com/honestTai)** · [HRouter](https://hrouter.net/) · [更多项目](https://github.com/honestTai)
 
 **觉得有用，欢迎 Star；有想法，欢迎到 Issues 交流。**
 
